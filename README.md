@@ -40,10 +40,20 @@ Die Produktdatenbank liegt in [unifi-products.js](unifi-products.js). Über den 
 
 | Datei | Zweck |
 |---|---|
-| [unifi-setup-planner.html](unifi-setup-planner.html) | Komplettes Frontend (HTML/Tailwind/JS) |
+| [index.html](index.html) | Komplettes Frontend (HTML/Tailwind/JS) |
 | [unifi-products.js](unifi-products.js) | Produkt- und Preisdatenbank (`window.UNIFI_DATA`) |
 | [server.js](server.js) | Node.js Static-Server + Update-Endpoint |
 | [Start Planner.bat](Start%20Planner.bat) | Windows-Starter |
+
+## Online-Version (GitHub Pages)
+
+Eine statische Version dieses Tools kann direkt aus diesem Repository über GitHub Pages bereitgestellt werden:
+
+1. Im Repo unter **Settings → Pages** als Source **„Deploy from a branch"** wählen.
+2. Branch: `main`, Ordner: `/ (root)` — speichern.
+3. Nach kurzer Zeit ist die App unter `https://<benutzername>.github.io/Unify_Mapper/` erreichbar.
+
+Hinweis: Die Funktion **„Datenpaket aktualisieren"** schreibt die Datenbank über `POST /update-db` auf den lokalen `server.js` zurück — dieser Endpunkt existiert in der GitHub-Pages-Version nicht und schlägt dort erwartungsgemäß fehl. Für DB-Updates die lokale Variante verwenden.
 
 ## Voraussetzungen
 

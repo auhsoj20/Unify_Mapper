@@ -6,7 +6,7 @@ const PORT = 3000;
 
 http.createServer((req, res) => {
     if (req.method === 'GET') {
-        let filePath = req.url === '/' ? '/unifi-setup-planner.html' : req.url;
+        let filePath = req.url === '/' ? '/index.html' : req.url;
         let extname = path.extname(filePath);
         let contentType = 'text/html';
         
