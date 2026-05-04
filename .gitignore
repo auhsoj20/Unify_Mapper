@@ -1,0 +1,27 @@
+# Claude Code lokale Konfiguration
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+
+# Node (falls künftig hinzukommt)
+node_modules/
+
+# Env / Secrets (Vorsorge)
+.env
+.env.local
+*.pem
+*.key
