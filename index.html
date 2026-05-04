@@ -405,11 +405,8 @@
       'ucg-max', 'ucg-fiber', 'udr-5g-max'
     ]);
 
-    // Mobilfunk-Produkt-Fallback (Slugs aus techspecs.ui.com/unifi/integrations und
-    // /unifi/cloud-gateways). Name/Bild/Tags werden bei „Datenpaket aktualisieren"
-    // live aus productCache überschrieben. Preise werden ebenfalls live aus
-    // eu.store.ui.com geholt (siehe fetchStorePrices); die statischen `price`-Werte
-    // dienen nur als Fallback, falls der Store-Fetch scheitert.
+    // Mobilfunk-Produkt-Fallback. Statische Liste mit Preisen; wird aus der
+    // Datenbank (window.UNIFI_DATA.categories.cellular) ergänzt/überschrieben.
     // `integratedGateway: true` → das Gerät IST ein Gateway (UDR 5G Max) — kein extra
     // BOM-Eintrag, wenn es auch in Step 1 als Gateway gewählt wurde.
     const CELLULAR_PRODUCTS = [
@@ -561,15 +558,6 @@
 
     // Database Fallbacks have been migrated to unifi-products.js
 
-    // --- Live Fetch Engine --- //
-    const UBIQUITI_BASE = 'https://techspecs.ui.com';
-    const CORS_PROXY = 'https://api.codetabs.com/v1/proxy/?quest=';
-    const CATEGORIES = {
-      wifi: '/unifi/wifi',
-      switching: '/unifi/switching',
-      'cloud-gateways': '/unifi/cloud-gateways',
-    };
-
     const productCache = {
       wifi: [],
       switching: [],
@@ -582,114 +570,6 @@
       loadedAt: null,
       isFallback: false
     };
-
-    async function fetchNextProducts(category) {
-      try {
-        // `cellular` ist eine virtuelle Kategorie: Daten kommen aus /unifi/integrations,
-        // werden aber nach Mobilfunk-Produkten gefiltert.
-        const urlSegment = category === 'cellular' ? 'integrations' : category;
-        const url = `${UBIQUITI_BASE}/unifi/${urlSegment}`;
-        const res = await fetch(`${CORS_PROXY}${url}`);
-        if(!res.ok) throw new Error('Proxy error');
-        const html = await res.text();
-        const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
-        if(!match) return [];
-        const nextData = JSON.parse(match[1]);
-
-        const products = [];
-        const subCats = nextData.props?.pageProps?.subCategoriesWithProducts || [];
-        subCats.forEach(sc => {
-           sc.products.forEach(p => {
-              const tags = p.tags.map(t => t.name);
-              let spec = { slug: p.slug, name: p.shortTitle || p.name, category, loaded: true, image: p.thumbnail?.url || null, tags };
-
-              if(category === 'cellular') {
-                  const tagsStr = tags.join(' ').toLowerCase();
-                  const nameStr = (spec.name || spec.slug || '').toLowerCase();
-                  // Nur Mobilfunk-Produkte aus /integrations durchlassen
-                  const isCellular = /\b(lte|5g|umr|mobile-router)\b/i.test(tagsStr)
-                                  || /\b(lte|5g|mobile router|u5g)\b/i.test(nameStr);
-                  if(!isCellular) return;
-                  spec.band = /\b5g\b/i.test(tagsStr) || /5g/i.test(nameStr) ? '5G'
-                            : /\blte\b/i.test(tagsStr) || /lte/i.test(nameStr) ? 'LTE'
-                            : /\bumr\b/i.test(tagsStr) || /mobile router/i.test(nameStr) ? 'LTE'
-                            : 'Mobilfunk';
-                  spec.outdoor = /\b(outdoor|-out|industrial)\b/i.test(tagsStr)
-                              || /\b(outdoor|industrial)\b/i.test(nameStr);
-                  // integratedGateway: true gilt nur für UDR 5G Max (kommt aus cloud-gateways)
-                  spec.integratedGateway = false;
-              }
-
-              if(category === 'wifi') {
-                  if (tags.some(t => t.includes('wifi7'))) spec.wifiStandard = 'WiFi 7';
-                  else if (tags.some(t => t.includes('wifi6e'))) spec.wifiStandard = 'WiFi 6E';
-                  else if (tags.some(t => t.includes('wifi6') || t.includes('wifi-6'))) spec.wifiStandard = 'WiFi 6';
-                  else spec.wifiStandard = 'WiFi 5';
-                  
-                  const covTag = tags.find(t => t.startsWith('feature:coverage-area:'));
-                  if(covTag) spec.coverageM2 = parseInt(covTag.split(':')[2]);
-                  else spec.coverageM2 = 140; 
-                  
-                  const poeWatt = tags.find(t => t.startsWith('poe:') && t.endsWith('w') && !t.includes('budget'));
-                  if(poeWatt) spec.maxWatts = parseInt(poeWatt.split(':')[1].replace('w',''));
-                  else spec.maxWatts = 15;
-              }
-              
-              if(category === 'switching' || category === 'cloud-gateways') {
-                  const poeBudget = tags.find(t => t.startsWith('poe:') && t.endsWith('w'));
-                  if(poeBudget) spec.budget = parseInt(poeBudget.split(':')[1].replace('w',''));
-                  else spec.budget = 0;
-                  spec.poe = spec.budget > 0;
-              }
-
-              if(category === 'switching') {
-                  const portTag = tags.find(t => t.startsWith('feature:') && t.endsWith('-ports'));
-                  if(portTag) {
-                     let num = parseInt(portTag.split(':')[1].replace('-ports','').replace('less',''));
-                     if(!isNaN(num)) spec.ports = num;
-                  } else spec.ports = 8;
-              }
-              products.push(spec);
-           });
-        });
-        return products;
-      } catch(e) {
-        console.error(e);
-        return [];
-      }
-    }
-
-    // Live-Preise aus dem UniFi EU-Store (techspecs liefert keine Preise). Fragt die
-    // Kategorie-Landingpages ab, die Next.js-Daten enthalten pro Produkt minDisplayPrice
-    // mit amount (Cent) + currency. Ergebnis: { storeSlug -> Preis in Euro (gerundet) }.
-    async function fetchStorePricesFromUrl(url) {
-      try {
-        const res = await fetch(`${CORS_PROXY}${url}`);
-        if(!res.ok) return {};
-        const html = await res.text();
-        const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
-        if(!m) return {};
-        const nd = JSON.parse(m[1]);
-        const subs = nd.props?.pageProps?.subCategories || [];
-        const out = {};
-        subs.forEach(sc => (sc.products || []).forEach(p => {
-          const amt = p.minDisplayPrice?.amount;
-          if(amt != null && p.slug) out[p.slug] = Math.round(amt / 100);
-        }));
-        return out;
-      } catch(e) {
-        console.error('Store price fetch failed for', url, e);
-        return {};
-      }
-    }
-    async function fetchStorePrices() {
-      const targets = [
-        'https://eu.store.ui.com/eu/en/category/all-integrations',
-        'https://eu.store.ui.com/eu/en/category/all-cloud-gateways'
-      ];
-      const results = await Promise.all(targets.map(fetchStorePricesFromUrl));
-      return Object.assign({}, ...results);
-    }
 
     function initDataFromDB() {
       if(!window.UNIFI_DATA) {
@@ -734,130 +614,6 @@
       }, 500);
     }
 
-    window.triggerManualReload = async () => {
-      document.getElementById('app-content').innerHTML = `
-        <div id="loader-overlay" class="absolute inset-0 bg-nexus-surfaceCard z-100 flex flex-col items-center justify-center p-8 text-center">
-           <i data-lucide="cloud-download" class="w-16 h-16 text-nexus-primary mb-4 animate-bounce"></i>
-           <h3 class="text-2xl font-display font-bold mb-2">Live-Scraping gestartet...</h3>
-           <p class="text-nexus-muted max-w-md mx-auto mb-8">Wir extrahieren die technischen Daten (Next.js Data) live vom Ubiquiti Backend. Dieser Vorgang dauert nur wenige Sekunden.</p>
-           
-           <div class="w-full max-w-md bg-nexus-surface border border-nexus-border rounded-full h-4 relative overflow-hidden mb-2">
-             <div id="scrape-progress" class="bg-nexus-primary h-full transition-all duration-300" style="width: 0%"></div>
-           </div>
-           <p id="scrape-status" class="text-sm font-bold text-nexus-primary">Starte Abruf...</p>
-        </div>`;
-      lucide.createIcons();
-
-      try {
-        const updateStatus = (text, percent) => {
-          document.getElementById('scrape-status').textContent = text;
-          document.getElementById('scrape-progress').style.width = percent + '%';
-        };
-        
-        updateStatus('Suche Produkte (WiFi)...', 20);
-        let wifiSlugs = await fetchNextProducts('wifi');
-        if(!wifiSlugs.length) wifiSlugs = window.UNIFI_DATA.categories.wifi;
-        
-        updateStatus('Suche Produkte (Switches)...', 50);
-        let switchSlugs = await fetchNextProducts('switching');
-        if(!switchSlugs.length) switchSlugs = window.UNIFI_DATA.categories.switching;
-        
-        updateStatus('Suche Produkte (Gateways)...', 70);
-        let gatewaySlugs = await fetchNextProducts('cloud-gateways');
-        if(!gatewaySlugs.length) gatewaySlugs = window.UNIFI_DATA.categories['cloud-gateways'];
-
-        updateStatus('Suche Mobilfunk-Produkte...', 80);
-        let cellularSlugs = await fetchNextProducts('cellular');
-        if(!cellularSlugs.length) cellularSlugs = window.UNIFI_DATA.categories.cellular || [];
-
-        updateStatus('Hole Preise vom UniFi-Store...', 92);
-        const livePrices = await fetchStorePrices();
-        // Fallback: alte Preise behalten, wenn Store diesmal nichts liefert.
-        const mergedPrices = Object.keys(livePrices).length > 0
-          ? { ...(window.UNIFI_DATA?.prices || {}), ...livePrices }
-          : (window.UNIFI_DATA?.prices || {});
-
-        const currentAP = ['U7', 'U6', 'UK-Ultra'];
-        const targetWifi = wifiSlugs.filter(s => currentAP.some(c => s.slug.toUpperCase().includes(c.toUpperCase())));
-        const targetSwitch = switchSlugs;
-
-        // Cache populate
-        [...targetWifi, ...targetSwitch, ...gatewaySlugs, ...cellularSlugs].forEach(spec => {
-            productCache.specs[spec.slug] = spec;
-        });
-
-        // Export data
-        updateStatus('Sichere Datenbank...', 100);
-        const newDb = {
-          lastUpdated: new Date().toISOString(),
-          prices: mergedPrices,
-          categories: {
-            wifi: targetWifi,
-            switching: targetSwitch,
-            'cloud-gateways': gatewaySlugs,
-            cellular: cellularSlugs
-          }
-        };
-
-        const fileContent = "window.UNIFI_DATA = " + JSON.stringify(newDb, null, 2) + ";";
-        
-        try {
-            // Priority 1: Silent Server Backend Save
-            const response = await fetch('http://localhost:3000/update-db', { method: 'POST', body: fileContent });
-            if (!response.ok) throw new Error('Local server missing');
-        } catch (serverErr) {
-            throw new Error('SERVER_OFFLINE');
-        }
-        
-        // Inject back into app
-        window.UNIFI_DATA = newDb;
-        initDataFromDB();
-        
-        document.getElementById('app-content').innerHTML = `
-          <div id="loader-overlay" class="absolute inset-0 bg-nexus-surfaceCard z-100 flex flex-col items-center justify-center p-8 text-center animate-in fade-in zoom-in-95 duration-300">
-             <div class="w-20 h-20 rounded-full bg-emerald-500/10 flex items-center justify-center mb-6">
-                <i data-lucide="check-circle-2" class="w-10 h-10 text-emerald-500"></i>
-             </div>
-             <h3 class="text-2xl font-display font-bold mb-2 text-white">Aktualisierung Erfolgreich!</h3>
-             <p class="text-nexus-muted max-w-md mx-auto mb-8 text-sm">Die komplette Datenbank für Access Points, Gateways und Switches wurde im Hintergrund gesichert und in deine App geladen.</p>
-             <button onclick="window.closeScrapeSuccess()" class="bg-nexus-primary text-white font-bold px-6 py-3 rounded hover:bg-opacity-80 transition-colors">Verstanden & Weiter</button>
-          </div>
-        `;
-        lucide.createIcons();
-
-        window.closeScrapeSuccess = () => {
-           render();
-        };
-
-      } catch (e) {
-        let errorTitle = "Fehler beim Update";
-        let errorMsg = "Es gab ein Problem bei der Aktualisierung. Bitte versuche es später noch einmal.";
-        
-        if (e.message === 'SERVER_OFFLINE') {
-            errorTitle = "Hintergrund-Server fehlt!";
-            errorMsg = "Browser erlauben das stillschweigende Überschreiben von Dateien aus Sicherheitsgründen nicht. Starte die App über die beiliegende 'Start Planner.bat' Datei, um das Auto-Speichern auf deinem PC zu erlauben!";
-        }
-
-        document.getElementById('app-content').innerHTML = `
-          <div id="loader-overlay" class="absolute inset-0 bg-nexus-surfaceCard z-100 flex flex-col items-center justify-center p-8 text-center animate-in fade-in zoom-in-95 duration-300">
-             <div class="w-20 h-20 rounded-full bg-red-500/10 flex items-center justify-center mb-6">
-                <i data-lucide="alert-triangle" class="w-10 h-10 text-red-500"></i>
-             </div>
-             <h3 class="text-2xl font-display font-bold mb-2 text-white">${errorTitle}</h3>
-             <p class="text-nexus-muted max-w-md mx-auto mb-8 text-sm">${errorMsg}</p>
-             <button onclick="window.closeScrapeSuccess()" class="bg-nexus-surface border border-nexus-border text-white font-bold px-6 py-3 rounded hover:bg-nexus-border transition-colors">Zurück</button>
-          </div>
-        `;
-        lucide.createIcons();
-        window.UNIFI_DATA = newDb || window.UNIFI_DATA; 
-        initDataFromDB();
-        
-        window.closeScrapeSuccess = () => {
-           render();
-        };
-      }
-    };
-
     function updateFreshnessBadge() {
       const cont = document.getElementById('freshness-container');
       if(!window.UNIFI_DATA) return;
@@ -873,9 +629,6 @@
             <span class="text-nexus-muted font-mono bg-nexus-surfaceCard px-2 py-0.5 rounded border border-nexus-border">${formatted}</span>
           </div>
           <div class="flex items-center gap-4">
-            <button onclick="window.triggerManualReload()" class="flex items-center gap-1 hover:text-nexus-primary transition-colors text-xs font-bold uppercase tracking-wide">
-               <i data-lucide="download-cloud" class="w-3 h-3"></i> Datenbank Online Aktualisieren
-            </button>
             <button onclick="window.resetPlannerState()" class="flex items-center gap-1 hover:text-red-500 transition-colors text-xs font-bold uppercase tracking-wide" title="Projekt zurücksetzen (lokaler Speicher)">
                <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset
             </button>
