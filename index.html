@@ -180,6 +180,66 @@
     }
     .vertex-delete-btn:hover { background: #dc2626; }
 
+    .planner-controls {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      z-index: 30;
+      display: grid;
+      grid-template-columns: repeat(3, 32px);
+      grid-auto-rows: 32px;
+      gap: 4px;
+      pointer-events: auto;
+    }
+    .planner-controls button {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--color-surfaceCard, rgba(255,255,255,0.92));
+      border: 1px solid var(--color-border, #d1d5db);
+      border-radius: 6px;
+      color: var(--color-text-base, #111);
+      font-size: 16px; font-weight: 700; line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+      touch-action: manipulation;
+      user-select: none;
+    }
+    .planner-controls button:hover { background: var(--color-surface, #f3f4f6); }
+    .planner-controls button:active { transform: scale(0.94); }
+    .planner-controls .pc-spacer { background: transparent; border: none; box-shadow: none; pointer-events: none; }
+    .planner-zoom-indicator {
+      grid-column: 1 / span 3;
+      text-align: center;
+      font-size: 10px; font-weight: 700;
+      background: var(--color-surfaceCard, rgba(255,255,255,0.92));
+      border: 1px solid var(--color-border, #d1d5db);
+      border-radius: 6px;
+      padding: 4px 0;
+      color: var(--color-text-muted, #6b7280);
+    }
+    .edge-length-input {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      width: 70px;
+      padding: 2px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-align: center;
+      border: 2px solid var(--color-primary, #01696F);
+      border-radius: 4px;
+      background: white;
+      color: #111;
+      pointer-events: auto;
+      z-index: 25;
+    }
+    @media (pointer: coarse) {
+      .planner-controls {
+        grid-template-columns: repeat(3, 40px);
+        grid-auto-rows: 40px;
+      }
+      .planner-controls button { width: 40px; height: 40px; font-size: 18px; }
+    }
+
     @media (max-width: 768px) {
       #ap-toolbar, #cam-toolbar {
         flex-wrap: nowrap !important;
@@ -1312,23 +1372,219 @@
 
       const planner = document.getElementById('planner-area');
       const CELL_SIZE = 20;
-      
+
+      // View state (pan + zoom) – persisted per floor
+      if(!currentFloor.view) currentFloor.view = { panX: 0, panY: 0, zoom: 1 };
+      const view = currentFloor.view;
+
+      // World wrapper – everything drawable lives in here and is translated/scaled together
+      const world = document.createElement('div');
+      world.id = 'planner-world';
+      world.style.position = 'absolute';
+      world.style.inset = '0';
+      world.style.transformOrigin = '0 0';
+      world.style.willChange = 'transform';
+      planner.appendChild(world);
+      const applyView = () => {
+         world.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+      };
+      applyView();
+      const clientToWorld = (clientX, clientY) => {
+         const r = planner.getBoundingClientRect();
+         return {
+            x: (clientX - r.left - view.panX) / view.zoom,
+            y: (clientY - r.top  - view.panY) / view.zoom,
+         };
+      };
+
+      const ZOOM_MIN = 0.4, ZOOM_MAX = 3.5;
+      const clampZoom = z => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+      const setZoomAt = (newZoom, clientX, clientY) => {
+         const z = clampZoom(newZoom);
+         if(z === view.zoom) return;
+         const r = planner.getBoundingClientRect();
+         const wpt = clientToWorld(clientX, clientY);
+         view.zoom = z;
+         view.panX = (clientX - r.left) - wpt.x * z;
+         view.panY = (clientY - r.top)  - wpt.y * z;
+         applyView();
+         updateZoomIndicator();
+         saveState();
+      };
+      const panBy = (dx, dy) => {
+         view.panX += dx; view.panY += dy;
+         applyView();
+         saveState();
+      };
+      const resetView = () => {
+         view.panX = 0; view.panY = 0; view.zoom = 1;
+         applyView();
+         updateZoomIndicator();
+         saveState();
+      };
+
+      // Pan/Zoom controls overlay
+      const controls = document.createElement('div');
+      controls.className = 'planner-controls';
+      controls.innerHTML = `
+         <div class="planner-zoom-indicator" id="planner-zoom-ind">100%</div>
+         <button type="button" data-act="zoomout" title="Verkleinern">−</button>
+         <button type="button" data-act="reset"   title="Ansicht zurücksetzen">⌂</button>
+         <button type="button" data-act="zoomin"  title="Vergrößern">+</button>
+         <span class="pc-spacer"></span>
+         <button type="button" data-act="up"      title="Nach oben">↑</button>
+         <span class="pc-spacer"></span>
+         <button type="button" data-act="left"    title="Nach links">←</button>
+         <button type="button" data-act="down"    title="Nach unten">↓</button>
+         <button type="button" data-act="right"   title="Nach rechts">→</button>
+      `;
+      planner.appendChild(controls);
+      const updateZoomIndicator = () => {
+         const ind = controls.querySelector('#planner-zoom-ind');
+         if(ind) ind.textContent = Math.round(view.zoom * 100) + '%';
+      };
+      updateZoomIndicator();
+      controls.addEventListener('pointerdown', (e) => e.stopPropagation());
+      controls.addEventListener('click', (e) => {
+         const btn = e.target.closest('button[data-act]');
+         if(!btn) return;
+         const act = btn.getAttribute('data-act');
+         const r = planner.getBoundingClientRect();
+         const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+         const PAN_STEP = 60;
+         if(act === 'zoomin')      setZoomAt(view.zoom * 1.25, cx, cy);
+         else if(act === 'zoomout')setZoomAt(view.zoom / 1.25, cx, cy);
+         else if(act === 'reset')  resetView();
+         else if(act === 'up')     panBy(0,  PAN_STEP);
+         else if(act === 'down')   panBy(0, -PAN_STEP);
+         else if(act === 'left')   panBy( PAN_STEP, 0);
+         else if(act === 'right')  panBy(-PAN_STEP, 0);
+      });
+
+      // Mouse-wheel zoom (no modifier required, since planner already has touch-action:none)
+      planner.addEventListener('wheel', (e) => {
+         e.preventDefault();
+         const factor = Math.exp(-e.deltaY * 0.0015); // smooth zoom
+         setZoomAt(view.zoom * factor, e.clientX, e.clientY);
+      }, { passive: false });
+
+      // Pinch-zoom + 2-finger pan via Pointer Events
+      const pinchPointers = new Map();
+      let pinchStart = null; // { dist, midX, midY, zoom, panX, panY }
+      planner.addEventListener('pointerdown', (e) => {
+         if(e.pointerType !== 'touch') return;
+         pinchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+         if(pinchPointers.size === 2) {
+            // Cancel any in-progress single-touch drag — pinch takes over
+            if(activePointerEl && activePointerId != null) {
+               try { activePointerEl.releasePointerCapture(activePointerId); } catch(_) {}
+            }
+            dragMode = null; activeObj = null;
+            activePointerId = null; activePointerEl = null;
+            const pts = [...pinchPointers.values()];
+            const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+            pinchStart = {
+               dist: Math.hypot(dx, dy),
+               midX: (pts[0].x + pts[1].x) / 2,
+               midY: (pts[0].y + pts[1].y) / 2,
+               zoom: view.zoom,
+               panX: view.panX,
+               panY: view.panY,
+            };
+            // Block child handlers from starting a fresh drag with the second finger
+            e.stopImmediatePropagation();
+            e.preventDefault();
+         }
+      }, true); // capture: catch before child handlers
+      planner.addEventListener('pointermove', (e) => {
+         if(e.pointerType !== 'touch' || !pinchPointers.has(e.pointerId)) return;
+         pinchPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+         if(pinchPointers.size === 2 && pinchStart) {
+            const pts = [...pinchPointers.values()];
+            const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+            const dist = Math.hypot(dx, dy);
+            const midX = (pts[0].x + pts[1].x) / 2;
+            const midY = (pts[0].y + pts[1].y) / 2;
+            const newZoom = clampZoom(pinchStart.zoom * (dist / pinchStart.dist));
+            const r = planner.getBoundingClientRect();
+            // Anchor the pinch midpoint in world: world point under (midX, midY) at start
+            const startWorldX = (pinchStart.midX - r.left - pinchStart.panX) / pinchStart.zoom;
+            const startWorldY = (pinchStart.midY - r.top  - pinchStart.panY) / pinchStart.zoom;
+            view.zoom = newZoom;
+            view.panX = (midX - r.left) - startWorldX * newZoom;
+            view.panY = (midY - r.top)  - startWorldY * newZoom;
+            applyView();
+            updateZoomIndicator();
+         }
+      }, true);
+      const endPinch = (e) => {
+         if(e.pointerType !== 'touch') return;
+         pinchPointers.delete(e.pointerId);
+         if(pinchPointers.size < 2) {
+            if(pinchStart) saveState();
+            pinchStart = null;
+         }
+      };
+      planner.addEventListener('pointerup', endPinch, true);
+      planner.addEventListener('pointercancel', endPinch, true);
+
+      // Edge-length inline editor (double-click on a measurement label)
+      const openEdgeLengthEditor = (room, i, midX, midY) => {
+         const a = room.points[i];
+         const b = room.points[(i+1) % room.points.length];
+         const dx = b.x - a.x, dy = b.y - a.y;
+         const oldLen = Math.hypot(dx, dy);
+         if(oldLen <= 0) return;
+         const inp = document.createElement('input');
+         inp.type = 'text';
+         inp.inputMode = 'decimal';
+         inp.className = 'edge-length-input';
+         inp.value = oldLen.toFixed(1);
+         inp.style.left = midX + 'px';
+         inp.style.top  = midY + 'px';
+         labelsLayer.appendChild(inp);
+         inp.focus();
+         inp.select();
+         let committed = false;
+         const commit = () => {
+            if(committed) return; committed = true;
+            const parsed = parseFloat((inp.value || '').replace(',', '.'));
+            inp.remove();
+            if(!isFinite(parsed) || parsed <= 0) { render(); return; }
+            const newLen = Math.round(parsed * 10) / 10; // 1 decimal place
+            const scale = newLen / oldLen;
+            const nb = { x: a.x + dx * scale, y: a.y + dy * scale };
+            // Round to 1 decimal in grid units to keep state tidy
+            nb.x = Math.round(Math.max(0, nb.x) * 10) / 10;
+            nb.y = Math.round(Math.max(0, nb.y) * 10) / 10;
+            room.points[(i+1) % room.points.length] = nb;
+            saveState();
+            render();
+         };
+         inp.addEventListener('blur', commit);
+         inp.addEventListener('keydown', (ev) => {
+            ev.stopPropagation();
+            if(ev.key === 'Enter') { ev.preventDefault(); inp.blur(); }
+            if(ev.key === 'Escape') { committed = true; inp.remove(); }
+         });
+      };
+
       // Setup SVG Context
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.setAttribute('class', 'absolute inset-0 w-full h-full pointer-events-none');
       svg.style.zIndex = '1';
-      planner.appendChild(svg);
-      
+      world.appendChild(svg);
+
       const heatmapCanvas = document.createElement('canvas');
       heatmapCanvas.className = 'absolute inset-0 pointer-events-none';
       heatmapCanvas.style.width = '100%';
       heatmapCanvas.style.height = '100%';
       heatmapCanvas.style.zIndex = '5';
-      planner.appendChild(heatmapCanvas);
+      world.appendChild(heatmapCanvas);
 
       const labelsLayer = document.createElement('div');
       labelsLayer.className = 'absolute inset-0 w-full h-full pointer-events-none z-10';
-      planner.appendChild(labelsLayer);
+      world.appendChild(labelsLayer);
 
       let dragMode = null; // 'poly', 'vert', 'ap'
       let activeObj = null;
@@ -1351,8 +1607,8 @@
             e.stopPropagation();
             e.preventDefault();
             dragMode = 'poly'; activeObj = room;
-            const rect = planner.getBoundingClientRect();
-            dOffX = e.clientX - rect.left; dOffY = e.clientY - rect.top;
+            const w = clientToWorld(e.clientX, e.clientY);
+            dOffX = w.x; dOffY = w.y;
             try { poly.setPointerCapture(e.pointerId); } catch(_) {}
             activePointerId = e.pointerId;
             activePointerEl = poly;
@@ -1385,9 +1641,9 @@
              e.stopPropagation();
              e.preventDefault();
              dragMode = 'label'; activeObj = room;
-             const rect = planner.getBoundingClientRect();
-             dOffX = (e.clientX - rect.left) - lX;
-             dOffY = (e.clientY - rect.top) - lY;
+             const w = clientToWorld(e.clientX, e.clientY);
+             dOffX = w.x - lX;
+             dOffY = w.y - lY;
              try { lbl.setPointerCapture(e.pointerId); } catch(_) {}
              activePointerId = e.pointerId;
              activePointerEl = lbl;
@@ -1399,18 +1655,7 @@
          // Vertex Handlers and Edge Labels
          if(isSel) {
             room.points.forEach((pt, i) => {
-               // Edge label (SVG text)
-               const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-               text.setAttribute('class', 'edge-label fill-nexus-primary font-bold pointer-events-none text-[10px] select-none');
-               text.setAttribute('text-anchor', 'middle');
                let nxt = room.points[(i+1)%room.points.length];
-               let dist = Math.hypot(nxt.x-pt.x, nxt.y-pt.y);
-               let midX = (pt.x + nxt.x)/2 * CELL_SIZE;
-               let midY = (pt.y + nxt.y)/2 * CELL_SIZE - 6;
-               text.setAttribute('x', midX);
-               text.setAttribute('y', midY);
-               text.textContent = dist.toFixed(1) + 'm';
-               svg.appendChild(text);
 
                // Invisible Edge Hitbox for Adding new Points
                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
@@ -1424,9 +1669,9 @@
                   if(e.pointerType === 'mouse' && e.button !== 0) return;
                   e.stopPropagation();
                   e.preventDefault();
-                  const rect = planner.getBoundingClientRect();
-                  let nx = Math.round((e.clientX - rect.left) / CELL_SIZE);
-                  let ny = Math.round((e.clientY - rect.top) / CELL_SIZE);
+                  const w = clientToWorld(e.clientX, e.clientY);
+                  let nx = Math.round(w.x / CELL_SIZE);
+                  let ny = Math.round(w.y / CELL_SIZE);
                   room.points.splice(i+1, 0, {x: Math.max(0, nx), y: Math.max(0, ny)});
                   render();
                });
@@ -1454,9 +1699,9 @@
                   e.stopPropagation();
                   e.preventDefault();
                   dragMode = 'vert'; activeObj = room; activeVertIdx = i;
-                  const rect = planner.getBoundingClientRect();
-                  dOffX = (e.clientX - rect.left) - (pt.x*CELL_SIZE);
-                  dOffY = (e.clientY - rect.top) - (pt.y*CELL_SIZE);
+                  const w = clientToWorld(e.clientX, e.clientY);
+                  dOffX = w.x - (pt.x*CELL_SIZE);
+                  dOffY = w.y - (pt.y*CELL_SIZE);
                   try { hit.setPointerCapture(e.pointerId); } catch(_) {}
                   activePointerId = e.pointerId;
                   activePointerEl = hit;
@@ -1490,30 +1735,53 @@
                   labelsLayer.appendChild(delBtn);
                }
             });
+
+            // Second pass: edge length labels appended last so they sit on top of hitboxes
+            room.points.forEach((pt, i) => {
+               const nxt = room.points[(i+1)%room.points.length];
+               const dist = Math.hypot(nxt.x-pt.x, nxt.y-pt.y);
+               const midX = (pt.x + nxt.x)/2 * CELL_SIZE;
+               const midY = (pt.y + nxt.y)/2 * CELL_SIZE - 6;
+               const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+               text.setAttribute('class', 'edge-label fill-nexus-primary font-bold pointer-events-auto text-[10px] select-none cursor-text');
+               text.setAttribute('text-anchor', 'middle');
+               text.setAttribute('pointer-events', 'all');
+               text.style.userSelect = 'none';
+               text.setAttribute('title', 'Doppelklick zum Bearbeiten');
+               text.setAttribute('x', midX);
+               text.setAttribute('y', midY);
+               text.textContent = dist.toFixed(1) + 'm';
+               text.addEventListener('dblclick', (ev) => {
+                  ev.stopPropagation();
+                  ev.preventDefault();
+                  openEdgeLengthEditor(room, i, midX, midY);
+               });
+               svg.appendChild(text);
+            });
          }
       });
 
       planner.addEventListener('pointermove', (e) => {
          if(!dragMode || !activeObj) return;
          if(activePointerId != null && e.pointerId !== activePointerId) return;
-         const rect = planner.getBoundingClientRect();
+         const w = clientToWorld(e.clientX, e.clientY);
 
          if(dragMode === 'vert') {
-             let nx = Math.round(((e.clientX - rect.left) - dOffX) / CELL_SIZE);
-             let ny = Math.round(((e.clientY - rect.top) - dOffY) / CELL_SIZE);
+             let nx = Math.round((w.x - dOffX) / CELL_SIZE);
+             let ny = Math.round((w.y - dOffY) / CELL_SIZE);
              activeObj.points[activeVertIdx].x = Math.max(0, nx);
              activeObj.points[activeVertIdx].y = Math.max(0, ny);
              flushVectors(); // Fast local visual update
-         } 
+         }
          else if(dragMode === 'poly') {
-             let dx = Math.round((e.clientX - rect.left - dOffX) / CELL_SIZE);
-             let dy = Math.round((e.clientY - rect.top - dOffY) / CELL_SIZE);
+             let dx = Math.round((w.x - dOffX) / CELL_SIZE);
+             let dy = Math.round((w.y - dOffY) / CELL_SIZE);
              if(dx !== 0 || dy !== 0) {
                  const minX = Math.min(...activeObj.points.map(p=>p.x));
                  const minY = Math.min(...activeObj.points.map(p=>p.y));
                  if(minX + dx < 0) dx = -minX;
                  if(minY + dy < 0) dy = -minY;
-                 
+
                  activeObj.points.forEach(p => { p.x += dx; p.y += dy; });
                  if(activeObj.labelPos) { activeObj.labelPos.x += dx * CELL_SIZE; activeObj.labelPos.y += dy * CELL_SIZE; }
                  dOffX += dx * CELL_SIZE; dOffY += dy * CELL_SIZE;
@@ -1528,13 +1796,13 @@
                const maxY = Math.max(...activeObj.points.map(p=>p.y))*CELL_SIZE;
                activeObj.labelPos = { x: (minX + (maxX-minX)/2), y: (minY + (maxY-minY)/2) };
              }
-             activeObj.labelPos.x = Math.max(0, e.clientX - rect.left - dOffX);
-             activeObj.labelPos.y = Math.max(0, e.clientY - rect.top - dOffY);
+             activeObj.labelPos.x = Math.max(0, w.x - dOffX);
+             activeObj.labelPos.y = Math.max(0, w.y - dOffY);
              flushVectors();
          }
          else if(dragMode === 'ap' || dragMode === 'cam') {
-             activeObj.x = Math.max(0, e.clientX - rect.left - dOffX);
-             activeObj.y = Math.max(0, e.clientY - rect.top - dOffY);
+             activeObj.x = Math.max(0, w.x - dOffX);
+             activeObj.y = Math.max(0, w.y - dOffY);
              drawAps();
          }
       });
@@ -1628,7 +1896,8 @@
          if(!productCache.specs[slug]) return false;
          const rect = planner.getBoundingClientRect();
          if(clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
-         const x = clientX - rect.left, y = clientY - rect.top;
+         const wpt = clientToWorld(clientX, clientY);
+         const x = wpt.x, y = wpt.y;
          if(kind === 'camera') {
             currentFloor.cameras.push({ id: 'cam_'+Date.now(), slug, x, y });
          } else {
@@ -1719,7 +1988,7 @@
 
       const apLayer = document.createElement('div');
       apLayer.className = 'absolute inset-0 w-full h-full pointer-events-none z-20';
-      planner.appendChild(apLayer);
+      world.appendChild(apLayer);
 
       const drawHeatmap = () => {
         const w = planner.clientWidth, h = planner.clientHeight;
@@ -1846,8 +2115,8 @@
              e.stopPropagation();
              e.preventDefault();
              dragMode = 'ap'; activeObj = apState;
-             const rect = planner.getBoundingClientRect();
-             dOffX = (e.clientX - rect.left) - apState.x; dOffY = (e.clientY - rect.top) - apState.y;
+             const w = clientToWorld(e.clientX, e.clientY);
+             dOffX = w.x - apState.x; dOffY = w.y - apState.y;
              try { dotContainer.setPointerCapture(e.pointerId); } catch(_) {}
              activePointerId = e.pointerId;
              activePointerEl = dotContainer;
@@ -1882,8 +2151,8 @@
              e.stopPropagation();
              e.preventDefault();
              dragMode = 'cam'; activeObj = camState;
-             const rect = planner.getBoundingClientRect();
-             dOffX = (e.clientX - rect.left) - camState.x; dOffY = (e.clientY - rect.top) - camState.y;
+             const w = clientToWorld(e.clientX, e.clientY);
+             dOffX = w.x - camState.x; dOffY = w.y - camState.y;
              try { dotContainer.setPointerCapture(e.pointerId); } catch(_) {}
              activePointerId = e.pointerId;
              activePointerEl = dotContainer;
