@@ -115,8 +115,100 @@
       position: relative;
       overflow: hidden;
       touch-action: none;
+      height: clamp(360px, 60vh, 560px);
     }
-    
+    #planner-area svg polygon,
+    #planner-area svg circle,
+    #planner-area svg line.edge-hitbox,
+    #planner-area .draggable-ap,
+    #planner-area .room-label {
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .planner-toolbar-card {
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    .planner-drop-ghost {
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.85;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+      border-radius: 6px;
+      background: var(--color-surfaceCard, #fff);
+      padding: 4px 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .planner-drop-ghost img,
+    .planner-drop-ghost .ghost-icon {
+      width: 28px;
+      height: 28px;
+      object-fit: contain;
+    }
+    .planner-drop-target {
+      outline: 2px dashed var(--color-primary);
+      outline-offset: -2px;
+    }
+    .vertex-delete-btn {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ef4444;
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      pointer-events: auto;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      transform: translate(-50%, -50%);
+      border: 1.5px solid white;
+      touch-action: manipulation;
+      z-index: 15;
+    }
+    .vertex-delete-btn:hover { background: #dc2626; }
+
+    @media (max-width: 768px) {
+      #ap-toolbar, #cam-toolbar {
+        flex-wrap: nowrap !important;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 4px;
+      }
+      #ap-toolbar > [data-slug],
+      #cam-toolbar > [data-slug] {
+        min-width: 220px;
+        scroll-snap-align: start;
+        flex-shrink: 0;
+      }
+    }
+    @media (pointer: coarse) {
+      .vertex-delete-btn {
+        width: 24px;
+        height: 24px;
+        font-size: 14px;
+      }
+      #planner-area .draggable-ap button[title="AP löschen"],
+      #planner-area .draggable-ap button[title="Kamera löschen"] {
+        display: flex !important;
+        width: 22px;
+        height: 22px;
+      }
+    }
+
     .draggable-ap {
       position: absolute; width: 24px; height: 24px; background: var(--color-primary); border-radius: 50%; cursor: grab; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 2px 8px rgba(1, 105, 111, 0.4); z-index: 10;
     }
@@ -1025,7 +1117,7 @@
           ? `<img src="${spec.image}" alt="${spec.name}" loading="lazy" class="w-10 h-10 object-contain shrink-0 bg-white rounded" />`
           : `<div class="w-8 h-8 rounded-full bg-nexus-primary flex items-center justify-center text-white shrink-0"><i data-lucide="wifi" class="w-4 h-4"></i></div>`;
         return `
-          <div class="card p-3 flex items-center gap-3 cursor-grab hover:bg-nexus-surface transition-colors" draggable="true" data-slug="${p.slug}" data-kind="ap">
+          <div class="card planner-toolbar-card p-3 flex items-center gap-3 cursor-grab hover:bg-nexus-surface transition-colors" data-slug="${p.slug}" data-kind="ap">
             ${thumb}
             <div>
               <div class="text-sm font-bold leading-tight">${spec.name}</div>
@@ -1046,7 +1138,7 @@
           ? `<img src="${spec.image}" alt="${spec.name}" loading="lazy" class="w-10 h-10 object-contain shrink-0 bg-white rounded" />`
           : `<div class="w-8 h-8 rounded-full bg-purple-600 flex items-center justify-center text-white shrink-0"><i data-lucide="video" class="w-4 h-4"></i></div>`;
         return `
-          <div class="card p-3 flex items-center gap-3 cursor-grab hover:bg-nexus-surface transition-colors" draggable="true" data-slug="${p.slug}" data-kind="camera">
+          <div class="card planner-toolbar-card p-3 flex items-center gap-3 cursor-grab hover:bg-nexus-surface transition-colors" data-slug="${p.slug}" data-kind="camera">
             ${thumb}
             <div>
               <div class="text-sm font-bold leading-tight">${spec.name}</div>
@@ -1130,7 +1222,7 @@
                </button>
              </div>
           </div>
-          <div id="planner-area" class="w-full h-[500px] relative bg-nexus-surface overflow-hidden" ondragover="event.preventDefault()">
+          <div id="planner-area" class="w-full relative bg-nexus-surface overflow-hidden">
              <!-- SVG Canvas & Elements injected dynamically -->
           </div>
         </div>
@@ -1242,6 +1334,8 @@
       let activeObj = null;
       let activeVertIdx = -1;
       let dOffX = 0, dOffY = 0;
+      let activePointerId = null;
+      let activePointerEl = null;
 
       // Draw SVG Polygons
       currentFloor.rooms.forEach(room => {
@@ -1252,11 +1346,16 @@
          poly.setAttribute('points', ptsString);
          poly.setAttribute('class', `pointer-events-auto cursor-move transition-all ${isSel ? 'fill-nexus-primary/20 stroke-nexus-primary stroke-[3px]' : 'fill-white/80 stroke-nexus-border stroke-[1.5px]'}`);
          
-         poly.addEventListener('mousedown', (e) => {
+         poly.addEventListener('pointerdown', (e) => {
+            if(e.pointerType === 'mouse' && e.button !== 0) return;
             e.stopPropagation();
+            e.preventDefault();
             dragMode = 'poly'; activeObj = room;
             const rect = planner.getBoundingClientRect();
             dOffX = e.clientX - rect.left; dOffY = e.clientY - rect.top;
+            try { poly.setPointerCapture(e.pointerId); } catch(_) {}
+            activePointerId = e.pointerId;
+            activePointerEl = poly;
             if(!isSel) { state.selectedRoomId = room.id; render(); }
          });
          svg.appendChild(poly);
@@ -1281,12 +1380,17 @@
          lbl.style.transform = 'translate(-50%, -50%)';
          lbl.innerText = room.name;
 
-         lbl.addEventListener('mousedown', (e) => {
+         lbl.addEventListener('pointerdown', (e) => {
+             if(e.pointerType === 'mouse' && e.button !== 0) return;
              e.stopPropagation();
+             e.preventDefault();
              dragMode = 'label'; activeObj = room;
              const rect = planner.getBoundingClientRect();
              dOffX = (e.clientX - rect.left) - lX;
              dOffY = (e.clientY - rect.top) - lY;
+             try { lbl.setPointerCapture(e.pointerId); } catch(_) {}
+             activePointerId = e.pointerId;
+             activePointerEl = lbl;
              if(!isSel) { state.selectedRoomId = room.id; render(); }
          });
 
@@ -1316,8 +1420,10 @@
                line.setAttribute('y2', nxt.y * CELL_SIZE);
                line.setAttribute('class', 'stroke-transparent stroke-[12px] pointer-events-auto cursor-crosshair hover:stroke-nexus-primary/30 edge-hitbox transition-colors');
                
-               line.addEventListener('mousedown', (e) => {
+               line.addEventListener('pointerdown', (e) => {
+                  if(e.pointerType === 'mouse' && e.button !== 0) return;
                   e.stopPropagation();
+                  e.preventDefault();
                   const rect = planner.getBoundingClientRect();
                   let nx = Math.round((e.clientX - rect.left) / CELL_SIZE);
                   let ny = Math.round((e.clientY - rect.top) / CELL_SIZE);
@@ -1326,39 +1432,72 @@
                });
                svg.appendChild(line);
 
-               // Circle Handler
+               // Visible vertex circle
                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                circle.setAttribute('cx', pt.x * CELL_SIZE);
                circle.setAttribute('cy', pt.y * CELL_SIZE);
                circle.setAttribute('r', '6');
-               circle.setAttribute('class', 'fill-white stroke-nexus-primary stroke-[2px] pointer-events-auto cursor-pointer hover:fill-nexus-primary');
-               circle.setAttribute('title', 'Ziehen zum Verschieben · Rechtsklick zum Löschen');
-               
-               circle.addEventListener('mousedown', (e) => {
-                  if (e.button !== 0) return; // only left click drags
+               circle.setAttribute('class', 'vertex-visible fill-white stroke-nexus-primary stroke-[2px] pointer-events-none');
+               svg.appendChild(circle);
+
+               // Larger invisible hit area for touch (pointer-events on a transparent fill require fill set)
+               const hit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+               hit.setAttribute('cx', pt.x * CELL_SIZE);
+               hit.setAttribute('cy', pt.y * CELL_SIZE);
+               hit.setAttribute('r', '14');
+               hit.setAttribute('fill', 'transparent');
+               hit.setAttribute('class', 'vertex-hit pointer-events-auto cursor-pointer');
+               hit.setAttribute('title', 'Ziehen zum Verschieben · Rechtsklick oder ✕ zum Löschen');
+
+               hit.addEventListener('pointerdown', (e) => {
+                  if (e.pointerType === 'mouse' && e.button !== 0) return;
                   e.stopPropagation();
+                  e.preventDefault();
                   dragMode = 'vert'; activeObj = room; activeVertIdx = i;
                   const rect = planner.getBoundingClientRect();
                   dOffX = (e.clientX - rect.left) - (pt.x*CELL_SIZE);
                   dOffY = (e.clientY - rect.top) - (pt.y*CELL_SIZE);
+                  try { hit.setPointerCapture(e.pointerId); } catch(_) {}
+                  activePointerId = e.pointerId;
+                  activePointerEl = hit;
                });
 
-               circle.addEventListener('contextmenu', (e) => {
+               hit.addEventListener('contextmenu', (e) => {
                   e.preventDefault();
                   e.stopPropagation();
                   if (room.points.length <= 3) return; // keep at least a triangle
                   room.points.splice(i, 1);
                   render();
                });
-               svg.appendChild(circle);
+               svg.appendChild(hit);
+
+               // Vertex delete (✕) button — touch-friendly alternative to right-click
+               if(room.points.length > 3) {
+                  const delBtn = document.createElement('button');
+                  delBtn.type = 'button';
+                  delBtn.className = 'vertex-delete-btn';
+                  delBtn.title = 'Vertex löschen';
+                  delBtn.textContent = '×';
+                  delBtn.style.left = (pt.x * CELL_SIZE + 12) + 'px';
+                  delBtn.style.top  = (pt.y * CELL_SIZE - 12) + 'px';
+                  delBtn.addEventListener('pointerdown', (e) => {
+                     e.stopPropagation();
+                     e.preventDefault();
+                     if (room.points.length <= 3) return;
+                     room.points.splice(i, 1);
+                     render();
+                  });
+                  labelsLayer.appendChild(delBtn);
+               }
             });
          }
       });
 
-      planner.addEventListener('mousemove', (e) => {
+      planner.addEventListener('pointermove', (e) => {
          if(!dragMode || !activeObj) return;
+         if(activePointerId != null && e.pointerId !== activePointerId) return;
          const rect = planner.getBoundingClientRect();
-         
+
          if(dragMode === 'vert') {
              let nx = Math.round(((e.clientX - rect.left) - dOffX) / CELL_SIZE);
              let ny = Math.round(((e.clientY - rect.top) - dOffY) / CELL_SIZE);
@@ -1400,9 +1539,17 @@
          }
       });
 
-      const commitDrag = () => { if(dragMode) { dragMode = null; render(); } };
-      planner.addEventListener('mouseup', commitDrag);
-      planner.addEventListener('mouseleave', commitDrag);
+      const commitDrag = (e) => {
+         if(e && activePointerId != null && e.pointerId != null && e.pointerId !== activePointerId) return;
+         if(activePointerEl && activePointerId != null) {
+            try { activePointerEl.releasePointerCapture(activePointerId); } catch(_) {}
+         }
+         activePointerId = null;
+         activePointerEl = null;
+         if(dragMode) { dragMode = null; render(); }
+      };
+      planner.addEventListener('pointerup', commitDrag);
+      planner.addEventListener('pointercancel', commitDrag);
 
       // Super-fast redraw loop for active dragging
       const flushVectors = () => {
@@ -1411,14 +1558,21 @@
             const polyEl = svg.querySelector('polygon.stroke-nexus-primary');
             if(polyEl) polyEl.setAttribute('points', activeObj.points.map(p => `${p.x*CELL_SIZE},${p.y*CELL_SIZE}`).join(' '));
             
-            const circles = svg.querySelectorAll('circle');
+            const visibleCircles = svg.querySelectorAll('circle.vertex-visible');
+            const hitCircles = svg.querySelectorAll('circle.vertex-hit');
             const labels = svg.querySelectorAll('text.edge-label');
             const hitboxes = svg.querySelectorAll('line.edge-hitbox');
+            const delBtns = labelsLayer.querySelectorAll('.vertex-delete-btn');
             activeObj.points.forEach((pt, i) => {
-               if(circles[i]) { circles[i].setAttribute('cx', pt.x * CELL_SIZE); circles[i].setAttribute('cy', pt.y * CELL_SIZE); }
-               
+               if(visibleCircles[i]) { visibleCircles[i].setAttribute('cx', pt.x * CELL_SIZE); visibleCircles[i].setAttribute('cy', pt.y * CELL_SIZE); }
+               if(hitCircles[i])     { hitCircles[i].setAttribute('cx', pt.x * CELL_SIZE);     hitCircles[i].setAttribute('cy', pt.y * CELL_SIZE); }
+               if(delBtns[i]) {
+                  delBtns[i].style.left = (pt.x * CELL_SIZE + 12) + 'px';
+                  delBtns[i].style.top  = (pt.y * CELL_SIZE - 12) + 'px';
+               }
+
                let nxt = activeObj.points[(i+1)%activeObj.points.length];
-               
+
                if(hitboxes[i]) {
                   hitboxes[i].setAttribute('x1', pt.x * CELL_SIZE);
                   hitboxes[i].setAttribute('y1', pt.y * CELL_SIZE);
@@ -1459,39 +1613,109 @@
       // Sicherstellen, dass Kameras-Array existiert (Legacy-Projekte)
       if(!currentFloor.cameras) currentFloor.cameras = [];
 
-      // Drag-Start für APs und Kameras (Event-Delegation)
-      const onDragStart = (e) => {
-        const card = e.target.closest('[data-slug]');
-        if(!card) return;
-        const payload = JSON.stringify({ slug: card.getAttribute('data-slug'), kind: card.getAttribute('data-kind') || 'ap' });
-        e.dataTransfer.setData('text/plain', payload);
+      // Auto-Kanalplan (Helper) — 2,4 GHz: 1/6/11, 5 GHz: 36/44/.../165
+      const allocateApChannels = (floor) => {
+         const ch24 = [1,6,11];
+         const ch5  = [36,44,52,60,100,108,116,124,132,140,149,157,165];
+         const used24 = new Set(floor.aps.map(a => a.channel24).filter(Boolean));
+         const used5  = new Set(floor.aps.map(a => a.channel5).filter(Boolean));
+         const pickFree = (list, used) => list.find(c => !used.has(c)) || list[floor.aps.length % list.length];
+         return { channel24: pickFree(ch24, used24), channel5: pickFree(ch5, used5) };
       };
-      document.getElementById('ap-toolbar').addEventListener('dragstart', onDragStart);
-      const camToolbar = document.getElementById('cam-toolbar');
-      if(camToolbar) camToolbar.addEventListener('dragstart', onDragStart);
 
-      planner.addEventListener('dragover', (e) => e.preventDefault());
-      planner.addEventListener('drop', (e) => {
-        e.preventDefault();
-        let payload;
-        try { payload = JSON.parse(e.dataTransfer.getData('text/plain')); } catch(_) { return; }
-        if(!payload || !productCache.specs[payload.slug]) return;
-        const rect = planner.getBoundingClientRect();
-        const x = e.clientX - rect.left, y = e.clientY - rect.top;
-        if(payload.kind === 'camera') {
-          currentFloor.cameras.push({ id: 'cam_'+Date.now(), slug: payload.slug, x, y });
-        } else {
-          // Auto-Kanalplan (leichtgewichtig): 2,4 GHz 1/6/11, 5 GHz 36/44/52/60/100/108/116/124/132/140/149/157/165
-          const ch24 = [1,6,11];
-          const ch5  = [36,44,52,60,100,108,116,124,132,140,149,157,165];
-          const used24 = new Set(currentFloor.aps.map(a => a.channel24).filter(Boolean));
-          const used5  = new Set(currentFloor.aps.map(a => a.channel5).filter(Boolean));
-          const pickFree = (list, used) => list.find(c => !used.has(c)) || list[currentFloor.aps.length % list.length];
-          currentFloor.aps.push({ id: 'ap_'+Date.now(), slug: payload.slug, x, y, channel24: pickFree(ch24, used24), channel5: pickFree(ch5, used5) });
-        }
-        drawAps();
-        saveState();
-      });
+      // Toolbar → Planner via Pointer Events (works for mouse + touch + pen)
+      const placeFromToolbar = (slug, kind, clientX, clientY) => {
+         if(!productCache.specs[slug]) return false;
+         const rect = planner.getBoundingClientRect();
+         if(clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
+         const x = clientX - rect.left, y = clientY - rect.top;
+         if(kind === 'camera') {
+            currentFloor.cameras.push({ id: 'cam_'+Date.now(), slug, x, y });
+         } else {
+            const { channel24, channel5 } = allocateApChannels(currentFloor);
+            currentFloor.aps.push({ id: 'ap_'+Date.now(), slug, x, y, channel24, channel5 });
+         }
+         drawAps();
+         saveState();
+         return true;
+      };
+
+      const attachToolbarPointerDnD = (toolbarEl) => {
+         if(!toolbarEl) return;
+         toolbarEl.addEventListener('pointerdown', (e) => {
+            const card = e.target.closest('[data-slug]');
+            if(!card) return;
+            if(e.pointerType === 'mouse' && e.button !== 0) return;
+            e.preventDefault();
+            const slug = card.getAttribute('data-slug');
+            const kind = card.getAttribute('data-kind') || 'ap';
+            const spec = productCache.specs[slug];
+            if(!spec) return;
+
+            try { card.setPointerCapture(e.pointerId); } catch(_) {}
+
+            // Build ghost preview
+            const ghost = document.createElement('div');
+            ghost.className = 'planner-drop-ghost';
+            const isCam = kind === 'camera';
+            if(spec.image) {
+               const img = document.createElement('img');
+               img.src = spec.image;
+               img.alt = spec.name || '';
+               ghost.appendChild(img);
+            } else {
+               const ic = document.createElement('div');
+               ic.className = 'ghost-icon';
+               ic.style.borderRadius = '50%';
+               ic.style.background = isCam ? '#7e22ce' : 'var(--color-primary, #01696F)';
+               ic.style.color = 'white';
+               ic.style.display = 'flex';
+               ic.style.alignItems = 'center';
+               ic.style.justifyContent = 'center';
+               ic.textContent = isCam ? '📷' : '📶';
+               ghost.appendChild(ic);
+            }
+            const lbl = document.createElement('span');
+            lbl.textContent = spec.name || slug;
+            ghost.appendChild(lbl);
+            ghost.style.left = e.clientX + 'px';
+            ghost.style.top  = e.clientY + 'px';
+            document.body.appendChild(ghost);
+
+            const onMove = (ev) => {
+               if(ev.pointerId !== e.pointerId) return;
+               ghost.style.left = ev.clientX + 'px';
+               ghost.style.top  = ev.clientY + 'px';
+               const rect = planner.getBoundingClientRect();
+               const inside = ev.clientX >= rect.left && ev.clientX <= rect.right
+                           && ev.clientY >= rect.top  && ev.clientY <= rect.bottom;
+               planner.classList.toggle('planner-drop-target', inside);
+            };
+            const cleanup = () => {
+               try { card.releasePointerCapture(e.pointerId); } catch(_) {}
+               card.removeEventListener('pointermove', onMove);
+               card.removeEventListener('pointerup', onUp);
+               card.removeEventListener('pointercancel', onCancel);
+               ghost.remove();
+               planner.classList.remove('planner-drop-target');
+            };
+            const onUp = (ev) => {
+               if(ev.pointerId !== e.pointerId) return;
+               placeFromToolbar(slug, kind, ev.clientX, ev.clientY);
+               cleanup();
+            };
+            const onCancel = (ev) => {
+               if(ev.pointerId !== e.pointerId) return;
+               cleanup();
+            };
+            card.addEventListener('pointermove', onMove);
+            card.addEventListener('pointerup', onUp);
+            card.addEventListener('pointercancel', onCancel);
+         });
+      };
+
+      attachToolbarPointerDnD(document.getElementById('ap-toolbar'));
+      attachToolbarPointerDnD(document.getElementById('cam-toolbar'));
 
       const apLayer = document.createElement('div');
       apLayer.className = 'absolute inset-0 w-full h-full pointer-events-none z-20';
@@ -1616,15 +1840,22 @@
             <button class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-4 h-4 items-center justify-center hidden group-hover:flex" title="AP löschen"><i data-lucide="trash-2" class="w-2.5 h-2.5 pointer-events-none"></i></button>
           `;
 
-          dotContainer.addEventListener('mousedown', (e) => {
+          dotContainer.addEventListener('pointerdown', (e) => {
+             if(e.pointerType === 'mouse' && e.button !== 0) return;
+             if(e.target.closest('button')) return; // delete button handles itself
              e.stopPropagation();
+             e.preventDefault();
              dragMode = 'ap'; activeObj = apState;
              const rect = planner.getBoundingClientRect();
              dOffX = (e.clientX - rect.left) - apState.x; dOffY = (e.clientY - rect.top) - apState.y;
+             try { dotContainer.setPointerCapture(e.pointerId); } catch(_) {}
+             activePointerId = e.pointerId;
+             activePointerEl = dotContainer;
           });
 
-          dotContainer.querySelector('button').addEventListener('mousedown', (ev) => {
+          dotContainer.querySelector('button').addEventListener('pointerdown', (ev) => {
              ev.stopPropagation();
+             ev.preventDefault();
              currentFloor.aps = currentFloor.aps.filter(a => a.id !== apState.id);
              if(dragMode==='ap') {dragMode=null;}
              drawAps();
@@ -1645,14 +1876,21 @@
             <span class="absolute top-7 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 text-[9px] font-bold shadow-sm whitespace-nowrap text-purple-900">${spec.name}</span>
             <button class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-4 h-4 items-center justify-center hidden group-hover:flex" title="Kamera löschen"><i data-lucide="trash-2" class="w-2.5 h-2.5 pointer-events-none"></i></button>
           `;
-          dotContainer.addEventListener('mousedown', (e) => {
+          dotContainer.addEventListener('pointerdown', (e) => {
+             if(e.pointerType === 'mouse' && e.button !== 0) return;
+             if(e.target.closest('button')) return;
              e.stopPropagation();
+             e.preventDefault();
              dragMode = 'cam'; activeObj = camState;
              const rect = planner.getBoundingClientRect();
              dOffX = (e.clientX - rect.left) - camState.x; dOffY = (e.clientY - rect.top) - camState.y;
+             try { dotContainer.setPointerCapture(e.pointerId); } catch(_) {}
+             activePointerId = e.pointerId;
+             activePointerEl = dotContainer;
           });
-          dotContainer.querySelector('button').addEventListener('mousedown', (ev) => {
+          dotContainer.querySelector('button').addEventListener('pointerdown', (ev) => {
              ev.stopPropagation();
+             ev.preventDefault();
              currentFloor.cameras = currentFloor.cameras.filter(c => c.id !== camState.id);
              if(dragMode==='cam') {dragMode=null;}
              drawAps();
