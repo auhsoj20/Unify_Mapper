@@ -489,7 +489,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 0
       },
       {
         "slug": "usw-pro-xg-aggregation",
@@ -506,7 +507,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 0
       },
       {
         "slug": "usw-aggregation",
@@ -522,7 +524,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 0
       },
       {
         "slug": "usw-pro-aggregation",
@@ -539,7 +542,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 28
+        "ports": 28,
+        "poePorts": 0
       },
       {
         "slug": "eav-fiber",
@@ -568,7 +572,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 0
       },
       {
         "slug": "ecs-24-poe",
@@ -595,7 +600,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 1050,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 24,
+        "poePortClass": "poe+++",
+        "poeMaxPerPort": 90
       },
       {
         "slug": "ecs-48-poe",
@@ -622,7 +630,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 2150,
         "poe": true,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 48,
+        "poePortClass": "poe+++",
+        "poeMaxPerPort": 90
       },
       {
         "slug": "ecs-48s-poe",
@@ -653,7 +664,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 2150,
         "poe": true,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 48,
+        "poePortClass": "poe+++",
+        "poeMaxPerPort": 90
       },
       {
         "slug": "ecs-24s-poe",
@@ -684,7 +698,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 1050,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 24,
+        "poePortClass": "poe+++",
+        "poeMaxPerPort": 90
       },
       {
         "slug": "eav-xg-24-poe",
@@ -715,7 +732,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 2150,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 24,
+        "poePortClass": "poe+++",
+        "poeMaxPerPort": 90
       },
       {
         "slug": "eav-fiber",
@@ -744,7 +764,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 0
       },
       {
         "slug": "ecs-aggregation",
@@ -764,7 +785,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 0
       },
       {
         "slug": "usw-pro-xg-48-poe",
@@ -788,7 +810,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 1080,
         "poe": true,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 32,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-pro-xg-24-poe",
@@ -812,7 +837,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 720,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 16,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-pro-xg-10-poe",
@@ -835,7 +863,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 400,
         "poe": true,
-        "ports": 10
+        "ports": 10,
+        "poePorts": 4,
+        "poePortClass": "poe+++",
+        "poeMaxPerPort": 90
       },
       {
         "slug": "usw-pro-max-48",
@@ -855,7 +886,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 0
       },
       {
         "slug": "usw-pro-max-24",
@@ -875,7 +907,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 0
       },
       {
         "slug": "usw-pro-max-16",
@@ -895,7 +928,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 16
+        "ports": 16,
+        "poePorts": 0
       },
       {
         "slug": "usw-pro-max-48-poe",
@@ -918,7 +952,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 720,
         "poe": true,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 48,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-pro-max-24-poe",
@@ -941,7 +978,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 400,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 24,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-pro-max-16-poe",
@@ -964,7 +1004,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 180,
         "poe": true,
-        "ports": 16
+        "ports": 16,
+        "poePorts": 16,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-pro-hd-24-poe",
@@ -988,7 +1031,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 600,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 24,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-pro-hd-24",
@@ -1010,7 +1056,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 0
       },
       {
         "slug": "usw-pro-xg-24",
@@ -1031,7 +1078,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 0
       },
       {
         "slug": "usw-pro-xg-48",
@@ -1052,7 +1100,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 0
       },
       {
         "slug": "usw-enterprise-48-poe",
@@ -1081,7 +1130,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 720,
         "poe": true,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 48,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-pro-48-poe",
@@ -1103,7 +1155,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 600,
         "poe": true,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 48,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-mission-critical",
@@ -1122,7 +1177,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 120,
         "poe": true,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 8,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-enterprise-24-poe",
@@ -1148,7 +1206,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 400,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 24,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-pro-24-poe",
@@ -1169,7 +1230,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 400,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 24,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-pro-48",
@@ -1187,7 +1251,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 0
       },
       {
         "slug": "usw-pro-24",
@@ -1205,7 +1270,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 0
       },
       {
         "slug": "usw-48-poe",
@@ -1223,7 +1289,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 195,
         "poe": true,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 48,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-48",
@@ -1239,7 +1308,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 0
       },
       {
         "slug": "usw-24-poe",
@@ -1257,7 +1327,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 95,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 24,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-16-poe",
@@ -1275,7 +1348,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 42,
         "poe": true,
-        "ports": 16
+        "ports": 16,
+        "poePorts": 16,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-24",
@@ -1291,7 +1367,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 0
       },
       {
         "slug": "us-48-750w",
@@ -1313,7 +1390,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 750,
         "poe": true,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 48,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "us-48-500w",
@@ -1340,7 +1420,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 500,
         "poe": true,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 48,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "us-24-500w",
@@ -1362,7 +1445,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 500,
         "poe": true,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 24,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "us-48",
@@ -1382,7 +1468,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 48
+        "ports": 48,
+        "poePorts": 0
       },
       {
         "slug": "us-24",
@@ -1403,7 +1490,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 24,
+        "poePorts": 0
       },
       {
         "slug": "usw-wan-rj45",
@@ -1424,7 +1512,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 0
       },
       {
         "slug": "usw-wan",
@@ -1441,7 +1530,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 0
       },
       {
         "slug": "us-xg-6poe",
@@ -1466,7 +1556,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 170,
         "poe": true,
-        "ports": 6
+        "ports": 6,
+        "poePorts": 6,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-pro-xg-8-poe",
@@ -1488,7 +1581,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 155,
         "poe": true,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 8,
+        "poePortClass": "poe+++",
+        "poeMaxPerPort": 90
       },
       {
         "slug": "usw-enterprise-8-poe",
@@ -1511,7 +1607,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 120,
         "poe": true,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 8,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-pro-8-poe",
@@ -1530,7 +1629,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 120,
         "poe": true,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 8,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-lite-16-poe",
@@ -1547,7 +1649,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 45,
         "poe": true,
-        "ports": 16
+        "ports": 16,
+        "poePorts": 8,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-ultra-210w",
@@ -1568,7 +1673,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 202,
         "poe": true,
-        "ports": 10
+        "ports": 10,
+        "poePorts": 8,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-flex-2-5g-8-poe",
@@ -1588,7 +1696,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 196,
         "poe": true,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 8,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "usw-ultra-60w",
@@ -1609,7 +1720,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 52,
         "poe": true,
-        "ports": 5
+        "ports": 5,
+        "poePorts": 4,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-flex-2-5g-8",
@@ -1627,7 +1741,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 0
       },
       {
         "slug": "usw-ultra",
@@ -1648,7 +1763,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 42,
         "poe": true,
-        "ports": 5
+        "ports": 5,
+        "poePorts": 4,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-lite-8-poe",
@@ -1665,7 +1783,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 52,
         "poe": true,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 4,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-flex",
@@ -1683,7 +1804,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 46,
         "poe": true,
-        "ports": 5
+        "ports": 5,
+        "poePorts": 4,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "usw-flex-2-5g-5",
@@ -1699,7 +1823,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 5
+        "ports": 5,
+        "poePorts": 0
       },
       {
         "slug": "usw-flexutility",
@@ -1716,7 +1841,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 0
       },
       {
         "slug": "usw-flex-mini",
@@ -1731,7 +1857,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 5
+        "ports": 5,
+        "poePorts": 0
       },
       {
         "slug": "usw-industrial",
@@ -1755,7 +1882,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 430,
         "poe": true,
-        "ports": 10
+        "ports": 10,
+        "poePorts": 8,
+        "poePortClass": "poe+++",
+        "poeMaxPerPort": 90
       },
       {
         "slug": "usw-flex-xg",
@@ -1771,7 +1901,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 5
+        "ports": 5,
+        "poePorts": 0
       },
       {
         "slug": "us-8-150w",
@@ -1798,7 +1929,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 130,
         "poe": true,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 8,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "us-8-60w",
@@ -1821,7 +1955,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 48,
         "poe": true,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 4,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "us-8",
@@ -1840,7 +1977,10 @@ window.UNIFI_DATA = {
         ],
         "budget": 12,
         "poe": true,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 1,
+        "poePortClass": "poe",
+        "poeMaxPerPort": 15
       },
       {
         "slug": "uacc-flex-utility-pro",
@@ -1855,7 +1995,8 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 8
+        "ports": 8,
+        "poePorts": 0
       }
     ],
     "cloud-gateways": [
@@ -1882,7 +2023,9 @@ window.UNIFI_DATA = {
           "upilnk-cable"
         ],
         "budget": 0,
-        "poe": false
+        "poe": false,
+        "ports": 12,
+        "poePorts": 0
       },
       {
         "slug": "udm-pro-max",
@@ -1904,7 +2047,9 @@ window.UNIFI_DATA = {
           "upilnk-cable"
         ],
         "budget": 0,
-        "poe": false
+        "poe": false,
+        "ports": 10,
+        "poePorts": 0
       },
       {
         "slug": "udm-se",
@@ -1929,7 +2074,11 @@ window.UNIFI_DATA = {
           "holiday-offer"
         ],
         "budget": 180,
-        "poe": true
+        "poe": true,
+        "ports": 10,
+        "poePorts": 8,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "udm-pro",
@@ -1950,7 +2099,9 @@ window.UNIFI_DATA = {
           "holiday-offer"
         ],
         "budget": 0,
-        "poe": false
+        "poe": false,
+        "ports": 10,
+        "poePorts": 0
       },
       {
         "slug": "ucg-max",
@@ -1974,7 +2125,9 @@ window.UNIFI_DATA = {
           "first-gallery-image-as-main"
         ],
         "budget": 0,
-        "poe": false
+        "poe": false,
+        "ports": 5,
+        "poePorts": 0
       },
       {
         "slug": "ucg-fiber",
@@ -2007,7 +2160,11 @@ window.UNIFI_DATA = {
           "first-gallery-image-as-main"
         ],
         "budget": 30,
-        "poe": true
+        "poe": true,
+        "ports": 5,
+        "poePorts": 1,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "ucg-ultra",
@@ -2028,7 +2185,9 @@ window.UNIFI_DATA = {
           "first-gallery-image-as-main"
         ],
         "budget": 0,
-        "poe": false
+        "poe": false,
+        "ports": 5,
+        "poePorts": 0
       },
       {
         "slug": "ucg-industrial",
@@ -2056,7 +2215,11 @@ window.UNIFI_DATA = {
           "first-gallery-image-as-main"
         ],
         "budget": 270,
-        "poe": true
+        "poe": true,
+        "ports": 5,
+        "poePorts": 2,
+        "poePortClass": "poe+++",
+        "poeMaxPerPort": 90
       },
       {
         "slug": "udr-5g-max",
@@ -2081,7 +2244,11 @@ window.UNIFI_DATA = {
           "first-gallery-image-as-main"
         ],
         "budget": 15,
-        "poe": true
+        "poe": true,
+        "ports": 4,
+        "poePorts": 1,
+        "poePortClass": "poe",
+        "poeMaxPerPort": 15
       },
       {
         "slug": "udr7",
@@ -2107,7 +2274,11 @@ window.UNIFI_DATA = {
           "first-gallery-image-as-main"
         ],
         "budget": 15,
-        "poe": true
+        "poe": true,
+        "ports": 4,
+        "poePorts": 1,
+        "poePortClass": "poe",
+        "poeMaxPerPort": 15
       },
       {
         "slug": "ux7",
@@ -2129,7 +2300,9 @@ window.UNIFI_DATA = {
           "first-gallery-image-as-main"
         ],
         "budget": 0,
-        "poe": false
+        "poe": false,
+        "ports": 4,
+        "poePorts": 0
       },
       {
         "slug": "udw",
@@ -2154,7 +2327,11 @@ window.UNIFI_DATA = {
           "special-offer:eu"
         ],
         "budget": 420,
-        "poe": true
+        "poe": true,
+        "ports": 10,
+        "poePorts": 8,
+        "poePortClass": "poe++",
+        "poeMaxPerPort": 60
       },
       {
         "slug": "udr",
@@ -2187,7 +2364,11 @@ window.UNIFI_DATA = {
           "exclude-from-store-grid"
         ],
         "budget": 40,
-        "poe": true
+        "poe": true,
+        "ports": 5,
+        "poePorts": 2,
+        "poePortClass": "poe+",
+        "poeMaxPerPort": 30
       },
       {
         "slug": "ux",
@@ -2221,7 +2402,9 @@ window.UNIFI_DATA = {
           "exclude-from-store-grid"
         ],
         "budget": 0,
-        "poe": false
+        "poe": false,
+        "ports": 5,
+        "poePorts": 0
       }
     ],
     "cellular": [
