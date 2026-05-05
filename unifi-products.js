@@ -62,9 +62,9 @@ window.UNIFI_DATA = {
           "pro-xg-aps",
           "restock:ca:u7-pro-xgs:date:2026-04-28"
         ],
-        "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 160,
+        "maxWatts": 25
       },
       {
         "slug": "u6-enterprise",
@@ -83,9 +83,9 @@ window.UNIFI_DATA = {
           "exclude-from-store-grid:mx",
           "holiday-offer"
         ],
-        "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 6E",
+        "coverageM2": 160,
+        "maxWatts": 25
       },
       {
         "slug": "u7-pro-xg",
@@ -103,9 +103,9 @@ window.UNIFI_DATA = {
           "industrial-design",
           "pro-xg-aps"
         ],
-        "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 160,
+        "maxWatts": 25
       },
       {
         "slug": "u7-pro",
@@ -123,9 +123,9 @@ window.UNIFI_DATA = {
           "feature:1-25gbe",
           "holiday-offer"
         ],
-        "wifiStandard": "WiFi 6",
+        "wifiStandard": "WiFi 7",
         "coverageM2": 140,
-        "maxWatts": 15
+        "maxWatts": 17
       },
       {
         "slug": "u6-pro",
@@ -142,8 +142,8 @@ window.UNIFI_DATA = {
           "feature:1gbe"
         ],
         "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "coverageM2": 130,
+        "maxWatts": 14
       },
       {
         "slug": "u7-lr",
@@ -158,9 +158,9 @@ window.UNIFI_DATA = {
           "pro-sort-weight:4921",
           "techspecs-sort-weight:9957"
         ],
-        "wifiStandard": "WiFi 5",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 180,
+        "maxWatts": 13
       },
       {
         "slug": "u6-plus",
@@ -176,8 +176,8 @@ window.UNIFI_DATA = {
           "feature:1gbe"
         ],
         "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "coverageM2": 110,
+        "maxWatts": 12
       },
       {
         "slug": "u7-lite",
@@ -194,9 +194,9 @@ window.UNIFI_DATA = {
           "feature:4-stream",
           "inline-related:br:u-poe-af"
         ],
-        "wifiStandard": "WiFi 5",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 110,
+        "maxWatts": 11
       },
       {
         "slug": "u7-pro-max",
@@ -215,9 +215,9 @@ window.UNIFI_DATA = {
           "pro-sort-weight:4924",
           "inline-related:br:u-poe-plus"
         ],
-        "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 160,
+        "maxWatts": 21
       },
       {
         "slug": "u6-lr",
@@ -240,8 +240,8 @@ window.UNIFI_DATA = {
           "exclude-from-store-grid:jp"
         ],
         "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "coverageM2": 170,
+        "maxWatts": 13
       },
       {
         "slug": "u6-enterprise-iw",
@@ -259,9 +259,9 @@ window.UNIFI_DATA = {
           "feature:1-25gbe",
           "holiday-offer"
         ],
-        "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 6E",
+        "coverageM2": 100,
+        "maxWatts": 25
       },
       {
         "slug": "u7-pro-xg-wall",
@@ -277,9 +277,9 @@ window.UNIFI_DATA = {
           "techspecs-sort-weight:9955",
           "pro-sort-weight:4919"
         ],
-        "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 110,
+        "maxWatts": 22
       },
       {
         "slug": "u7-pro-wall",
@@ -297,9 +297,9 @@ window.UNIFI_DATA = {
           "feature:1-25gbe",
           "holiday-offer"
         ],
-        "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 110,
+        "maxWatts": 17
       },
       {
         "slug": "u6-iw",
@@ -316,8 +316,8 @@ window.UNIFI_DATA = {
           "feature:1gbe"
         ],
         "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "coverageM2": 90,
+        "maxWatts": 11
       },
       {
         "slug": "u7-iw",
@@ -335,8 +335,8 @@ window.UNIFI_DATA = {
           "feature:4-stream"
         ],
         "wifiStandard": "WiFi 7",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "coverageM2": 100,
+        "maxWatts": 17
       },
       {
         "slug": "u6-extender",
@@ -351,8 +351,8 @@ window.UNIFI_DATA = {
           "feature:6-stream"
         ],
         "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "coverageM2": 100,
+        "maxWatts": 9
       },
       {
         "slug": "u7-pro-outdoor-us",
@@ -373,9 +373,9 @@ window.UNIFI_DATA = {
           "available:ca:u7-pro-outdoor-us:month:2025-02-28",
           "holiday-offer"
         ],
-        "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 200,
+        "maxWatts": 25
       },
       {
         "slug": "u7-outdoor",
@@ -393,9 +393,9 @@ window.UNIFI_DATA = {
           "feature:1-25gbe",
           "inline-related:br:u-poe-plus"
         ],
-        "wifiStandard": "WiFi 5",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 180,
+        "maxWatts": 17
       },
       {
         "slug": "u6-mesh-pro",
@@ -411,8 +411,8 @@ window.UNIFI_DATA = {
           "feature:1gbe"
         ],
         "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "coverageM2": 150,
+        "maxWatts": 21
       },
       {
         "slug": "u6-mesh",
@@ -430,8 +430,8 @@ window.UNIFI_DATA = {
           "inline-related:br:u-poe-af"
         ],
         "wifiStandard": "WiFi 6",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "coverageM2": 130,
+        "maxWatts": 12
       },
       {
         "slug": "uk-ultra",
@@ -449,8 +449,8 @@ window.UNIFI_DATA = {
           "feature:1gbe"
         ],
         "wifiStandard": "WiFi 5",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "coverageM2": 110,
+        "maxWatts": 9
       },
       {
         "slug": "u7-mesh",
@@ -465,9 +465,9 @@ window.UNIFI_DATA = {
           "feature:1-25gbe",
           "techspecs-sort-weight:9906"
         ],
-        "wifiStandard": "WiFi 5",
-        "coverageM2": 140,
-        "maxWatts": 15
+        "wifiStandard": "WiFi 7",
+        "coverageM2": 130,
+        "maxWatts": 13
       }
     ],
     "switching": [
@@ -522,7 +522,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "usw-pro-aggregation",
@@ -539,7 +539,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 8
+        "ports": 28
       },
       {
         "slug": "eav-fiber",
@@ -835,7 +835,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 400,
         "poe": true,
-        "ports": 24
+        "ports": 10
       },
       {
         "slug": "usw-pro-max-48",
@@ -895,7 +895,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 16
       },
       {
         "slug": "usw-pro-max-48-poe",
@@ -964,7 +964,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 180,
         "poe": true,
-        "ports": 24
+        "ports": 16
       },
       {
         "slug": "usw-pro-hd-24-poe",
@@ -1275,7 +1275,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 42,
         "poe": true,
-        "ports": 24
+        "ports": 16
       },
       {
         "slug": "usw-24",
@@ -1424,7 +1424,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "usw-wan",
@@ -1441,7 +1441,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "us-xg-6poe",
@@ -1466,7 +1466,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 170,
         "poe": true,
-        "ports": 24
+        "ports": 6
       },
       {
         "slug": "usw-pro-xg-8-poe",
@@ -1488,7 +1488,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 155,
         "poe": true,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "usw-enterprise-8-poe",
@@ -1511,7 +1511,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 120,
         "poe": true,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "usw-pro-8-poe",
@@ -1530,7 +1530,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 120,
         "poe": true,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "usw-lite-16-poe",
@@ -1547,7 +1547,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 45,
         "poe": true,
-        "ports": 24
+        "ports": 16
       },
       {
         "slug": "usw-ultra-210w",
@@ -1568,7 +1568,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 202,
         "poe": true,
-        "ports": 24
+        "ports": 10
       },
       {
         "slug": "usw-flex-2-5g-8-poe",
@@ -1588,7 +1588,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 196,
         "poe": true,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "usw-ultra-60w",
@@ -1609,7 +1609,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 52,
         "poe": true,
-        "ports": 24
+        "ports": 5
       },
       {
         "slug": "usw-flex-2-5g-8",
@@ -1627,7 +1627,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "usw-ultra",
@@ -1648,7 +1648,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 42,
         "poe": true,
-        "ports": 24
+        "ports": 5
       },
       {
         "slug": "usw-lite-8-poe",
@@ -1665,7 +1665,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 52,
         "poe": true,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "usw-flex",
@@ -1683,7 +1683,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 46,
         "poe": true,
-        "ports": 24
+        "ports": 5
       },
       {
         "slug": "usw-flex-2-5g-5",
@@ -1699,7 +1699,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 5
       },
       {
         "slug": "usw-flexutility",
@@ -1731,7 +1731,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 5
       },
       {
         "slug": "usw-industrial",
@@ -1755,7 +1755,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 430,
         "poe": true,
-        "ports": 24
+        "ports": 10
       },
       {
         "slug": "usw-flex-xg",
@@ -1771,7 +1771,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 0,
         "poe": false,
-        "ports": 24
+        "ports": 5
       },
       {
         "slug": "us-8-150w",
@@ -1798,7 +1798,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 130,
         "poe": true,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "us-8-60w",
@@ -1821,7 +1821,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 48,
         "poe": true,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "us-8",
@@ -1840,7 +1840,7 @@ window.UNIFI_DATA = {
         ],
         "budget": 12,
         "poe": true,
-        "ports": 24
+        "ports": 8
       },
       {
         "slug": "uacc-flex-utility-pro",
