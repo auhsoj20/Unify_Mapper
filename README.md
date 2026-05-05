@@ -25,6 +25,26 @@ Der Planer führt schrittweise durch sechs Abschnitte:
 5. **Backup- / Zweit-Internet** — Failover-Konfiguration.
 6. **Ergebnis & Zusammenfassung** — Stückliste mit Preisen, druckfähig und exportierbar.
 
+### Raumplaner — Funktionen im Überblick
+
+- **Etagen-Verwaltung**: Etagen umbenennen (Doppelklick auf den Tab), per ⋯-Menü
+  duplizieren, verschieben oder löschen.
+- **Raum-Werkzeuge**: Räume duplizieren (mit Versatz), Fläche in m² wird
+  automatisch im Raum und im Inspektor angezeigt. Kantenlängen lassen sich per
+  Doppelklick auf das Längenlabel exakt eingeben.
+- **Hintergrund-Grundriss**: Pro Etage kann ein Bild (z. B. ein gescannter
+  Grundriss) als Hintergrund hinterlegt werden — Deckkraft und Skalierung sind
+  einstellbar.
+- **Vollbild & Auto-Zoom**: Toolbar-Knöpfe für „Auf Räume zoomen" und
+  Vollbildmodus (auf dem Handy verbergen sich Buttons hinter Icons).
+- **Undo / Redo**: Letzte Schritte rückgängig machen oder wiederherstellen
+  (`Strg+Z` / `Strg+Umschalt+Z`).
+- **Touch-optimiert**: Pinch-Zoom, ein-Finger-Pan auf leerer Fläche,
+  Lösch-Buttons an Ecken statt Rechtsklick. Tipp auf leere Fläche hebt die
+  Auswahl auf.
+- **Tastatur**: `Entf` löscht den ausgewählten Raum, `Esc` verlässt Vollbild
+  oder hebt die Auswahl auf.
+
 Über den Button **„Rack-Ansicht"** lassen sich die geplanten Geräte in ein 19"-Rack einsortieren und virtuell verkabeln.
 
 Der Projektstand wird automatisch im Browser (LocalStorage) gespeichert. Über den Reset-Button im Header kann das Projekt komplett zurückgesetzt werden.

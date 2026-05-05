@@ -116,6 +116,11 @@
       overflow: hidden;
       touch-action: none;
       height: clamp(360px, 60vh, 560px);
+      border-bottom-left-radius: 12px;
+      border-bottom-right-radius: 12px;
+    }
+    #planner-inspector-slot:not(:empty) {
+      padding: 0 0.75rem 0.75rem 0.75rem;
     }
     #planner-area svg polygon,
     #planner-area svg circle,
@@ -190,6 +195,134 @@
       grid-auto-rows: 32px;
       gap: 4px;
       pointer-events: auto;
+    }
+    .planner-tools {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      pointer-events: auto;
+    }
+    .planner-tools button {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--color-surfaceCard, rgba(255,255,255,0.92));
+      border: 1px solid var(--color-border, #d1d5db);
+      border-radius: 6px;
+      color: var(--color-text-base, #111);
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+      touch-action: manipulation;
+      user-select: none;
+      transition: background 0.15s ease;
+    }
+    .planner-tools button:hover { background: var(--color-surface, #f3f4f6); }
+    .planner-tools button:active { transform: scale(0.94); }
+    .planner-tools button.active { background: var(--color-primary); color: white; border-color: var(--color-primary); }
+    .planner-tools button:disabled { opacity: 0.35; cursor: not-allowed; }
+    @media (pointer: coarse) {
+      .planner-tools button { width: 40px; height: 40px; }
+    }
+    #planner-bg-img {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      object-fit: contain;
+      transform-origin: 0 0;
+      opacity: 0.55;
+    }
+    .floor-tab-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .floor-tab-actions {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--color-surface-card);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+      padding: 0.25rem;
+      z-index: 25;
+      min-width: 160px;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .floor-tab-actions.open { display: flex; }
+    .floor-tab-actions button {
+      text-align: left;
+      padding: 0.4rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      cursor: pointer;
+      background: transparent;
+      color: var(--color-text);
+    }
+    .floor-tab-actions button:hover { background: var(--color-surface); }
+    .floor-tab-actions button.danger { color: #dc2626; }
+    .floor-tab-actions button.danger:hover { background: color-mix(in oklch, #dc2626 12%, transparent); }
+    .floor-tab-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .floor-tab-menu-btn {
+      padding: 0 0.5rem;
+      background: transparent;
+      border: none;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+    }
+    .floor-tab-menu-btn:hover { color: var(--color-primary); }
+
+    /* Fullscreen mode for planner card */
+    .planner-fullscreen {
+      position: fixed !important;
+      inset: 0;
+      z-index: 100;
+      border-radius: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .planner-fullscreen #planner-area {
+      flex: 1;
+      height: auto !important;
+    }
+    body.planner-fs-active { overflow: hidden; }
+
+    /* Room area badge */
+    .room-area-badge {
+      position: absolute;
+      pointer-events: none;
+      font-size: 9px;
+      font-weight: 600;
+      color: var(--color-text-muted);
+      white-space: nowrap;
+      transform: translate(-50%, calc(-50% + 12px));
+      background: rgba(255,255,255,0.7);
+      padding: 0 4px;
+      border-radius: 3px;
+    }
+    @media (prefers-color-scheme: dark) {
+      .room-area-badge { background: rgba(0,0,0,0.4); }
+    }
+    /* Toast (general) */
+    .planner-toast {
+      position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%);
+      background: var(--color-text); color: var(--color-surface);
+      padding: 0.55rem 1rem; border-radius: 8px; font-size: 0.85rem;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25); z-index: 200;
+      animation: fadeSlideIn 0.2s ease;
+      pointer-events: none;
     }
     .planner-controls button {
       width: 32px; height: 32px;
@@ -767,7 +900,7 @@
       loadState();
 
       const overlay = document.getElementById('loader-overlay');
-      
+
       // Cleanup DOM Loader and show app
       overlay.style.opacity = '0';
       setTimeout(() => {
@@ -778,7 +911,56 @@
         if (rackBtn) rackBtn.style.display = 'inline-flex';
         updateFreshnessBadge();
         render(); // Trigger full app render
+        installPlannerKeyboardShortcuts();
       }, 500);
+    }
+
+    // Globale Tastatur-Shortcuts: Delete = ausgewählten Raum löschen,
+    // Strg+Z = Undo, Strg+Umschalt+Z / Strg+Y = Redo. Greifen nur, wenn der
+    // Raumplaner-Schritt aktiv ist und kein Texteingabefeld den Fokus hat.
+    function installPlannerKeyboardShortcuts() {
+      if(window._plannerKbInstalled) return;
+      window._plannerKbInstalled = true;
+      document.addEventListener('keydown', (e) => {
+         const tgt = e.target;
+         const isText = tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable || tgt.tagName === 'SELECT');
+         if(isText) return;
+         // Nur in Step 2 (Raumplaner) aktiv
+         const inPlanner = !!document.getElementById('planner-area');
+         if(!inPlanner) return;
+         const ctrl = e.ctrlKey || e.metaKey;
+         if(ctrl && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+            e.preventDefault();
+            plannerUndo();
+            return;
+         }
+         if((ctrl && (e.key === 'y' || e.key === 'Y')) || (ctrl && e.shiftKey && (e.key === 'z' || e.key === 'Z'))) {
+            e.preventDefault();
+            plannerRedo();
+            return;
+         }
+         if((e.key === 'Delete' || e.key === 'Backspace') && state.selectedRoomId) {
+            e.preventDefault();
+            window.deleteRoom?.(state.selectedRoomId);
+            return;
+         }
+         // Esc: Vollbild verlassen / Auswahl aufheben / Floor-Menü schließen
+         if(e.key === 'Escape') {
+            const card = document.getElementById('planner-card');
+            if(card && card.classList.contains('planner-fullscreen')) {
+               window.toggleFullscreen?.();
+               return;
+            }
+            if(document.querySelector('.floor-tab-actions.open')) {
+               window.closeFloorMenus?.();
+               return;
+            }
+            if(state.selectedRoomId) {
+               state.selectedRoomId = null;
+               render();
+            }
+         }
+      });
     }
 
     function updateFreshnessBadge() {
@@ -968,6 +1150,91 @@
     function saveState() {
       try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch(_) {}
     }
+
+    // --- Undo / Redo (Raumplaner) --- //
+    // Snapshot-basierte Undo-Historie der für den Raumplaner relevanten Felder.
+    // Wir speichern nur einen Subset (floors + selectedRoomId), damit der Speicher
+    // klein bleibt und Switch-/Backup-/Rack-Änderungen nicht das Undo "verbrauchen".
+    const HISTORY_LIMIT = 30;
+    const plannerHistory = { past: [], future: [] };
+    function snapshotPlannerState() {
+      try {
+        return JSON.stringify({
+          floors: state.floors,
+          currentFloorId: state.currentFloorId,
+          selectedRoomId: state.selectedRoomId
+        });
+      } catch(_) { return null; }
+    }
+    function pushPlannerHistory() {
+      const snap = snapshotPlannerState();
+      if(!snap) return;
+      const last = plannerHistory.past[plannerHistory.past.length - 1];
+      if(last === snap) return;
+      plannerHistory.past.push(snap);
+      if(plannerHistory.past.length > HISTORY_LIMIT) plannerHistory.past.shift();
+      plannerHistory.future.length = 0;
+      updateUndoButtons();
+    }
+    function applyPlannerSnapshot(snap) {
+      try {
+        const obj = JSON.parse(snap);
+        if(!obj || !Array.isArray(obj.floors)) return false;
+        state.floors = obj.floors;
+        state.currentFloorId = obj.currentFloorId;
+        state.selectedRoomId = obj.selectedRoomId || null;
+        if(!state.floors.find(f => f.id === state.currentFloorId)) {
+          state.currentFloorId = state.floors[0]?.id || null;
+        }
+        return true;
+      } catch(_) { return false; }
+    }
+    function plannerUndo() {
+      if(plannerHistory.past.length === 0) return;
+      const current = snapshotPlannerState();
+      const prev = plannerHistory.past.pop();
+      if(current) plannerHistory.future.push(current);
+      if(applyPlannerSnapshot(prev)) {
+        saveState();
+        if(typeof render === 'function') render();
+        showPlannerToast('Rückgängig');
+      }
+      updateUndoButtons();
+    }
+    function plannerRedo() {
+      if(plannerHistory.future.length === 0) return;
+      const current = snapshotPlannerState();
+      const next = plannerHistory.future.pop();
+      if(current) plannerHistory.past.push(current);
+      if(applyPlannerSnapshot(next)) {
+        saveState();
+        if(typeof render === 'function') render();
+        showPlannerToast('Wiederhergestellt');
+      }
+      updateUndoButtons();
+    }
+    function updateUndoButtons() {
+      const u = document.getElementById('planner-btn-undo');
+      const r = document.getElementById('planner-btn-redo');
+      if(u) u.disabled = plannerHistory.past.length === 0;
+      if(r) r.disabled = plannerHistory.future.length === 0;
+    }
+    window.plannerUndo = plannerUndo;
+    window.plannerRedo = plannerRedo;
+
+    let _toastTimer = null;
+    function showPlannerToast(text) {
+      const old = document.getElementById('planner-toast');
+      if(old) old.remove();
+      if(_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
+      const t = document.createElement('div');
+      t.id = 'planner-toast';
+      t.className = 'planner-toast';
+      t.textContent = text;
+      document.body.appendChild(t);
+      _toastTimer = setTimeout(() => { t.remove(); _toastTimer = null; }, 1600);
+    }
+    window.showPlannerToast = showPlannerToast;
     function loadState() {
       try {
         const raw = localStorage.getItem(STATE_KEY);
@@ -985,6 +1252,8 @@
           parsed.cabling = normalizeCablingState(parsed.cabling);
           parsed.rackView = normalizeRackView(parsed.rackView, parsed.racks);
           parsed.rackViewOpen = false;
+          // Vollbild-Modus beim Reload nicht persistieren
+          if(parsed.view && typeof parsed.view === 'object') parsed.view.plannerFullscreen = false;
           Object.assign(state, parsed);
         }
       } catch(_) { /* invalid JSON — stille Fallback auf Defaults */ }
@@ -1036,6 +1305,10 @@
       }
 
       contentDiv.innerHTML = '';
+      // Vollbild-Klasse aufräumen, falls Step gewechselt wird
+      if(state.currentStep !== 2) {
+         document.body.classList.remove('planner-fs-active');
+      }
       if(state.currentStep === 1) renderStep1();
       else if(state.currentStep === 2) renderStep2();
       else if(state.currentStep === 3) renderStep3();
@@ -1169,6 +1442,27 @@
       if(state.isp) updateRecs();
     }
 
+    // --- STEP 2 Helpers --- //
+    // Fläche eines Polygons via Shoelace-Formel (in m²; Punkte sind Grid-Einheiten = 1m).
+    function computeRoomArea(room) {
+      if(!room || !Array.isArray(room.points) || room.points.length < 3) return 0;
+      const pts = room.points;
+      let sum = 0;
+      for(let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i+1) % pts.length];
+        sum += a.x * b.y - b.x * a.y;
+      }
+      return Math.abs(sum) / 2;
+    }
+    // Geometric centroid for label/area placement.
+    function computeRoomCenter(room) {
+      if(!room || !Array.isArray(room.points) || room.points.length < 1) return { x: 0, y: 0 };
+      const pts = room.points;
+      let sx = 0, sy = 0;
+      pts.forEach(p => { sx += p.x; sy += p.y; });
+      return { x: sx / pts.length, y: sy / pts.length };
+    }
+
     // --- STEP 2: Rooms (SVG Vector Engine) --- //
     function renderStep2() {
       const container = document.createElement('div');
@@ -1251,20 +1545,39 @@
           </button>
         </div>` : '';
 
-      const tabsHtml = state.floors.map(f => `
-         <button id="tab-${f.id}" class="px-4 py-3 border-b-2 font-bold ${f.id === state.currentFloorId ? 'border-nexus-primary text-nexus-primary' : 'border-transparent text-nexus-muted hover:text-nexus-base'}" onclick="window.switchFloor('${f.id}')" ondblclick="window.startFloorRename('${f.id}', this); event.stopPropagation();" title="Doppelklick zum Umbenennen">${f.name}</button>
-      `).join('') + `<button class="px-4 py-3 text-nexus-muted hover:text-nexus-primary" onclick="window.addFloor()"><i data-lucide="plus" class="w-4 h-4"></i></button>`;
+      const tabsHtml = state.floors.map(f => {
+         const isActive = f.id === state.currentFloorId;
+         const canDelete = state.floors.length > 1;
+         return `
+         <span class="floor-tab-wrap">
+           <button id="tab-${f.id}" class="px-3 md:px-4 py-3 border-b-2 font-bold whitespace-nowrap ${isActive ? 'border-nexus-primary text-nexus-primary' : 'border-transparent text-nexus-muted hover:text-nexus-base'}" onclick="window.switchFloor('${f.id}')" ondblclick="window.startFloorRename('${f.id}', this); event.stopPropagation();" title="Doppelklick zum Umbenennen">${escapeHtml(f.name)}</button>
+           <button class="floor-tab-menu-btn" title="Etagen-Optionen" aria-haspopup="true" onclick="event.stopPropagation(); window.toggleFloorMenu('${f.id}', this)">⋯</button>
+           <div class="floor-tab-actions" id="floor-menu-${f.id}" onclick="event.stopPropagation()">
+             <button onclick="window.startFloorRename('${f.id}', document.getElementById('tab-${f.id}')); window.closeFloorMenus();"><i data-lucide="edit-3" class="w-4 h-4"></i> Umbenennen</button>
+             <button onclick="window.duplicateFloor('${f.id}'); window.closeFloorMenus();"><i data-lucide="copy" class="w-4 h-4"></i> Duplizieren</button>
+             <button onclick="window.moveFloor('${f.id}', -1); window.closeFloorMenus();"><i data-lucide="arrow-left" class="w-4 h-4"></i> Nach links</button>
+             <button onclick="window.moveFloor('${f.id}', 1); window.closeFloorMenus();"><i data-lucide="arrow-right" class="w-4 h-4"></i> Nach rechts</button>
+             <button class="danger" ${canDelete ? '' : 'disabled'} onclick="window.deleteFloor('${f.id}'); window.closeFloorMenus();"><i data-lucide="trash-2" class="w-4 h-4"></i> Etage löschen</button>
+           </div>
+         </span>`;
+      }).join('') + `<button class="px-4 py-3 text-nexus-muted hover:text-nexus-primary" onclick="window.addFloor()" title="Etage hinzufügen"><i data-lucide="plus" class="w-4 h-4"></i></button>`;
 
       let inspectorHtml = '';
       if(state.selectedRoomId) {
          const sr = currentFloor.rooms.find(r => r.id === state.selectedRoomId);
          if(sr) {
+            const area = computeRoomArea(sr);
             inspectorHtml = `
-               <div class="card p-4 flex flex-wrap gap-4 items-end mt-2 bg-nexus-surfaceCard border-l-4 border-l-nexus-primary">
+               <div class="card p-4 flex flex-wrap gap-3 items-end mt-2 bg-nexus-surfaceCard border-l-4 border-l-nexus-primary">
                   <div class="flex-1 min-w-[200px]">
                      <label class="block text-xs font-bold mb-1 text-nexus-primary">Ausgewählter Raum</label>
-                     <input type="text" id="insp-name" value="${sr.name}" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm focus:outline-none focus:border-nexus-primary font-bold">
+                     <input type="text" id="insp-name" value="${escapeHtml(sr.name)}" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm focus:outline-none focus:border-nexus-primary font-bold">
                   </div>
+                  <div class="text-xs text-nexus-muted">
+                     <div class="font-bold uppercase tracking-wide mb-1">Fläche</div>
+                     <div class="text-base font-bold text-nexus-base">${area.toFixed(1)} m²</div>
+                  </div>
+                  <button onclick="window.duplicateRoom('${sr.id}')" class="px-3 py-2 bg-nexus-surface border border-nexus-border text-nexus-base rounded hover:bg-nexus-border transition-colors font-bold text-sm" title="Raum duplizieren"><i data-lucide="copy" class="w-4 h-4 inline-block mr-1"></i> Duplizieren</button>
                   <button onclick="window.deleteRoom('${sr.id}')" class="px-4 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 transition-colors font-bold text-sm" title="Raum löschen"><i data-lucide="trash-2" class="w-4 h-4 inline-block mr-1"></i> Löschen</button>
                </div>
             `;
@@ -1285,44 +1598,241 @@
           ${camToolbarHtml}
         </div>
         
-        <div class="card overflow-hidden">
-          <div class="flex justify-between items-center border-b border-nexus-border px-2 bg-nexus-surface bg-opacity-50">
-             <div class="flex flex-wrap">${tabsHtml}</div>
-             <div class="flex items-center gap-2 mr-2 my-2">
-               <button onclick="window.toggleHeatmap()" class="text-xs font-bold flex items-center gap-1 px-3 py-1.5 rounded transition-opacity ${state.view && state.view.heatmap ? 'bg-emerald-600 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Signal-Heatmap umschalten">
-                  <i data-lucide="thermometer" class="w-3 h-3"></i> Heatmap ${state.view && state.view.heatmap ? 'an' : 'aus'}
+        <div class="card" id="planner-card" style="overflow:visible;">
+          <div class="flex justify-between items-center border-b border-nexus-border px-2 bg-nexus-surface bg-opacity-50 gap-2 flex-wrap rounded-t-[12px]">
+             <div class="flex flex-wrap items-center overflow-x-auto" style="max-width:100%;">${tabsHtml}</div>
+             <div class="flex items-center gap-1 md:gap-2 mr-1 md:mr-2 my-2 flex-wrap">
+               <button id="planner-btn-undo" onclick="window.plannerUndo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Rückgängig (Strg+Z)" disabled>
+                  <i data-lucide="undo-2" class="w-3.5 h-3.5"></i><span class="hidden md:inline">Undo</span>
                </button>
-               <button class="text-sm font-bold flex items-center gap-1 text-white bg-nexus-primary px-3 py-1.5 rounded hover:opacity-80 transition-opacity" onclick="window.addRoom()">
-                  <i data-lucide="plus-square" class="w-4 h-4"></i> Neuer Raum
+               <button id="planner-btn-redo" onclick="window.plannerRedo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Wiederholen (Strg+Umschalt+Z)" disabled>
+                  <i data-lucide="redo-2" class="w-3.5 h-3.5"></i><span class="hidden md:inline">Redo</span>
+               </button>
+               <button onclick="window.toggleHeatmap()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state.view && state.view.heatmap ? 'bg-emerald-600 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Signal-Heatmap umschalten">
+                  <i data-lucide="thermometer" class="w-3.5 h-3.5"></i><span class="hidden md:inline"> Heatmap ${state.view && state.view.heatmap ? 'an' : 'aus'}</span>
+               </button>
+               <button onclick="window.toggleFullscreen()" id="planner-fs-btn" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Vollbild umschalten">
+                  <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
+               </button>
+               <button class="text-sm font-bold flex items-center gap-1 text-white bg-nexus-primary px-2 md:px-3 py-1.5 rounded hover:opacity-80 transition-opacity" onclick="window.addRoom()" title="Neuen Raum hinzufügen">
+                  <i data-lucide="plus-square" class="w-4 h-4"></i><span class="hidden md:inline"> Neuer Raum</span>
                </button>
              </div>
           </div>
           <div id="planner-area" class="w-full relative bg-nexus-surface overflow-hidden">
              <!-- SVG Canvas & Elements injected dynamically -->
           </div>
+          <div id="planner-inspector-slot">${inspectorHtml}</div>
         </div>
-        ${inspectorHtml}
       `;
       contentDiv.appendChild(container);
+      updateUndoButtons();
+
+      // Vollbild-Zustand wiederherstellen (bleibt über Renders erhalten)
+      if(state.view && state.view.plannerFullscreen) {
+         const card = document.getElementById('planner-card');
+         const btn = document.getElementById('planner-fs-btn');
+         if(card) card.classList.add('planner-fullscreen');
+         document.body.classList.add('planner-fs-active');
+         if(btn) btn.innerHTML = '<i data-lucide="minimize-2" class="w-3.5 h-3.5"></i>';
+      } else {
+         document.body.classList.remove('planner-fs-active');
+      }
 
       // Actions
       window.switchFloor = (id) => { state.currentFloorId = id; state.selectedRoomId = null; render(); };
       window.addFloor = () => {
+         pushPlannerHistory();
          const id = 'f-'+Date.now();
          const num = state.floors.length + 1;
          state.floors.push({ id, name: `Neue Etage ${num}`, rooms: [], aps: [], cameras: [] });
-         state.currentFloorId = id; state.selectedRoomId = null; render();
+         state.currentFloorId = id; state.selectedRoomId = null;
+         saveState(); render();
+      };
+      window.duplicateFloor = (id) => {
+         const src = state.floors.find(f => f.id === id);
+         if(!src) return;
+         pushPlannerHistory();
+         let counter = 0;
+         const uniq = () => Date.now().toString(36) + (counter++).toString(36) + Math.floor(Math.random()*1296).toString(36);
+         const cloneRoom = (r) => ({
+            ...r,
+            id: 'r-' + uniq(),
+            points: (r.points || []).map(p => ({ x: p.x, y: p.y })),
+            labelPos: r.labelPos ? { x: r.labelPos.x, y: r.labelPos.y } : undefined
+         });
+         const cloneAp  = (a) => ({ ...a, id: 'ap_'  + uniq() });
+         const cloneCam = (c) => ({ ...c, id: 'cam_' + uniq() });
+         const newId = 'f-' + uniq();
+         const newFloor = {
+            ...src,
+            id: newId,
+            name: src.name + ' (Kopie)',
+            rooms: (src.rooms || []).map(cloneRoom),
+            aps:   (src.aps   || []).map(cloneAp),
+            cameras:(src.cameras|| []).map(cloneCam),
+            view: src.view ? { ...src.view } : undefined,
+            backgroundImage: src.backgroundImage ? { ...src.backgroundImage } : undefined
+         };
+         const idx = state.floors.findIndex(f => f.id === id);
+         state.floors.splice(idx + 1, 0, newFloor);
+         state.currentFloorId = newId;
+         state.selectedRoomId = null;
+         saveState(); render();
+         showPlannerToast('Etage dupliziert');
+      };
+      window.deleteFloor = (id) => {
+         if(state.floors.length <= 1) {
+            showPlannerToast('Mindestens eine Etage erforderlich');
+            return;
+         }
+         const f = state.floors.find(fl => fl.id === id);
+         if(!f) return;
+         if(!confirm(`Etage "${f.name}" wirklich löschen? Räume, APs und Kameras gehen verloren.`)) return;
+         pushPlannerHistory();
+         const idx = state.floors.findIndex(fl => fl.id === id);
+         state.floors.splice(idx, 1);
+         if(state.currentFloorId === id) {
+            state.currentFloorId = state.floors[Math.max(0, idx - 1)].id;
+         }
+         state.selectedRoomId = null;
+         // Cabling-Connections für entfernte Geräte bereinigen
+         if(typeof pruneOrphanConnections === 'function') pruneOrphanConnections();
+         saveState(); render();
+         showPlannerToast('Etage gelöscht');
+      };
+      window.moveFloor = (id, dir) => {
+         const idx = state.floors.findIndex(f => f.id === id);
+         const next = idx + (dir < 0 ? -1 : 1);
+         if(idx < 0 || next < 0 || next >= state.floors.length) return;
+         pushPlannerHistory();
+         const [f] = state.floors.splice(idx, 1);
+         state.floors.splice(next, 0, f);
+         saveState(); render();
+      };
+      window.toggleFloorMenu = (id, btn) => {
+         const menu = document.getElementById(`floor-menu-${id}`);
+         if(!menu) return;
+         const wasOpen = menu.classList.contains('open');
+         window.closeFloorMenus();
+         if(!wasOpen) {
+            menu.classList.add('open');
+            // Click-outside handler – nur einmalig
+            setTimeout(() => {
+               const onDoc = (ev) => {
+                  if(!menu.contains(ev.target) && ev.target !== btn) {
+                     window.closeFloorMenus();
+                     document.removeEventListener('pointerdown', onDoc, true);
+                  }
+               };
+               document.addEventListener('pointerdown', onDoc, true);
+            }, 0);
+         }
+      };
+      window.closeFloorMenus = () => {
+         document.querySelectorAll('.floor-tab-actions.open').forEach(el => el.classList.remove('open'));
       };
       window.addRoom = () => {
+         pushPlannerHistory();
          currentFloor.rooms.push({ id: 'r-'+Date.now(), name: 'Neuer Raum', points: [{x:2,y:2},{x:8,y:2},{x:8,y:7},{x:2,y:7}] });
          state.selectedRoomId = currentFloor.rooms[currentFloor.rooms.length-1].id;
-         render();
+         saveState(); render();
+      };
+      window.duplicateRoom = (id) => {
+         const src = currentFloor.rooms.find(r => r.id === id);
+         if(!src) return;
+         pushPlannerHistory();
+         const offset = 1; // 1m versetzt
+         const nid = 'r-' + Date.now();
+         const copy = {
+            ...src,
+            id: nid,
+            name: src.name + ' (Kopie)',
+            points: (src.points || []).map(p => ({ x: p.x + offset, y: p.y + offset })),
+            labelPos: src.labelPos
+               ? { x: src.labelPos.x + offset * 20, y: src.labelPos.y + offset * 20 }
+               : undefined
+         };
+         currentFloor.rooms.push(copy);
+         state.selectedRoomId = nid;
+         saveState(); render();
+         showPlannerToast('Raum dupliziert');
       };
       window.deleteRoom = (id) => {
+         pushPlannerHistory();
          currentFloor.rooms = currentFloor.rooms.filter(r => r.id !== id);
-         state.selectedRoomId = null; render();
+         state.selectedRoomId = null;
+         saveState(); render();
       };
-      
+      window.toggleFullscreen = () => {
+         const card = document.getElementById('planner-card');
+         if(!card) return;
+         const isFs = card.classList.toggle('planner-fullscreen');
+         document.body.classList.toggle('planner-fs-active', isFs);
+         state.view = state.view || {};
+         state.view.plannerFullscreen = isFs;
+         saveState();
+         const btn = document.getElementById('planner-fs-btn');
+         if(btn) {
+            btn.innerHTML = `<i data-lucide="${isFs ? 'minimize-2' : 'maximize-2'}" class="w-3.5 h-3.5"></i>`;
+            btn.title = isFs ? 'Vollbild verlassen' : 'Vollbild umschalten';
+            if(window.lucide) lucide.createIcons();
+         }
+         // Heatmap und APs neu zeichnen, weil sich Größe geändert hat
+         setTimeout(() => { try { drawAps(); } catch(_) {} }, 50);
+      };
+      window.uploadFloorBackground = () => {
+         const inp = document.createElement('input');
+         inp.type = 'file';
+         inp.accept = 'image/*';
+         inp.onchange = (e) => {
+            const file = e.target.files?.[0];
+            if(!file) return;
+            if(file.size > 5 * 1024 * 1024) {
+               if(!confirm('Bild ist größer als 5 MB. Trotzdem laden? Das kann das Projekt verlangsamen.')) return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => {
+               pushPlannerHistory();
+               currentFloor.backgroundImage = {
+                  dataUrl: reader.result,
+                  opacity: currentFloor.backgroundImage?.opacity ?? 0.55,
+                  visible: true,
+                  scale: currentFloor.backgroundImage?.scale ?? 1,
+                  offsetX: currentFloor.backgroundImage?.offsetX ?? 0,
+                  offsetY: currentFloor.backgroundImage?.offsetY ?? 0
+               };
+               saveState(); render();
+               showPlannerToast('Grundriss-Bild geladen');
+            };
+            reader.readAsDataURL(file);
+         };
+         inp.click();
+      };
+      window.removeFloorBackground = () => {
+         if(!currentFloor.backgroundImage) return;
+         if(!confirm('Hintergrund-Grundriss entfernen?')) return;
+         pushPlannerHistory();
+         delete currentFloor.backgroundImage;
+         saveState(); render();
+      };
+      window.toggleFloorBackground = () => {
+         if(!currentFloor.backgroundImage) return;
+         currentFloor.backgroundImage.visible = !currentFloor.backgroundImage.visible;
+         saveState(); render();
+      };
+      window.setFloorBackgroundOpacity = (v) => {
+         if(!currentFloor.backgroundImage) return;
+         currentFloor.backgroundImage.opacity = Math.max(0.05, Math.min(1, parseFloat(v) || 0.55));
+         const img = document.getElementById('planner-bg-img');
+         if(img) img.style.opacity = currentFloor.backgroundImage.opacity;
+         saveState();
+      };
+      window.setFloorBackgroundScale = (v) => {
+         if(!currentFloor.backgroundImage) return;
+         currentFloor.backgroundImage.scale = Math.max(0.1, Math.min(5, parseFloat(v) || 1));
+         saveState(); render();
+      };
 
 
       window.startFloorRename = (id, btn) => {
@@ -1400,6 +1910,22 @@
       world.style.transformOrigin = '0 0';
       world.style.willChange = 'transform';
       planner.appendChild(world);
+
+      // Hintergrund-Grundriss (per Etage gespeichert) — als unterste Layer
+      if(currentFloor.backgroundImage && currentFloor.backgroundImage.dataUrl && currentFloor.backgroundImage.visible !== false) {
+         const bg = currentFloor.backgroundImage;
+         const bgImg = document.createElement('img');
+         bgImg.id = 'planner-bg-img';
+         bgImg.alt = 'Grundriss';
+         bgImg.src = bg.dataUrl;
+         bgImg.style.opacity = (bg.opacity ?? 0.55);
+         bgImg.style.left = (bg.offsetX || 0) + 'px';
+         bgImg.style.top = (bg.offsetY || 0) + 'px';
+         bgImg.style.position = 'absolute';
+         bgImg.style.width = (100 * (bg.scale || 1)) + '%';
+         bgImg.style.height = (100 * (bg.scale || 1)) + '%';
+         world.appendChild(bgImg);
+      }
       const applyView = () => {
          world.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
       };
@@ -1454,6 +1980,117 @@
          <button type="button" data-act="right"   title="Nach rechts">→</button>
       `;
       planner.appendChild(controls);
+
+      // Tools panel (top-left): Background image, fit-to-content
+      const tools = document.createElement('div');
+      tools.className = 'planner-tools';
+      const hasBg = !!(currentFloor.backgroundImage && currentFloor.backgroundImage.dataUrl);
+      const bgVisible = hasBg && currentFloor.backgroundImage.visible !== false;
+      tools.innerHTML = `
+         <button type="button" data-act="fit"         title="Auf Räume zoomen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
+         <button type="button" data-act="bg-upload"   title="Grundriss-Bild laden"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
+         ${hasBg ? `
+         <button type="button" data-act="bg-toggle" class="${bgVisible ? 'active' : ''}" title="Grundriss-Bild ein/aus"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+         <button type="button" data-act="bg-settings" title="Grundriss-Einstellungen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.36.86 1.16 1.42 2 1.51H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+         ` : ''}
+      `;
+      planner.appendChild(tools);
+      tools.addEventListener('pointerdown', (e) => e.stopPropagation());
+      tools.addEventListener('click', (e) => {
+         const btn = e.target.closest('button[data-act]');
+         if(!btn) return;
+         const act = btn.getAttribute('data-act');
+         if(act === 'fit') fitView();
+         else if(act === 'bg-upload') window.uploadFloorBackground();
+         else if(act === 'bg-toggle') window.toggleFloorBackground();
+         else if(act === 'bg-settings') openBgSettings();
+      });
+
+      // Auto-fit auf alle Räume
+      const fitView = () => {
+         if(!currentFloor.rooms.length) {
+            resetView();
+            return;
+         }
+         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+         currentFloor.rooms.forEach(r => {
+            (r.points || []).forEach(p => {
+               if(p.x < minX) minX = p.x;
+               if(p.y < minY) minY = p.y;
+               if(p.x > maxX) maxX = p.x;
+               if(p.y > maxY) maxY = p.y;
+            });
+         });
+         if(!Number.isFinite(minX)) { resetView(); return; }
+         const PAD = 20;
+         const wPx = Math.max(40, (maxX - minX) * CELL_SIZE);
+         const hPx = Math.max(40, (maxY - minY) * CELL_SIZE);
+         const r = planner.getBoundingClientRect();
+         const z = clampZoom(Math.min((r.width - PAD * 2) / wPx, (r.height - PAD * 2) / hPx));
+         view.zoom = z;
+         view.panX = PAD - minX * CELL_SIZE * z + (r.width - PAD * 2 - wPx * z) / 2;
+         view.panY = PAD - minY * CELL_SIZE * z + (r.height - PAD * 2 - hPx * z) / 2;
+         applyView();
+         updateZoomIndicator();
+         saveState();
+         showPlannerToast('Auf Räume gezoomt');
+      };
+
+      // Settings popup für Hintergrund-Grundriss
+      const openBgSettings = () => {
+         if(!currentFloor.backgroundImage) return;
+         const old = document.getElementById('planner-bg-popup');
+         if(old) { old.remove(); return; }
+         const bg = currentFloor.backgroundImage;
+         const popup = document.createElement('div');
+         popup.id = 'planner-bg-popup';
+         popup.style.cssText = `
+            position: absolute;
+            top: 8px;
+            left: 52px;
+            z-index: 35;
+            background: var(--color-surface-card);
+            border: 1px solid var(--color-border);
+            border-radius: 8px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+            padding: 0.6rem 0.75rem;
+            min-width: 220px;
+            font-size: 0.8rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+         `;
+         popup.innerHTML = `
+            <div class="font-bold text-xs uppercase tracking-wide text-nexus-muted">Grundriss-Bild</div>
+            <label class="block">
+               <span class="text-[11px] text-nexus-muted">Deckkraft</span>
+               <input id="bg-opacity" type="range" min="0.1" max="1" step="0.05" value="${bg.opacity ?? 0.55}" class="w-full">
+            </label>
+            <label class="block">
+               <span class="text-[11px] text-nexus-muted">Größe (Skalierung)</span>
+               <input id="bg-scale" type="range" min="0.2" max="3" step="0.05" value="${bg.scale ?? 1}" class="w-full">
+            </label>
+            <div class="flex gap-2 mt-1">
+               <button id="bg-replace" class="flex-1 text-xs px-2 py-1 rounded border border-nexus-border bg-nexus-surface hover:bg-nexus-border">Ersetzen</button>
+               <button id="bg-remove" class="flex-1 text-xs px-2 py-1 rounded border border-red-300 text-red-600 bg-red-50 hover:bg-red-100">Entfernen</button>
+            </div>
+         `;
+         planner.appendChild(popup);
+         popup.addEventListener('pointerdown', (e) => e.stopPropagation());
+         popup.querySelector('#bg-opacity').addEventListener('input', (e) => window.setFloorBackgroundOpacity(e.target.value));
+         popup.querySelector('#bg-scale').addEventListener('change', (e) => window.setFloorBackgroundScale(e.target.value));
+         popup.querySelector('#bg-replace').addEventListener('click', () => { popup.remove(); window.uploadFloorBackground(); });
+         popup.querySelector('#bg-remove').addEventListener('click', () => { popup.remove(); window.removeFloorBackground(); });
+         setTimeout(() => {
+            const onDoc = (ev) => {
+               if(!popup.contains(ev.target)) {
+                  popup.remove();
+                  document.removeEventListener('pointerdown', onDoc, true);
+               }
+            };
+            document.addEventListener('pointerdown', onDoc, true);
+         }, 0);
+      };
       const updateZoomIndicator = () => {
          const ind = controls.querySelector('#planner-zoom-ind');
          if(ind) ind.textContent = Math.round(view.zoom * 100) + '%';
@@ -1483,6 +2120,49 @@
          setZoomAt(view.zoom * factor, e.clientX, e.clientY);
       }, { passive: false });
 
+      // Empty-area pan: drag with one finger / mouse on the planner background to pan the view.
+      // Wir registrieren am planner-Container (Capture: false), greifen also nur, wenn kein
+      // Kind-Element (Polygon/Vertex/AP/Toolbar) den Event vorher konsumiert hat.
+      let bgPan = null; // { startX, startY, panX, panY, pointerId }
+      planner.addEventListener('pointerdown', (e) => {
+         // Nur Maus links und einzelner Touch — Pinch hat bereits Vorrang via capture-Listener
+         if(e.pointerType === 'mouse' && e.button !== 0) return;
+         if(pinchPointers && pinchPointers.size >= 2) return;
+         if(e.target.closest('button, input, .planner-controls, .planner-tools, .planner-toolbar-card, [data-slug], polygon, .draggable-ap, .room-label, circle.vertex-hit, line.edge-hitbox, text.edge-label, .vertex-delete-btn, #planner-bg-popup')) return;
+         bgPan = {
+            startX: e.clientX,
+            startY: e.clientY,
+            panX: view.panX,
+            panY: view.panY,
+            pointerId: e.pointerId,
+            moved: false
+         };
+         try { planner.setPointerCapture(e.pointerId); } catch(_) {}
+      });
+      planner.addEventListener('pointermove', (e) => {
+         if(!bgPan || e.pointerId !== bgPan.pointerId) return;
+         const dx = e.clientX - bgPan.startX;
+         const dy = e.clientY - bgPan.startY;
+         if(!bgPan.moved && Math.hypot(dx, dy) < 4) return;
+         bgPan.moved = true;
+         view.panX = bgPan.panX + dx;
+         view.panY = bgPan.panY + dy;
+         applyView();
+      });
+      const endBgPan = (e) => {
+         if(!bgPan || e.pointerId !== bgPan.pointerId) return;
+         try { planner.releasePointerCapture(bgPan.pointerId); } catch(_) {}
+         if(bgPan.moved) saveState();
+         else if(state.selectedRoomId) {
+            // Klick auf leere Fläche → Auswahl aufheben
+            state.selectedRoomId = null;
+            render();
+         }
+         bgPan = null;
+      };
+      planner.addEventListener('pointerup', endBgPan);
+      planner.addEventListener('pointercancel', endBgPan);
+
       // Pinch-zoom + 2-finger pan via Pointer Events
       const pinchPointers = new Map();
       let pinchStart = null; // { dist, midX, midY, zoom, panX, panY }
@@ -1496,6 +2176,11 @@
             }
             dragMode = null; activeObj = null;
             activePointerId = null; activePointerEl = null;
+            // Cancel one-finger background pan if active
+            if(bgPan) {
+               try { planner.releasePointerCapture(bgPan.pointerId); } catch(_) {}
+               bgPan = null;
+            }
             const pts = [...pinchPointers.values()];
             const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
             pinchStart = {
@@ -1621,6 +2306,7 @@
             if(e.pointerType === 'mouse' && e.button !== 0) return;
             e.stopPropagation();
             e.preventDefault();
+            pushPlannerHistory();
             dragMode = 'poly'; activeObj = room;
             const w = clientToWorld(e.clientX, e.clientY);
             dOffX = w.x; dOffY = w.y;
@@ -1651,10 +2337,21 @@
          lbl.style.transform = 'translate(-50%, -50%)';
          lbl.innerText = room.name;
 
+         // Fläche unter dem Raumnamen
+         const areaVal = computeRoomArea(room);
+         const areaBadge = document.createElement('div');
+         areaBadge.className = 'room-area-badge';
+         areaBadge.id = `area-${room.id}`;
+         areaBadge.textContent = areaVal.toFixed(1) + ' m²';
+         areaBadge.style.left = lX + 'px';
+         areaBadge.style.top = lY + 'px';
+         labelsLayer.appendChild(areaBadge);
+
          lbl.addEventListener('pointerdown', (e) => {
              if(e.pointerType === 'mouse' && e.button !== 0) return;
              e.stopPropagation();
              e.preventDefault();
+             pushPlannerHistory();
              dragMode = 'label'; activeObj = room;
              const w = clientToWorld(e.clientX, e.clientY);
              dOffX = w.x - lX;
@@ -1684,10 +2381,12 @@
                   if(e.pointerType === 'mouse' && e.button !== 0) return;
                   e.stopPropagation();
                   e.preventDefault();
+                  pushPlannerHistory();
                   const w = clientToWorld(e.clientX, e.clientY);
                   let nx = Math.round(w.x / CELL_SIZE);
                   let ny = Math.round(w.y / CELL_SIZE);
                   room.points.splice(i+1, 0, {x: Math.max(0, nx), y: Math.max(0, ny)});
+                  saveState();
                   render();
                });
                svg.appendChild(line);
@@ -1713,6 +2412,7 @@
                   if (e.pointerType === 'mouse' && e.button !== 0) return;
                   e.stopPropagation();
                   e.preventDefault();
+                  pushPlannerHistory();
                   dragMode = 'vert'; activeObj = room; activeVertIdx = i;
                   const w = clientToWorld(e.clientX, e.clientY);
                   dOffX = w.x - (pt.x*CELL_SIZE);
@@ -1726,7 +2426,9 @@
                   e.preventDefault();
                   e.stopPropagation();
                   if (room.points.length <= 3) return; // keep at least a triangle
+                  pushPlannerHistory();
                   room.points.splice(i, 1);
+                  saveState();
                   render();
                });
                svg.appendChild(hit);
@@ -1744,7 +2446,9 @@
                      e.stopPropagation();
                      e.preventDefault();
                      if (room.points.length <= 3) return;
+                     pushPlannerHistory();
                      room.points.splice(i, 1);
+                     saveState();
                      render();
                   });
                   labelsLayer.appendChild(delBtn);
@@ -1829,7 +2533,7 @@
          }
          activePointerId = null;
          activePointerEl = null;
-         if(dragMode) { dragMode = null; render(); }
+         if(dragMode) { dragMode = null; saveState(); render(); }
       };
       planner.addEventListener('pointerup', commitDrag);
       planner.addEventListener('pointercancel', commitDrag);
@@ -1874,7 +2578,8 @@
             });
             
             const lblEl = document.getElementById(`lbl-${activeObj.id}`);
-            if(lblEl) {
+            const areaEl = document.getElementById(`area-${activeObj.id}`);
+            if(lblEl || areaEl) {
                let lX, lY;
                if(activeObj.labelPos) {
                   lX = activeObj.labelPos.x; lY = activeObj.labelPos.y;
@@ -1883,11 +2588,18 @@
                   const maxX = Math.max(...activeObj.points.map(p=>p.x))*CELL_SIZE;
                   const minY = Math.min(...activeObj.points.map(p=>p.y))*CELL_SIZE;
                   const maxY = Math.max(...activeObj.points.map(p=>p.y))*CELL_SIZE;
-                  lX = (minX + (maxX-minX)/2); 
+                  lX = (minX + (maxX-minX)/2);
                   lY = (minY + (maxY-minY)/2);
                }
-               lblEl.style.left = lX + 'px';
-               lblEl.style.top = lY + 'px';
+               if(lblEl) {
+                  lblEl.style.left = lX + 'px';
+                  lblEl.style.top = lY + 'px';
+               }
+               if(areaEl) {
+                  areaEl.style.left = lX + 'px';
+                  areaEl.style.top = lY + 'px';
+                  areaEl.textContent = computeRoomArea(activeObj).toFixed(1) + ' m²';
+               }
             }
          }
       };
@@ -1913,6 +2625,7 @@
          if(clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
          const wpt = clientToWorld(clientX, clientY);
          const x = wpt.x, y = wpt.y;
+         pushPlannerHistory();
          if(kind === 'camera') {
             currentFloor.cameras.push({ id: 'cam_'+Date.now(), slug, x, y });
          } else {
@@ -2129,6 +2842,7 @@
              if(e.target.closest('button')) return; // delete button handles itself
              e.stopPropagation();
              e.preventDefault();
+             pushPlannerHistory();
              dragMode = 'ap'; activeObj = apState;
              const w = clientToWorld(e.clientX, e.clientY);
              dOffX = w.x - apState.x; dOffY = w.y - apState.y;
@@ -2140,6 +2854,7 @@
           dotContainer.querySelector('button').addEventListener('pointerdown', (ev) => {
              ev.stopPropagation();
              ev.preventDefault();
+             pushPlannerHistory();
              currentFloor.aps = currentFloor.aps.filter(a => a.id !== apState.id);
              if(dragMode==='ap') {dragMode=null;}
              drawAps();
@@ -2165,6 +2880,7 @@
              if(e.target.closest('button')) return;
              e.stopPropagation();
              e.preventDefault();
+             pushPlannerHistory();
              dragMode = 'cam'; activeObj = camState;
              const w = clientToWorld(e.clientX, e.clientY);
              dOffX = w.x - camState.x; dOffY = w.y - camState.y;
@@ -2175,6 +2891,7 @@
           dotContainer.querySelector('button').addEventListener('pointerdown', (ev) => {
              ev.stopPropagation();
              ev.preventDefault();
+             pushPlannerHistory();
              currentFloor.cameras = currentFloor.cameras.filter(c => c.id !== camState.id);
              if(dragMode==='cam') {dragMode=null;}
              drawAps();
