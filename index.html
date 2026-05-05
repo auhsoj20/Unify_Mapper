@@ -415,10 +415,18 @@
     .switch-port {
       width: 24px; height: 24px; border: 1px solid var(--color-border); border-radius: 2px; background: color-mix(in oklch, var(--color-surface) 80%, transparent); cursor: pointer; display: flex; align-items: center; justify-content: center; position: relative;
     }
+    /* PoE-Port-Klassen: dezenter Farbverlauf, der die maximale Klasse pro Port
+       andeutet (PoE → PoE+ → PoE++ → PoE+++). Non-PoE-Ports bleiben neutral. */
+    .switch-port.poe              { border-color: #93c5fd; }
+    .switch-port.poe-plus         { border-color: #60a5fa; background: color-mix(in oklch, #60a5fa 8%, transparent); }
+    .switch-port.poe-plus-plus    { border-color: #6366f1; background: color-mix(in oklch, #6366f1 10%, transparent); }
+    .switch-port.poe-plus-plus-plus{ border-color: #a855f7; background: color-mix(in oklch, #a855f7 12%, transparent); }
     .switch-port.in-use { background: color-mix(in oklch, var(--color-primary) 20%, transparent); border-color: var(--color-primary); }
     .switch-port.in-use::after { content: ""; position: absolute; bottom: -6px; width: 4px; height: 4px; border-radius: 50%; background: #10b981; }
     .switch-port.uplink { background: color-mix(in oklch, #f59e0b 20%, transparent); border-color: #f59e0b; }
     .switch-port.uplink::after { background: #f59e0b; }
+    .switch-port.conflict { background: color-mix(in oklch, #dc2626 20%, transparent); border-color: #dc2626; outline: 1px dashed #dc2626; }
+    .switch-port.conflict::after { background: #dc2626; }
 
     .toggle-checkbox:checked { right: 0; border-color: var(--color-primary); }
     .toggle-checkbox:checked + .toggle-label { background-color: var(--color-primary); }
@@ -2912,6 +2920,35 @@
     // Konstanten der PoE-Planung: 20 % Reserve auf das Budget, 1 Uplink-Port pro Switch.
     const POE_HEADROOM = 1.20;
     const SWITCH_UPLINK_PORTS = 1;
+    // PoE-Klassen → maximale Wattage pro Port. Wird benutzt, um Geräte gegen
+    // einzelne Port-Limits zu prüfen (nicht nur das Gesamt-Budget).
+    const POE_CLASS_WATTS = { 'poe': 15, 'poe+': 30, 'poe++': 60, 'poe+++': 90 };
+    const POE_CLASS_LABEL = { 'poe': 'PoE 15 W', 'poe+': 'PoE+ 30 W', 'poe++': 'PoE++ 60 W', 'poe+++': 'PoE+++ 90 W' };
+
+    // Anzahl PoE-fähiger Ports an Switch oder Gateway. Legacy-Fallback:
+    // wenn `poePorts` fehlt, gilt `ports` falls Gerät PoE liefert, sonst 0.
+    function getPoePortCount(spec) {
+      if(!spec) return 0;
+      if(typeof spec.poePorts === 'number') return spec.poePorts;
+      return (spec.poe && spec.budget > 0) ? (spec.ports || 0) : 0;
+    }
+    // Maximale Watt-Abgabe pro Port. Legacy-Fallback: Klasse aus Spec lesen,
+    // sonst PoE+ (30 W) annehmen falls überhaupt PoE.
+    function getPoeMaxPerPort(spec) {
+      if(!spec) return 0;
+      if(typeof spec.poeMaxPerPort === 'number') return spec.poeMaxPerPort;
+      if(spec.poePortClass && POE_CLASS_WATTS[spec.poePortClass]) return POE_CLASS_WATTS[spec.poePortClass];
+      return (spec.poe && spec.budget > 0) ? 30 : 0;
+    }
+    // Lesbares Label „PoE++ 60 W". Fällt auf „PoE+" zurück.
+    function getPoeClassLabel(spec) {
+      const w = getPoeMaxPerPort(spec);
+      if(w >= 90) return POE_CLASS_LABEL['poe+++'];
+      if(w >= 60) return POE_CLASS_LABEL['poe++'];
+      if(w >= 30) return POE_CLASS_LABEL['poe+'];
+      if(w > 0)   return POE_CLASS_LABEL['poe'];
+      return '';
+    }
 
     // Watt-Bedarf eines APs/Kamera-Geräts ermitteln. APs nutzen `maxWatts`, Kameras
     // `poeWatts`. Nicht-PoE-Geräte (z. B. Mesh-Verlängerung am Netzteil) liefern 0.
@@ -2923,6 +2960,80 @@
     }
     function getDeviceName(slug) {
       return productCache.specs[slug]?.name || slug;
+    }
+
+    // Bin-Packing für die Switch- bzw. Gateway-Ports.
+    // - Reserviert SWITCH_UPLINK_PORTS Ports am Anfang als Uplink (nur für Switches).
+    // - Sortiert Geräte nach Watt absteigend, damit hochstrom-Geräte zuerst auf
+    //   große Klassen kommen.
+    // - PoE-pflichtige Geräte (>0 W) belegen zuerst PoE-Ports (Index 0…poePorts-1
+    //   relativ zu den nutzbaren Ports). Geräte mit 0 W gehen auf Non-PoE-Ports.
+    // - Wenn ein Gerät keine passende Port-Klasse findet, landet es in
+    //   `conflicts` (`reason: 'class-too-low' | 'no-poe-port'`).
+    // - Wenn überhaupt keine Ports mehr frei sind: `overflow`.
+    function getPortAssignmentPlan(devices, spec, opts = {}) {
+      const totalPorts = (spec?.ports) || 0;
+      const poePorts = getPoePortCount(spec);
+      const maxPerPort = getPoeMaxPerPort(spec);
+      const reserveUplink = !!opts.reserveUplink;
+      const startIdx = reserveUplink ? SWITCH_UPLINK_PORTS : 0;
+      // Slots: jeder Port-Index 0..totalPorts-1 mit Metadaten.
+      // PoE-Slots zuerst (im UI links), dann Non-PoE.
+      const slots = [];
+      for(let i = 0; i < totalPorts; i++) {
+        const isPoe = i < poePorts;
+        slots.push({ idx: i, isPoe, classWatts: isPoe ? maxPerPort : 0, device: null });
+      }
+      if(reserveUplink && slots[0]) {
+        slots[0].device = { type: 'gateway', name: 'Uplink', watts: 0, isUplink: true };
+      }
+      // Geräte sortieren: PoE-pflichtig zuerst (höchste Last zuerst), Non-PoE danach.
+      const sorted = [...devices].sort((a, b) => {
+        const aw = a.watts || 0, bw = b.watts || 0;
+        if((aw > 0) !== (bw > 0)) return (bw > 0) - (aw > 0);
+        return bw - aw;
+      });
+      const conflicts = [];
+      const overflow = [];
+      for(const d of sorted) {
+        const needsPoe = (d.watts || 0) > 0;
+        // Erstes freies Slot suchen (ab `startIdx`):
+        // PoE-Geräte nehmen PoE-Slot mit ausreichender Klasse,
+        // Non-PoE-Geräte nehmen am liebsten Non-PoE-Slot, sonst PoE-Slot.
+        let target = null;
+        if(needsPoe) {
+          target = slots.find((s, i) => i >= startIdx && !s.device && s.isPoe && s.classWatts >= d.watts);
+          if(!target) {
+            // Kein PoE-Slot mit passender Klasse — Konfliktgrund finden:
+            const anyPoeFree = slots.some((s, i) => i >= startIdx && !s.device && s.isPoe);
+            const reason = anyPoeFree ? 'class-too-low' : 'no-poe-port';
+            // Falls Grund „class-too-low" → Gerät trotzdem auf irgendeinem PoE-Slot
+            // zur visuellen Belegung markieren (mit Konflikt-Flag).
+            const fallback = slots.find((s, i) => i >= startIdx && !s.device && s.isPoe);
+            if(fallback) {
+              fallback.device = { ...d, conflict: reason };
+              conflicts.push({ device: d, reason });
+              continue;
+            }
+            // Kein PoE-Slot frei: probieren auf Non-PoE-Slot (kein Strom!),
+            // ansonsten Overflow.
+            const nonPoe = slots.find((s, i) => i >= startIdx && !s.device && !s.isPoe);
+            if(nonPoe) {
+              nonPoe.device = { ...d, conflict: 'no-poe-port' };
+              conflicts.push({ device: d, reason: 'no-poe-port' });
+            } else {
+              overflow.push(d);
+            }
+            continue;
+          }
+        } else {
+          target = slots.find((s, i) => i >= startIdx && !s.device && !s.isPoe)
+                || slots.find((s, i) => i >= startIdx && !s.device);
+          if(!target) { overflow.push(d); continue; }
+        }
+        target.device = d;
+      }
+      return { slots, conflicts, overflow, totalPorts, poePorts, maxPerPort };
     }
 
     // Sammelt die platzierten APs/Kameras und reichert sie mit Watt + Anzeigename an.
@@ -2968,24 +3079,36 @@
     }
 
     // Empfiehlt einen passenden Switch anhand der real auf den Switch geleiteten
-    // PoE-Last und der Anzahl benötigter Ports (Geräte am Switch + 1 Uplink).
-    // Wenn das Gateway das gesamte PoE-Budget bereitstellt, reicht ein Non-PoE-Switch.
-    function recommendSwitch(switches, switchPoe, switchDevices, gatewayCanCoverAll) {
+    // PoE-Last, der Anzahl PoE-pflichtiger Geräte, der höchsten benötigten
+    // Port-Klasse und der Anzahl benötigter Gesamt-Ports (inkl. Uplink).
+    // Wenn das Gateway alle PoE-Geräte versorgen kann, reicht ein Non-PoE-Switch.
+    function recommendSwitch(switches, switchPoe, switchDevices, gatewayCanCoverAll, opts = {}) {
+      const poeDevices = opts.poeDevices ?? switchDevices;        // wieviele brauchen PoE?
+      const maxDeviceWatts = opts.maxDeviceWatts ?? 0;             // max. Einzelgerät-Watt
       const portsNeeded = switchDevices + SWITCH_UPLINK_PORTS;
       const requiredBudget = switchPoe * POE_HEADROOM;
-      const fitsPorts = (s) => (s.ports || 0) >= portsNeeded;
-      // Bevorzugt: passt auf Ports UND deckt PoE mit Reserve.
-      const ideal = switches.find(s => fitsPorts(s) && (s.budget || 0) >= requiredBudget);
+      const fitsTotalPorts = (s) => (s.ports || 0) >= portsNeeded;
+      const fitsPoePorts = (s) => getPoePortCount(s) >= poeDevices;
+      const fitsClass = (s) => getPoeMaxPerPort(s) >= maxDeviceWatts;
+      const fitsBudget = (s) => (s.budget || 0) >= requiredBudget;
+      // 1) Bestfall: deckt Ports + PoE-Ports + Klasse + Budget mit Reserve.
+      const ideal = switches.find(s => fitsTotalPorts(s) && fitsPoePorts(s) && fitsClass(s) && fitsBudget(s));
       if(ideal) return ideal;
-      // Sonst: ein Non-PoE-Switch reicht, wenn das Gateway sowieso allen PoE liefert.
+      // 2) Fall, dass das Gateway alle PoE-Geräte versorgt: Non-PoE-Switch reicht.
       if(gatewayCanCoverAll) {
-        const nonPoe = switches.find(s => fitsPorts(s) && !(s.budget > 0));
+        const nonPoe = switches.find(s => fitsTotalPorts(s) && !(s.budget > 0));
         if(nonPoe) return nonPoe;
       }
-      // Sonst: irgendein Switch der genug Ports hat.
-      const portsOnly = switches.find(fitsPorts);
+      // 3) Klasse + PoE-Ports passen, Budget knapp — besser knapp als gar nicht.
+      const classFit = switches.find(s => fitsTotalPorts(s) && fitsPoePorts(s) && fitsClass(s));
+      if(classFit) return classFit;
+      // 4) Mindestens PoE-Ports passen, Klasse knapp.
+      const poeFit = switches.find(s => fitsTotalPorts(s) && fitsPoePorts(s));
+      if(poeFit) return poeFit;
+      // 5) Notlösung: nur Gesamt-Ports passen.
+      const portsOnly = switches.find(fitsTotalPorts);
       if(portsOnly) return portsOnly;
-      // Fallback: der größte verfügbare Switch.
+      // 6) Fallback: der größte verfügbare Switch.
       return switches[switches.length - 1] || { name: 'Generic PoE Switch', budget: 150, ports: 16, slug: '' };
     }
 
@@ -2993,13 +3116,17 @@
       const { allAps, allCameras, allDevices } = collectPoeDevices();
       const totalPoe = allDevices.reduce((s, d) => s + d.watts, 0);
       const hasApOrCam = allDevices.length > 0;
+      const maxDeviceWatts = allDevices.reduce((m, d) => Math.max(m, d.watts || 0), 0);
 
       const gatewaySpec = state.gateway ? productCache.specs[state.gateway] : null;
       const gatewayBudget = gatewaySpec?.budget || 0;
       const gatewayHasPoe = gatewayBudget > 0;
       // Wenn das Gateway-Budget alleine alle PoE-Geräte versorgen könnte (mit Headroom),
       // darf der Switch ohne PoE auskommen. Wichtig z. B. für UDW (420 W) im Heimnetz.
-      const gatewayCanCoverAll = gatewayHasPoe && gatewayBudget >= totalPoe * POE_HEADROOM;
+      const gatewayCanCoverAll = gatewayHasPoe
+        && gatewayBudget >= totalPoe * POE_HEADROOM
+        && getPoePortCount(gatewaySpec) >= allDevices.filter(d => d.watts > 0).length
+        && getPoeMaxPerPort(gatewaySpec) >= maxDeviceWatts;
 
       const switches = productCache.switching
         .map(s => productCache.specs[s.slug])
@@ -3009,9 +3136,14 @@
 
       // Erste Schätzung der Switch-Last: alle APs/Kameras gehen an den Switch.
       // (Wenn das Gateway PoE liefert, wird die Empfehlung weiter unten korrigiert.)
+      const poeDeviceCount = allDevices.filter(d => d.watts > 0).length;
       const initialSwitchPoe = gatewayCanCoverAll ? 0 : totalPoe;
       const initialSwitchDevices = gatewayCanCoverAll ? 0 : allDevices.length;
-      const recSwitch = recommendSwitch(switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll);
+      const initialPoeDevices = gatewayCanCoverAll ? 0 : poeDeviceCount;
+      const recSwitch = recommendSwitch(
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll,
+        { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts }
+      );
 
       // Gespeicherte Auswahl wiederherstellen, sonst die Empfehlung übernehmen.
       let activeSwitch = state.selectedSwitch ? switches.find(s => s.slug === state.selectedSwitch) : null;
@@ -3059,14 +3191,53 @@
           title: 'Zu wenige Switch-Ports',
           msg: `${allocation.switch.deviceCount} Endgeräte + 1 Uplink benötigen ${switchPortsNeeded} Ports, der Switch hat nur ${activeSwitch.ports}. Es fehlen ${over} Ports — größeren Switch wählen oder Geräte aufs Gateway umhängen.` });
       }
+      // Switch-PoE-Port-Check: nicht jeder Port liefert zwangsläufig PoE.
+      const switchPoePorts = getPoePortCount(activeSwitch);
+      const switchPoeMax = getPoeMaxPerPort(activeSwitch);
+      const switchPoeDevices = allocation.switch.devices.filter(d => d.watts > 0);
+      if(switchHasPoe && switchPoeDevices.length > switchPoePorts) {
+        warnings.push({ level: 'error', icon: 'alert-triangle',
+          title: 'Zu wenige PoE-fähige Switch-Ports',
+          msg: `${switchPoeDevices.length} PoE-Geräte zugewiesen, aber der Switch hat nur ${switchPoePorts} PoE-Ports (von ${activeSwitch.ports} Gesamt-Ports). Geräte ohne PoE-Port erhalten keinen Strom.` });
+      }
+      // Switch-PoE-Klasse: passt jedes einzelne Gerät zur Port-Klasse?
+      if(switchHasPoe && switchPoeMax > 0) {
+        const overClass = switchPoeDevices.filter(d => d.watts > switchPoeMax);
+        if(overClass.length > 0) {
+          const list = overClass.map(d => `${d.name} (${d.watts} W)`).join(', ');
+          warnings.push({ level: 'error', icon: 'alert-triangle',
+            title: 'PoE-Klasse zu niedrig',
+            msg: `Switch liefert max. ${switchPoeMax} W pro Port (${getPoeClassLabel(activeSwitch)}). Diese Geräte überschreiten das: ${list}.` });
+        }
+      }
+      // Gateway-PoE-Port-Check
+      const gatewayPoePorts = getPoePortCount(gatewaySpec);
+      const gatewayPoeMax = getPoeMaxPerPort(gatewaySpec);
+      const gatewayPoeDevices = allocation.gateway.devices.filter(d => d.watts > 0);
+      if(gatewayHasPoe && gatewayPoeDevices.length > gatewayPoePorts) {
+        warnings.push({ level: 'error', icon: 'alert-triangle',
+          title: 'Zu wenige PoE-fähige Gateway-Ports',
+          msg: `${gatewayPoeDevices.length} PoE-Geräte aufs Gateway gelegt, aber das Gateway hat nur ${gatewayPoePorts} PoE-Ports.` });
+      }
+      if(gatewayHasPoe && gatewayPoeMax > 0) {
+        const overClassGw = gatewayPoeDevices.filter(d => d.watts > gatewayPoeMax);
+        if(overClassGw.length > 0) {
+          const list = overClassGw.map(d => `${d.name} (${d.watts} W)`).join(', ');
+          warnings.push({ level: 'error', icon: 'alert-triangle',
+            title: 'Gateway-PoE-Klasse zu niedrig',
+            msg: `Gateway liefert max. ${gatewayPoeMax} W pro Port (${getPoeClassLabel(gatewaySpec)}). Diese Geräte überschreiten das: ${list}.` });
+        }
+      }
       // Der Empfehlungs-Switch sollte zumindest passen — sonst weisen wir darauf hin.
       if(recSwitch && activeSwitch && recSwitch.slug !== activeSwitch.slug) {
         const tooSmallBudget = switchHasPoe && allocation.switch.poe > switchBudget;
         const tooFewPorts = activeSwitch.ports && switchPortsNeeded > activeSwitch.ports;
-        if((tooSmallBudget || tooFewPorts) && recSwitch.name) {
+        const tooFewPoePorts = switchHasPoe && switchPoeDevices.length > switchPoePorts;
+        const classTooLow = switchHasPoe && switchPoeMax > 0 && maxDeviceWatts > switchPoeMax;
+        if((tooSmallBudget || tooFewPorts || tooFewPoePorts || classTooLow) && recSwitch.name) {
           warnings.push({ level: 'info', icon: 'lightbulb',
             title: 'Größerer Switch empfohlen',
-            msg: `Für die aktuelle Geräteliste wäre <strong>${recSwitch.name}</strong> (${recSwitch.ports} Ports${(recSwitch.budget || 0) > 0 ? `, ${recSwitch.budget} W PoE` : ''}) eine bessere Wahl.` });
+            msg: `Für die aktuelle Geräteliste wäre <strong>${recSwitch.name}</strong> (${getPoePortCount(recSwitch)} PoE-Ports / ${recSwitch.ports} Ports${(recSwitch.budget || 0) > 0 ? `, ${recSwitch.budget} W ${getPoeClassLabel(recSwitch)}` : ''}) eine bessere Wahl.` });
         }
       }
 
@@ -3088,29 +3259,17 @@
         }).join('');
       };
 
-      // Belegt die Switch-Ports: 1 Uplink + alle Switch-Geräte. Überzählige Geräte
-      // werden separat als „overflow" markiert, damit die UI sie sichtbar machen kann.
-      const buildPortState = (sw, switchDevices) => {
-        const portCount = sw.ports || 0;
-        const ports = Array.from({ length: portCount }, () => null);
-        const overflow = [];
-        if(portCount > 0) ports[0] = { type: 'gateway', name: 'Uplink' };
-        let i = SWITCH_UPLINK_PORTS;
-        switchDevices.forEach(d => {
-          if(i < portCount) {
-            ports[i++] = { type: d.type, name: d.name, watts: d.watts };
-          } else {
-            overflow.push(d);
-          }
-        });
-        return { ports, overflow };
-      };
-
       const container = document.createElement('div');
       container.className = 'fade-in flex flex-col gap-6';
 
+      // Mappt eine PoE-Klassen-Wattage auf die CSS-Klasse für die Port-Visualisierung.
+      const poeClassCss = (w) => w >= 90 ? 'poe-plus-plus-plus'
+                              : w >= 60 ? 'poe-plus-plus'
+                              : w >= 30 ? 'poe-plus'
+                              : w  >  0 ? 'poe' : '';
+
       const renderSwitchCard = (sw) => {
-        const { ports, overflow } = buildPortState(sw, allocation.switch.devices);
+        const plan = getPortAssignmentPlan(allocation.switch.devices, sw, { reserveUplink: true });
         const budget = sw.budget || 0;
         const usedPoe = allocation.switch.poe;
         const overBudget = budget > 0 && usedPoe > budget;
@@ -3118,16 +3277,32 @@
         const poePct = Math.min(100, Math.round(poePctRaw));
         const col = overBudget ? 'bg-red-500' : poePctRaw > 80 ? 'bg-yellow-500' : 'bg-nexus-primary';
         const isRec = sw.slug === recSwitch.slug || sw.name === recSwitch.name;
-        const budgetLabel = budget > 0 ? `${budget}W PoE-Budget` : 'Ohne PoE';
+        const poeLabel = getPoeClassLabel(sw);
+        const budgetLabel = budget > 0
+          ? `${plan.poePorts} PoE-Ports · ${budget} W ${poeLabel}`
+          : 'Ohne PoE';
         const image = sw.image
           ? `<img src="${sw.image}" alt="${sw.name}" loading="lazy" class="w-24 h-24 object-contain bg-white rounded-lg border border-nexus-border shrink-0" />`
           : '';
-        const overflowHtml = overflow.length > 0 ? `
+        const overflowHtml = plan.overflow.length > 0 ? `
           <div class="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-md p-2">
-            <strong>${overflow.length} Gerät${overflow.length === 1 ? '' : 'e'} ohne Port:</strong>
-            ${overflow.map(d => d.name).join(', ')}
+            <strong>${plan.overflow.length} Gerät${plan.overflow.length === 1 ? '' : 'e'} ohne Port:</strong>
+            ${plan.overflow.map(d => d.name).join(', ')}
+          </div>` : '';
+        const conflictHtml = plan.conflicts.length > 0 ? `
+          <div class="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-md p-2">
+            <strong>PoE-Konflikt${plan.conflicts.length === 1 ? '' : 'e'}:</strong>
+            <ul class="mt-1 list-disc pl-4 space-y-0.5">
+              ${plan.conflicts.map(c => {
+                const reason = c.reason === 'no-poe-port'
+                  ? `am Non-PoE-Port (kein Strom)`
+                  : `braucht ${c.device.watts} W, Port liefert max. ${plan.maxPerPort} W`;
+                return `<li><span class="font-medium">${c.device.name}</span> — ${reason}</li>`;
+              }).join('')}
+            </ul>
           </div>` : '';
         const valueClass = overBudget ? 'text-red-600' : '';
+        const classBadge = poeLabel ? `<span class="text-[10px] font-bold uppercase tracking-wide bg-nexus-surface border border-nexus-border text-nexus-base px-2 py-0.5 rounded-full">${poeLabel}/Port</span>` : '';
         return `
           <div class="card p-6" id="switch-card">
             <div class="flex justify-between items-start mb-4 gap-4">
@@ -3137,6 +3312,7 @@
                   <div class="flex items-center gap-2 mb-1 flex-wrap">
                     <h3 class="text-lg font-bold">${sw.name}</h3>
                     ${isRec ? '<span class="text-[10px] font-bold uppercase tracking-wide bg-nexus-primary text-white px-2 py-0.5 rounded-full">Empfohlen</span>' : ''}
+                    ${classBadge}
                   </div>
                   <p class="text-sm text-nexus-muted">${sw.ports} Ports · ${budgetLabel}</p>
                 </div>
@@ -3151,12 +3327,23 @@
                <div class="absolute top-0 left-0 h-full ${col} transition-all duration-500 rounded-full" style="width: ${poePct}%;"></div>
             </div>
             <div class="bg-nexus-surface border border-nexus-border rounded-xl p-4 flex flex-wrap gap-2 justify-center items-center shadow-inner">
-               ${ports.map((p, i) => {
-                 const cls = !p ? '' : (p.type === 'gateway' ? 'in-use uplink' : 'in-use');
-                 const title = p ? `${p.name}${p.watts ? ' (' + p.watts + 'W)' : ''}` : 'Frei';
-                 return `<div class="switch-port ${cls}" title="${title}"><span class="text-[10px] text-nexus-muted scale-75">${i+1}</span></div>`;
+               ${plan.slots.map(slot => {
+                 const d = slot.device;
+                 const baseCls = slot.isPoe ? poeClassCss(slot.classWatts) : '';
+                 let cls = baseCls;
+                 if(d) {
+                   cls += ' in-use';
+                   if(d.isUplink)        cls += ' uplink';
+                   if(d.conflict)        cls += ' conflict';
+                 }
+                 const classTxt = slot.isPoe ? ` · ${POE_CLASS_LABEL[slot.classWatts === 90 ? 'poe+++' : slot.classWatts === 60 ? 'poe++' : slot.classWatts === 30 ? 'poe+' : 'poe']}` : ' · Non-PoE';
+                 const title = d
+                   ? `Port ${slot.idx + 1}${classTxt} · ${d.name}${d.watts ? ' (' + d.watts + ' W)' : ''}${d.conflict === 'class-too-low' ? ' ⚠ Klasse zu niedrig' : d.conflict === 'no-poe-port' ? ' ⚠ kein PoE' : ''}`
+                   : `Port ${slot.idx + 1}${classTxt} · frei`;
+                 return `<div class="switch-port ${cls.trim()}" title="${title}"><span class="text-[10px] text-nexus-muted scale-75">${slot.idx + 1}</span></div>`;
                }).join('')}
             </div>
+            ${conflictHtml}
             ${overflowHtml}
           </div>`;
       };
@@ -3170,9 +3357,13 @@
         const poePct = Math.min(100, Math.round(poePctRaw));
         const col = overBudget ? 'bg-red-500' : poePctRaw > 80 ? 'bg-yellow-500' : 'bg-nexus-primary';
         const valueClass = overBudget ? 'text-red-600' : '';
+        const gwPoePorts = getPoePortCount(gw);
+        const gwPoeLabel = getPoeClassLabel(gw);
+        const gwPoeUsed = allocation.gateway.devices.filter(d => d.watts > 0).length;
         const image = gw.image
           ? `<img src="${gw.image}" alt="${gw.name}" loading="lazy" class="w-24 h-24 object-contain bg-white rounded-lg border border-nexus-border shrink-0" />`
           : '';
+        const classBadge = gwPoeLabel ? `<span class="text-[10px] font-bold uppercase tracking-wide bg-nexus-surface border border-nexus-border text-nexus-base px-2 py-0.5 rounded-full">${gwPoeLabel}/Port</span>` : '';
         return `
           <div class="card p-6" id="gateway-poe-card">
             <div class="flex justify-between items-start mb-4 gap-4">
@@ -3182,14 +3373,15 @@
                   <div class="flex items-center gap-2 mb-1 flex-wrap">
                     <h3 class="text-lg font-bold">${gw.name}</h3>
                     <span class="text-[10px] font-bold uppercase tracking-wide bg-nexus-primary text-white px-2 py-0.5 rounded-full">PoE-Quelle</span>
+                    ${classBadge}
                   </div>
-                  <p class="text-sm text-nexus-muted">Gateway · ${budget}W PoE-Budget</p>
+                  <p class="text-sm text-nexus-muted">Gateway · ${gwPoePorts} PoE-Ports · ${budget} W Budget</p>
                 </div>
               </div>
               <div class="text-right shrink-0">
                 <div class="text-xs text-nexus-muted uppercase font-bold tracking-wide">Auslastung</div>
                 <div class="font-bold text-xl ${valueClass}">${usedPoe.toFixed(1)}W <span class="text-sm font-normal text-nexus-muted">/ ${budget}W</span></div>
-                <div class="text-[11px] text-nexus-muted">${allocation.gateway.deviceCount} Gerät${allocation.gateway.deviceCount === 1 ? '' : 'e'} versorgt</div>
+                <div class="text-[11px] text-nexus-muted">${gwPoeUsed}/${gwPoePorts} PoE-Ports belegt</div>
               </div>
             </div>
             <div class="w-full bg-nexus-border h-3 rounded-full overflow-hidden relative">
@@ -3245,11 +3437,19 @@
       // Auflistung der Switches im Dropdown — kennzeichnet Empfehlung und „Passt nicht".
       const switchOptions = switches.map(s => {
         const isRec = s.slug === recSwitch.slug;
-        const budgetTxt = (s.budget || 0) > 0 ? `${s.budget}W` : 'kein PoE';
+        const sPoePorts = getPoePortCount(s);
+        const sMaxPort = getPoeMaxPerPort(s);
+        const budgetTxt = (s.budget || 0) > 0
+          ? `${sPoePorts} PoE/${s.ports} Ports, ${s.budget} W (max ${sMaxPort} W/Port)`
+          : `${s.ports} Ports, kein PoE`;
         const fitsBudget = (s.budget || 0) >= initialSwitchPoe * POE_HEADROOM || gatewayCanCoverAll;
-        const fitsPorts = (s.ports || 0) >= initialSwitchDevices + SWITCH_UPLINK_PORTS;
-        const flag = isRec ? ' ✦ Empfohlen' : (!fitsBudget || !fitsPorts) ? ' ⚠ knapp' : '';
-        return `<option value="${s.slug}" ${s.slug === activeSwitch.slug ? 'selected' : ''}>${s.name} – ${s.ports} Ports, ${budgetTxt}${flag}</option>`;
+        const fitsTotalPorts = (s.ports || 0) >= initialSwitchDevices + SWITCH_UPLINK_PORTS;
+        const fitsPoePorts = sPoePorts >= initialPoeDevices || gatewayCanCoverAll;
+        const fitsClass = sMaxPort >= maxDeviceWatts || gatewayCanCoverAll;
+        const flag = isRec ? ' ✦ Empfohlen'
+                  : (!fitsBudget || !fitsTotalPorts || !fitsPoePorts || !fitsClass) ? ' ⚠ knapp'
+                  : '';
+        return `<option value="${s.slug}" ${s.slug === activeSwitch.slug ? 'selected' : ''}>${s.name} – ${budgetTxt}${flag}</option>`;
       }).join('');
 
       container.innerHTML = `
@@ -3852,18 +4052,27 @@
       const totalApPoe = enrichedAps.reduce((sum, ap) => sum + ap.watts, 0);
       const totalCamPoe = enrichedCams.reduce((sum, c) => sum + c.watts, 0);
       const totalPoe = totalApPoe + totalCamPoe;
+      const maxDeviceWatts = allDevices.reduce((m, d) => Math.max(m, d.watts || 0), 0);
+      const poeDeviceCount = allDevices.filter(d => d.watts > 0).length;
 
       const gwSpec = productCache.specs[gw.slug] || null;
       const gatewayBudget = gwSpec?.budget || 0;
       const gatewayHasPoe = gatewayBudget > 0;
-      const gatewayCanCoverAll = gatewayHasPoe && gatewayBudget >= totalPoe * POE_HEADROOM;
+      const gatewayCanCoverAll = gatewayHasPoe
+        && gatewayBudget >= totalPoe * POE_HEADROOM
+        && getPoePortCount(gwSpec) >= poeDeviceCount
+        && getPoeMaxPerPort(gwSpec) >= maxDeviceWatts;
 
       const switches = productCache.switching.map(s => productCache.specs[s.slug]).filter(s => s && s.ports);
       switches.sort((a,b) => (a.ports - b.ports) || ((a.budget || 0) - (b.budget || 0)));
       // Empfehlung berücksichtigt, ob das Gateway alleine schon alles versorgen kann.
       const initialSwitchPoe = gatewayCanCoverAll ? 0 : totalPoe;
       const initialSwitchDevices = gatewayCanCoverAll ? 0 : allDevices.length;
-      let recSwitch = recommendSwitch(switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll);
+      const initialPoeDevices = gatewayCanCoverAll ? 0 : poeDeviceCount;
+      let recSwitch = recommendSwitch(
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll,
+        { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts }
+      );
       if(!recSwitch) recSwitch = { name: 'Generic PoE Switch', budget: 150, price: 199, ports: 8, slug: '' };
       const activeSwitch = (state.selectedSwitch && switches.find(s => s.slug === state.selectedSwitch)) || recSwitch;
 
@@ -4368,9 +4577,38 @@
       const gatewaySpec = gatewayItem ? productCache.specs[gatewayItem.slug] : null;
       const maxSwitchPorts = switchSpec?.ports || 0;
       const maxGatewayPorts = gatewaySpec?.ports || 0;
+      // PoE-Ports liegen am Switch/Gateway am Anfang (Port 1..poePorts). Uplink
+      // ist Port 1 → echte Daten-PoE-Ports beginnen ab 2 bis poePorts (1-basiert).
+      const switchPoePorts = getPoePortCount(switchSpec);
+      const gatewayPoePorts = getPoePortCount(gatewaySpec);
       const defaultLen = state.cabling.defaultLengthPerFloorM || 15;
       const defaultCat = state.cabling.defaultCategory || 'cat6a';
-      const assignOne = (devId, kind, floorIdx) => {
+      // Sucht freien Port: erst PoE-Bereich, dann Non-PoE-Bereich. Bei Geräten
+      // ohne PoE-Bedarf umgekehrt — Non-PoE-Bereich zuerst, damit PoE-Slots für
+      // PoE-Geräte frei bleiben.
+      const findPort = (target, maxPorts, poePorts, needsPoe) => {
+        const set = used.get(target.id) || new Set();
+        const tryRange = (from, to) => {
+          for(let p = from; p <= to; p++) if(!set.has(p)) return p;
+          return null;
+        };
+        if(needsPoe) {
+          // PoE-Bereich: Port 2..poePorts (Port 1 = Uplink)
+          const poeMax = Math.min(poePorts, maxPorts || 48);
+          const inPoe = poeMax >= 2 ? tryRange(2, poeMax) : null;
+          if(inPoe != null) return inPoe;
+          // Fallback: Non-PoE-Bereich (Gerät bleibt ohne Strom — wird per
+          // Validierung in Step 3 angemahnt).
+          return tryRange(Math.max(2, poePorts + 1), maxPorts || 48);
+        }
+        // Non-PoE-Gerät: erst Non-PoE-Bereich, dann PoE-Bereich.
+        const nonPoeStart = Math.max(2, poePorts + 1);
+        const inNonPoe = (maxPorts && nonPoeStart <= maxPorts) ? tryRange(nonPoeStart, maxPorts) : null;
+        if(inNonPoe != null) return inNonPoe;
+        const poeMax = Math.min(poePorts, maxPorts || 48);
+        return poeMax >= 2 ? tryRange(2, poeMax) : null;
+      };
+      const assignOne = (devId, kind, floorIdx, devSlug) => {
         const prev = existingByDev.get(devId);
         if(prev && !prev.autoRouted) return; // manuell belassen
         const assigned = state.poeAssignments?.[devId];
@@ -4379,13 +4617,11 @@
         else if(assigned === 'switch' && switchItem) targetItem = switchItem;
         else targetItem = switchItem || gatewayItem;
         if(!targetItem) return;
-        const maxPorts = targetItem === switchItem ? maxSwitchPorts : maxGatewayPorts;
-        // Freien Port suchen (ab 2, Port 1 ist Uplink)
-        const set = used.get(targetItem.id) || new Set();
-        let port = null;
-        for(let p = 2; p <= (maxPorts || 48); p++) {
-          if(!set.has(p)) { port = p; break; }
-        }
+        const isSwitch = (targetItem === switchItem);
+        const maxPorts = isSwitch ? maxSwitchPorts : maxGatewayPorts;
+        const poePorts = isSwitch ? switchPoePorts : gatewayPoePorts;
+        const needsPoe = (getDeviceWatts(devSlug, kind === 'camera' ? 'camera' : 'ap') || 0) > 0;
+        const port = findPort(targetItem, maxPorts, poePorts, needsPoe);
         const cn = {
           id: prev?.id || rackGenId('cn'),
           deviceKind: kind,
@@ -4404,8 +4640,8 @@
         }
       };
       state.floors.forEach((f, fi) => {
-        (f.aps || []).forEach(ap => assignOne(ap.id, 'ap', fi));
-        (f.cameras || []).forEach(c => assignOne(c.id, 'camera', fi));
+        (f.aps || []).forEach(ap => assignOne(ap.id, 'ap', fi, ap.slug));
+        (f.cameras || []).forEach(c => assignOne(c.id, 'camera', fi, c.slug));
       });
     }
 
