@@ -3606,7 +3606,7 @@
     };
 
     // --- STEP 4: Features & VLAN-Designer --- //
-    window.updateFeature = (id, val) => state.features[id] = val;
+    window.updateFeature = (id, val) => { state.features[id] = !!val; saveState(); };
 
     window.setBackupEnabled = (flag) => {
       state.backup.enabled = !!flag;
