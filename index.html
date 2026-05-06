@@ -702,14 +702,14 @@
   <script type="module">
     // --- Data Definitions (ISPs & Fallbacks) --- //
     const ispList = [
-      { id: 'telekom_dsl', name: 'Deutsche Telekom', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89 },
-      { id: 'telekom_fiber', name: 'Deutsche Telekom', type: 'Glasfaser (FTTH)', notes: 'Telekom Glasfaser Modem 2 (ONT) verwenden.', modemRec: 'Telekom Glasfaser Modem 2', modemPrice: 49 },
-      { id: 'vodafone_cable', name: 'Vodafone', type: 'Kabel (Coax)', notes: 'Bridge-Mode im Vodafone-Portal aktivieren!', modemRec: 'Vodafone Station (Bridge Mode)', modemPrice: 0 },
-      { id: 'vodafone_dsl', name: 'Vodafone', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89 },
-      { id: '1und1_dsl', name: '1&1', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89 },
-      { id: '1und1_fiber', name: '1&1', type: 'Glasfaser (FTTH)', notes: 'Standard ONT von 1&1.', modemRec: '1&1 Glasfaser ONT', modemPrice: 0 },
-      { id: 'o2_dsl', name: 'o2 / Telefónica', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89 },
-      { id: 'o2_cable', name: 'o2 / Telefónica', type: 'Kabel (Coax)', notes: 'Bridge-Mode am o2-Kabelrouter aktivieren.', modemRec: 'o2 HomeBox (Bridge Mode)', modemPrice: 0 }
+      { id: 'telekom_dsl', name: 'Deutsche Telekom', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
+      { id: 'telekom_fiber', name: 'Deutsche Telekom', type: 'Glasfaser (FTTH)', notes: 'Telekom Glasfaser Modem 2 (ONT) verwenden.', modemRec: 'Telekom Glasfaser Modem 2', modemPrice: 49, maxDown: 10000, maxUp: 10000 },
+      { id: 'vodafone_cable', name: 'Vodafone', type: 'Kabel (Coax)', notes: 'Bridge-Mode im Vodafone-Portal aktivieren!', modemRec: 'Vodafone Station (Bridge Mode)', modemPrice: 0, maxDown: 1000, maxUp: 50 },
+      { id: 'vodafone_dsl', name: 'Vodafone', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
+      { id: '1und1_dsl', name: '1&1', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
+      { id: '1und1_fiber', name: '1&1', type: 'Glasfaser (FTTH)', notes: 'Standard ONT von 1&1.', modemRec: '1&1 Glasfaser ONT', modemPrice: 0, maxDown: 1000, maxUp: 500 },
+      { id: 'o2_dsl', name: 'o2 / Telefónica', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
+      { id: 'o2_cable', name: 'o2 / Telefónica', type: 'Kabel (Coax)', notes: 'Bridge-Mode am o2-Kabelrouter aktivieren.', modemRec: 'o2 HomeBox (Bridge Mode)', modemPrice: 0, maxDown: 1000, maxUp: 50 }
     ];
 
     // Gateways mit nativem Dual-WAN (WAN2 physisch oder via SFP+ / integriertes 5G)
@@ -1363,23 +1363,23 @@
           <h3 class="text-lg font-bold mb-4">Verbindungsgeschwindigkeit</h3>
           <div class="mb-6">
             <div class="flex justify-between mb-2 items-center">
-              <label class="font-medium text-sm">Download</label>
+              <label class="font-medium text-sm">Download${state.isp ? ` <span class="text-xs text-nexus-muted font-normal">· max. ${state.isp.maxDown} Mbit/s</span>` : ''}</label>
               <div class="flex items-center gap-1 font-bold text-nexus-primary">
-                <input type="number" id="input-down" min="16" max="10000" value="${state.speedDown}" class="w-16 text-right bg-transparent border-b border-transparent hover:border-nexus-border focus:border-nexus-primary focus:outline-none appearance-none" style="-moz-appearance: textfield;">
+                <input type="number" id="input-down" min="16" max="${state.isp?.maxDown ?? 10000}" value="${state.speedDown}" class="w-16 text-right bg-transparent border-b border-transparent hover:border-nexus-border focus:border-nexus-primary focus:outline-none appearance-none" style="-moz-appearance: textfield;">
                 <span>Mbit/s</span>
               </div>
             </div>
-            <input type="range" id="slider-down" min="16" max="10000" step="10" value="${state.speedDown}" class="w-full accent-nexus-primary cursor-pointer">
+            <input type="range" id="slider-down" min="16" max="${state.isp?.maxDown ?? 10000}" step="10" value="${state.speedDown}" class="w-full accent-nexus-primary cursor-pointer">
           </div>
           <div>
             <div class="flex justify-between mb-2 items-center">
-              <label class="font-medium text-sm">Upload</label>
+              <label class="font-medium text-sm">Upload${state.isp ? ` <span class="text-xs text-nexus-muted font-normal">· max. ${state.isp.maxUp} Mbit/s</span>` : ''}</label>
               <div class="flex items-center gap-1 font-bold text-nexus-primary">
-                <input type="number" id="input-up" min="10" max="10000" value="${state.speedUp}" class="w-16 text-right bg-transparent border-b border-transparent hover:border-nexus-border focus:border-nexus-primary focus:outline-none appearance-none" style="-moz-appearance: textfield;">
+                <input type="number" id="input-up" min="10" max="${state.isp?.maxUp ?? 10000}" value="${state.speedUp}" class="w-16 text-right bg-transparent border-b border-transparent hover:border-nexus-border focus:border-nexus-primary focus:outline-none appearance-none" style="-moz-appearance: textfield;">
                 <span>Mbit/s</span>
               </div>
             </div>
-            <input type="range" id="slider-up" min="10" max="10000" step="10" value="${state.speedUp}" class="w-full accent-nexus-primary cursor-pointer">
+            <input type="range" id="slider-up" min="10" max="${state.isp?.maxUp ?? 10000}" step="10" value="${state.speedUp}" class="w-full accent-nexus-primary cursor-pointer">
           </div>
         </div>
         
@@ -1445,14 +1445,66 @@
       const handleDown = (v) => { state.speedDown = v; sDown.value = v; iDown.value = v; updateRecs(); };
       const handleUp = (v) => { state.speedUp = v; sUp.value = v; iUp.value = v; };
 
-      container.querySelector('#isp-select').addEventListener('change', (e) => { state.isp = ispList.find(i => i.id === e.target.value); updateRecs(); });
+      // Slider-Maxima an den ausgewählten Anbieter/Technologie koppeln.
+      // Manuelle Eingabe über das Number-Input-Feld kann das Maximum überschreiben,
+      // löst aber eine Bestätigungsabfrage aus.
+      const HARD_MAX = 10000;
+      const updateSpeedLimits = () => {
+        const maxD = state.isp?.maxDown ?? HARD_MAX;
+        const maxU = state.isp?.maxUp   ?? HARD_MAX;
+        sDown.max = maxD;
+        sUp.max   = maxU;
+        iDown.max = maxD;
+        iUp.max   = maxU;
+        // Aktuelle Werte ggf. auf Maximum kappen, wenn Anbieter knapper ist
+        if(parseInt(state.speedDown) > maxD) handleDown(maxD);
+        if(parseInt(state.speedUp)   > maxU) handleUp(maxU);
+      };
+      const confirmOverride = (kind, val, max) => {
+        const labels = { down: 'Download', up: 'Upload' };
+        const techLbl = state.isp ? `${state.isp.name} – ${state.isp.type}` : 'gewählter Anbieter';
+        return confirm(
+          `Die eingegebene ${labels[kind]}-Geschwindigkeit (${val} Mbit/s) liegt über dem für ` +
+          `${techLbl} angenommenen Maximum von ${max} Mbit/s.\n\n` +
+          `Trotzdem übernehmen?`
+        );
+      };
+      const onManualChange = (kind) => (e) => {
+        const max = state.isp ? (kind === 'down' ? state.isp.maxDown : state.isp.maxUp) : HARD_MAX;
+        const val = parseInt(e.target.value, 10);
+        if(!Number.isFinite(val)) return;
+        if(state.isp && val > max) {
+          if(confirmOverride(kind, val, max)) {
+            // Override akzeptiert → Slider-Max temporär anheben, damit Wert sichtbar bleibt
+            if(kind === 'down') { sDown.max = val; iDown.max = val; handleDown(val); }
+            else                { sUp.max   = val; iUp.max   = val; handleUp(val);   }
+          } else {
+            // Auf Maximum zurücksetzen
+            if(kind === 'down') handleDown(max);
+            else                handleUp(max);
+          }
+        }
+      };
+
+      container.querySelector('#isp-select').addEventListener('change', (e) => {
+        state.isp = ispList.find(i => i.id === e.target.value);
+        // Werte ggf. auf neues Maximum kappen, dann Step neu rendern,
+        // damit Labels ("max. X Mbit/s") und Slider-Bereiche stimmen.
+        if(state.isp) {
+          if(parseInt(state.speedDown) > state.isp.maxDown) state.speedDown = state.isp.maxDown;
+          if(parseInt(state.speedUp)   > state.isp.maxUp)   state.speedUp   = state.isp.maxUp;
+        }
+        render();
+      });
       sDown.addEventListener('input', (e) => handleDown(e.target.value));
       iDown.addEventListener('input', (e) => handleDown(e.target.value));
+      iDown.addEventListener('change', onManualChange('down'));
       sUp.addEventListener('input', (e) => handleUp(e.target.value));
       iUp.addEventListener('input', (e) => handleUp(e.target.value));
+      iUp.addEventListener('change', onManualChange('up'));
       container.querySelector('#gateway-select').addEventListener('change', (e) => { state.gateway = e.target.value; updateRecs(); });
 
-      if(state.isp) updateRecs();
+      if(state.isp) { updateSpeedLimits(); updateRecs(); }
     }
 
     // --- STEP 2 Helpers --- //
@@ -3566,12 +3618,35 @@
       render();
     };
     window.setBackupIsp = (id) => {
-      state.backup.isp2 = ispList.find(i => i.id === id) || null;
+      const next = ispList.find(i => i.id === id) || null;
+      state.backup.isp2 = next;
+      // Werte ggf. auf neues Maximum kappen
+      if(next) {
+        if(state.backup.speedDown2 > next.maxDown) state.backup.speedDown2 = next.maxDown;
+        if(state.backup.speedUp2   > next.maxUp)   state.backup.speedUp2   = next.maxUp;
+      }
       render();
     };
     window.setBackupSpeed = (field, val) => {
-      const n = parseInt(val) || 0;
-      state.backup[field] = Math.max(0, n);
+      const n = Math.max(0, parseInt(val) || 0);
+      const isp = state.backup?.isp2;
+      const max = isp ? (field === 'speedDown2' ? isp.maxDown : isp.maxUp) : null;
+      if(max != null && n > max) {
+        const lbl = field === 'speedDown2' ? 'Download' : 'Upload';
+        const techLbl = `${isp.name} – ${isp.type}`;
+        const ok = confirm(
+          `Die eingegebene ${lbl}-Geschwindigkeit (${n} Mbit/s) liegt über dem für ` +
+          `${techLbl} angenommenen Maximum von ${max} Mbit/s.\n\n` +
+          `Trotzdem übernehmen?`
+        );
+        if(!ok) {
+          state.backup[field] = max;
+          saveState();
+          render();
+          return;
+        }
+      }
+      state.backup[field] = n;
       saveState();
     };
     window.setBackupMode = (mode) => {
@@ -3743,12 +3818,12 @@
           </select>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="text-xs text-nexus-muted block mb-1">Download (Mbit/s)</label>
-              <input type="number" min="1" max="10000" value="${bu.speedDown2}" onchange="window.setBackupSpeed('speedDown2', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm">
+              <label class="text-xs text-nexus-muted block mb-1">Download (Mbit/s)${bu.isp2 ? ` <span class="text-nexus-muted">· max. ${bu.isp2.maxDown}</span>` : ''}</label>
+              <input type="number" min="1" max="${bu.isp2?.maxDown ?? 10000}" value="${bu.speedDown2}" onchange="window.setBackupSpeed('speedDown2', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm">
             </div>
             <div>
-              <label class="text-xs text-nexus-muted block mb-1">Upload (Mbit/s)</label>
-              <input type="number" min="1" max="10000" value="${bu.speedUp2}" onchange="window.setBackupSpeed('speedUp2', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm">
+              <label class="text-xs text-nexus-muted block mb-1">Upload (Mbit/s)${bu.isp2 ? ` <span class="text-nexus-muted">· max. ${bu.isp2.maxUp}</span>` : ''}</label>
+              <input type="number" min="1" max="${bu.isp2?.maxUp ?? 10000}" value="${bu.speedUp2}" onchange="window.setBackupSpeed('speedUp2', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm">
             </div>
           </div>
         </div>` : '';
