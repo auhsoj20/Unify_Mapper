@@ -1267,6 +1267,16 @@
           parsed.rackViewOpen = false;
           // Vollbild-Modus beim Reload nicht persistieren
           if(parsed.view && typeof parsed.view === 'object') parsed.view.plannerFullscreen = false;
+          // ISP-Objekte frisch aus aktueller ispList auflösen, damit neue Felder
+          // (z. B. maxDown/maxUp) auch bei alten Saves verfügbar sind.
+          if(parsed.isp?.id) {
+            const fresh = ispList.find(i => i.id === parsed.isp.id);
+            if(fresh) parsed.isp = fresh;
+          }
+          if(parsed.backup?.isp2?.id) {
+            const fresh2 = ispList.find(i => i.id === parsed.backup.isp2.id);
+            if(fresh2) parsed.backup.isp2 = fresh2;
+          }
           Object.assign(state, parsed);
         }
       } catch(_) { /* invalid JSON — stille Fallback auf Defaults */ }
