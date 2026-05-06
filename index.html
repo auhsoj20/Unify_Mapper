@@ -242,21 +242,24 @@
     }
     .floor-tab-actions {
       display: none;
-      position: absolute;
-      top: 100%;
-      left: 50%;
-      transform: translateX(-50%);
+      position: fixed;
       background: var(--color-surface-card);
       border: 1px solid var(--color-border);
       border-radius: 8px;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-      padding: 0.25rem;
-      z-index: 25;
-      min-width: 160px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.22);
+      padding: 0.3rem;
+      z-index: 1000;
+      min-width: 180px;
       flex-direction: column;
       gap: 0.15rem;
     }
     .floor-tab-actions.open { display: flex; }
+    .floor-menu-backdrop {
+      position: fixed;
+      inset: 0;
+      background: transparent;
+      z-index: 999;
+    }
     .floor-tab-actions button {
       text-align: left;
       padding: 0.4rem 0.6rem;
@@ -1727,20 +1730,43 @@
          window.closeFloorMenus();
          if(!wasOpen) {
             menu.classList.add('open');
-            // Click-outside handler – nur einmalig
-            setTimeout(() => {
-               const onDoc = (ev) => {
-                  if(!menu.contains(ev.target) && ev.target !== btn) {
-                     window.closeFloorMenus();
-                     document.removeEventListener('pointerdown', onDoc, true);
-                  }
-               };
-               document.addEventListener('pointerdown', onDoc, true);
-            }, 0);
+            // Position berechnen (unterhalb des Buttons, an Viewport-Kanten anpassen)
+            const r = btn.getBoundingClientRect();
+            const mw = menu.offsetWidth || 180;
+            const mh = menu.offsetHeight || 220;
+            const margin = 8;
+            let left = r.left + r.width/2 - mw/2;
+            let top = r.bottom + 4;
+            if(left + mw + margin > window.innerWidth) left = window.innerWidth - mw - margin;
+            if(left < margin) left = margin;
+            if(top + mh + margin > window.innerHeight) top = Math.max(margin, r.top - mh - 4);
+            menu.style.left = left + 'px';
+            menu.style.top = top + 'px';
+            // Backdrop für Klick-außerhalb
+            const backdrop = document.createElement('div');
+            backdrop.className = 'floor-menu-backdrop';
+            backdrop.addEventListener('pointerdown', () => window.closeFloorMenus());
+            document.body.appendChild(backdrop);
+            menu._backdrop = backdrop;
+            // Schließen bei Scroll/Resize, damit Position nicht veraltet
+            const onChange = () => window.closeFloorMenus();
+            window.addEventListener('scroll', onChange, true);
+            window.addEventListener('resize', onChange);
+            menu._cleanup = () => {
+               window.removeEventListener('scroll', onChange, true);
+               window.removeEventListener('resize', onChange);
+            };
          }
       };
       window.closeFloorMenus = () => {
-         document.querySelectorAll('.floor-tab-actions.open').forEach(el => el.classList.remove('open'));
+         document.querySelectorAll('.floor-tab-actions.open').forEach(el => {
+            el.classList.remove('open');
+            el.style.left = '';
+            el.style.top = '';
+            if(el._backdrop) { el._backdrop.remove(); el._backdrop = null; }
+            if(el._cleanup) { el._cleanup(); el._cleanup = null; }
+         });
+         document.querySelectorAll('.floor-menu-backdrop').forEach(el => el.remove());
       };
       window.addRoom = () => {
          pushPlannerHistory();
