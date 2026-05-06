@@ -701,9 +701,15 @@
 
   <script type="module">
     // --- Data Definitions (ISPs & Fallbacks) --- //
+    // Maximalgeschwindigkeiten = realistischer Konsumenten-Topspeed pro Anbieter/
+    // Technologie in Deutschland (Stand 2026). Einheit Mbit/s.
+    //   DSL VDSL2 Super-Vectoring 35b: 250/40 (technisches Limit der Norm)
+    //   Kabel DOCSIS 3.1: bis ~1 GBit/s down, Upload bei dt. Anbietern bei 50
+    //   Telekom Glasfaser: Top-Consumer-Tarif "MagentaZuhause Glasfaser Pro 2000"
+    //   1&1 Glasfaser: GlasfaserPower 1000 (1000/500)
     const ispList = [
       { id: 'telekom_dsl', name: 'Deutsche Telekom', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
-      { id: 'telekom_fiber', name: 'Deutsche Telekom', type: 'Glasfaser (FTTH)', notes: 'Telekom Glasfaser Modem 2 (ONT) verwenden.', modemRec: 'Telekom Glasfaser Modem 2', modemPrice: 49, maxDown: 10000, maxUp: 10000 },
+      { id: 'telekom_fiber', name: 'Deutsche Telekom', type: 'Glasfaser (FTTH)', notes: 'Telekom Glasfaser Modem 2 (ONT) verwenden.', modemRec: 'Telekom Glasfaser Modem 2', modemPrice: 49, maxDown: 2000, maxUp: 1000 },
       { id: 'vodafone_cable', name: 'Vodafone', type: 'Kabel (Coax)', notes: 'Bridge-Mode im Vodafone-Portal aktivieren!', modemRec: 'Vodafone Station (Bridge Mode)', modemPrice: 0, maxDown: 1000, maxUp: 50 },
       { id: 'vodafone_dsl', name: 'Vodafone', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
       { id: '1und1_dsl', name: '1&1', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
