@@ -3342,6 +3342,25 @@
       if(w > 0)   return POE_CLASS_LABEL['poe'];
       return '';
     }
+    // Klassifiziert ein Endgerät (AP/Kamera) nach IEEE-PoE-Standard anhand seiner
+    // Watt-Aufnahme. Liefert den Klassen-Key (poe / poe+ / poe++ / poe+++) oder
+    // null, wenn das Gerät nicht PoE-versorgt wird.
+    function classifyDeviceWatts(watts) {
+      if(!Number.isFinite(watts) || watts <= 0) return null;
+      if(watts <= 13)   return 'poe';
+      if(watts <= 25.5) return 'poe+';
+      if(watts <= 60)   return 'poe++';
+      if(watts <= 90)   return 'poe+++';
+      return 'over';
+    }
+    function getPoeStandardLabel(key) {
+      if(key === 'poe')    return 'PoE (802.3af, ≤ 15 W)';
+      if(key === 'poe+')   return 'PoE+ (802.3at, ≤ 30 W)';
+      if(key === 'poe++')  return 'PoE++ Type 3 (802.3bt, ≤ 60 W)';
+      if(key === 'poe+++') return 'PoE++ Type 4 (802.3bt, ≤ 90 W)';
+      if(key === 'over')   return 'Sonderbedarf > 90 W';
+      return '—';
+    }
 
     // Watt-Bedarf eines APs/Kamera-Geräts ermitteln. APs nutzen `maxWatts`, Kameras
     // `poeWatts`. Nicht-PoE-Geräte (z. B. Mesh-Verlängerung am Netzteil) liefern 0.
@@ -5068,6 +5087,43 @@
           </ul>
         </div>`;
 
+      // PoE-Klassen-Übersicht (Iter. 5) — Verteilung der Endgeräte auf
+      // 802.3af/at/bt-Klassen plus Hinweis, ob der gewählte Switch sie alle
+      // bedienen kann. Erscheint nur, wenn PoE-Geräte vorhanden sind.
+      const poeBuckets = { poe: [], 'poe+': [], 'poe++': [], 'poe+++': [], 'over': [] };
+      [...b.allAps, ...b.allCameras].forEach(d => {
+        const key = classifyDeviceWatts(d.watts);
+        if(key && poeBuckets[key]) poeBuckets[key].push(d);
+      });
+      const poeBucketsTotal = Object.values(poeBuckets).reduce((s, list) => s + list.length, 0);
+      const switchMaxPerPort = getPoeMaxPerPort(b.activeSwitch);
+      const poeClassCard = poeBucketsTotal === 0 ? '' : `
+        <div class="card p-0 overflow-hidden">
+          <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
+            <h3 class="font-bold">PoE-Klassen (Endgeräte)</h3>
+            <span class="text-xs text-nexus-muted">Switch liefert max. ${fmt0(switchMaxPerPort)} W/Port (${getPoeClassLabel(b.activeSwitch) || '—'})</span>
+          </div>
+          <table class="w-full text-sm text-left">
+            <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
+              <tr><th class="px-6 py-2">Klasse</th><th class="px-6 py-2">Standard</th><th class="px-4 py-2 text-center">Geräte</th><th class="px-6 py-2">Beispiele</th></tr>
+            </thead>
+            <tbody>
+              ${['poe','poe+','poe++','poe+++','over'].filter(k => poeBuckets[k].length > 0).map(k => {
+                const list = poeBuckets[k];
+                const samples = [...new Set(list.map(d => productCache.specs[d.slug]?.name || d.slug))].slice(0, 3).join(', ');
+                const minW = POE_CLASS_WATTS[k] || 0;
+                const switchOk = k === 'over' ? false : switchMaxPerPort >= minW;
+                return `<tr class="border-b border-nexus-border ${switchOk ? '' : 'bg-red-50'}">
+                  <td class="px-6 py-2 font-mono text-xs">${k.toUpperCase()}</td>
+                  <td class="px-6 py-2 text-xs">${getPoeStandardLabel(k)}</td>
+                  <td class="px-4 py-2 text-center font-bold">${list.length}</td>
+                  <td class="px-6 py-2 text-xs text-nexus-muted">${samples}${list.length > 3 ? ` … (+${list.length - 3})` : ''}${switchOk ? '' : ' <span class="text-red-700 font-semibold">⚠ Switch zu schwach</span>'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+
       // NVR-Speicher-Berechnung (Iter. 5) — nur wenn Kameras platziert sind.
       const cams = state.floors.flatMap(f => f.cameras || []);
       let recordingCard = '';
@@ -5241,6 +5297,8 @@
           ${recurringCard}
 
           ${cableCard}
+
+          ${poeClassCard}
 
           ${recordingCard}
 
