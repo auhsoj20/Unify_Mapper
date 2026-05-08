@@ -708,6 +708,54 @@
   <div id="rack-overlay" class="rack-overlay hidden no-print"></div>
 
   <script type="module">
+    // --- Locale-Helfer (DE-Formatierung) --- //
+    const fmt0 = (v) => Number(v ?? 0).toLocaleString('de-DE', { maximumFractionDigits: 0 });
+    const fmt1 = (v) => Number(v ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const fmtEur0 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+    const fmtEur2 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // --- Coverage-Profile (Min-RSSI / Anwendungsprofil) --- //
+    // Der Faktor multipliziert den theoretischen Reichweiten-Radius (sqrt(coverageM2)).
+    // Hintergrund: je strenger die Min-Signalstärke-Anforderung, desto kleiner die
+    // nutzbare Zelle. Werte sind Faustformeln, keine RF-Simulation.
+    const COVERAGE_PROFILES = [
+      { id: 'iot',     label: 'IoT / Smart Home',      rssi: -85, factor: 1.20, hint: 'Sensoren, Lampen, Alarmanlagen — niedrige Datenraten, größere Zellen.' },
+      { id: 'general', label: 'Allgemein',             rssi: -75, factor: 1.00, hint: 'Browsing, Streaming, normale Heim-/Büronutzung.' },
+      { id: 'voip',    label: 'VoIP / Video-Calls',    rssi: -65, factor: 0.80, hint: 'Teams/Zoom — niedrige Latenz, sauberes Roaming.' },
+      { id: 'gaming',  label: 'Gaming / 4K-Streaming', rssi: -60, factor: 0.70, hint: 'Hohe Datenrate, kleine Zellen für stabile Performance.' }
+    ];
+    const coverageFactor = () => (COVERAGE_PROFILES.find(p => p.id === state?.coverage?.profile)?.factor) || 1.0;
+
+    // --- CIDR-Helfer für VLAN-Subnetz-Validierung --- //
+    function parseCIDR(s) {
+      if(typeof s !== 'string') return null;
+      const m = /^\s*(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})\s*$/.exec(s);
+      if(!m) return null;
+      const a = +m[1], b = +m[2], c = +m[3], d = +m[4], bits = +m[5];
+      if([a,b,c,d].some(n => n > 255) || bits > 32) return null;
+      const ip = ((a << 24) | (b << 16) | (c << 8) | d) >>> 0;
+      const mask = bits === 0 ? 0 : (0xFFFFFFFF << (32 - bits)) >>> 0;
+      return { network: (ip & mask) >>> 0, bits };
+    }
+    function cidrsOverlap(p1, p2) {
+      if(!p1 || !p2) return false;
+      const minBits = Math.min(p1.bits, p2.bits);
+      if(minBits === 0) return true;
+      const m = (0xFFFFFFFF << (32 - minBits)) >>> 0;
+      return ((p1.network & m) >>> 0) === ((p2.network & m) >>> 0);
+    }
+
+    // Default-Subnetze pro VLAN-Zweck (Vorschlag beim Anlegen / Wechsel von „custom").
+    const VLAN_DEFAULT_SUBNETS = {
+      mgmt:   '10.0.10.0/24',
+      main:   '10.0.20.0/24',
+      iot:    '10.0.50.0/24',
+      camera: '10.0.60.0/24',
+      voip:   '10.0.70.0/24',
+      guest:  '10.0.40.0/24',
+      server: '10.0.80.0/24'
+    };
+
     // --- Data Definitions (ISPs & Fallbacks) --- //
     // Maximalgeschwindigkeiten = realistischer Konsumenten-Topspeed pro Anbieter/
     // Technologie in Deutschland (Stand 2026). Einheit Mbit/s.
@@ -1060,7 +1108,9 @@
         defaultLengthPerFloorM: 15
       },
       rackView: { faqCollapsed: false, activeRackId: 'r-main', customPalette: [] },
-      rackViewOpen: false        // ephemer; beim Boot immer false
+      rackViewOpen: false,       // ephemer; beim Boot immer false
+      energy: { tariff: 0.32, upsRuntimeMin: 15 },  // €/kWh, USV-Autonomie in Min
+      coverage: { profile: 'general' }              // siehe COVERAGE_PROFILES
     };
 
     // Backup-State Defaults + Migration alter Schema-Versionen.
@@ -1310,6 +1360,9 @@
           parsed.cabling = normalizeCablingState(parsed.cabling);
           parsed.rackView = normalizeRackView(parsed.rackView, parsed.racks);
           parsed.rackViewOpen = false;
+          // Migration: neue Felder aus Iteration 2 mit Defaults auffüllen.
+          parsed.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(parsed.energy || {}) };
+          parsed.coverage = { profile: 'general', ...(parsed.coverage || {}) };
           // Vollbild-Modus beim Reload nicht persistieren
           if(parsed.view && typeof parsed.view === 'object') parsed.view.plannerFullscreen = false;
           // ISP-Objekte frisch aus aktueller ispList auflösen, damit neue Felder
@@ -1373,13 +1426,22 @@
         return null;
       }
       if(step === 4) {
-        const ids = new Set(), subs = new Set();
+        const ids = new Set();
+        const parsed = [];
         for(const v of (state.vlans || [])) {
           if(v.id < 1 || v.id > 4094) return `VLAN-ID ${v.id} ist ungültig (erlaubt: 1–4094).`;
           if(ids.has(v.id)) return `VLAN-ID ${v.id} ist doppelt vergeben.`;
           ids.add(v.id);
-          if(v.subnet && subs.has(v.subnet)) return `Subnetz ${v.subnet} ist doppelt vergeben.`;
-          if(v.subnet) subs.add(v.subnet);
+          if(v.subnet) {
+            const p = parseCIDR(v.subnet);
+            if(!p) return `Subnetz ${v.subnet} ist ungültig (CIDR-Notation z. B. 10.0.10.0/24).`;
+            for(const o of parsed) {
+              if(cidrsOverlap(o.cidr, p)) {
+                return `Subnetze ${o.label} und ${v.subnet} überlappen sich — bitte anpassen.`;
+              }
+            }
+            parsed.push({ cidr: p, label: v.subnet });
+          }
         }
         return null;
       }
@@ -1647,7 +1709,7 @@
       const apItems = productCache.wifi.map(p => {
         const spec = productCache.specs[p.slug];
         if(!spec) return '';
-        const radiusMeters = Math.round(Math.sqrt(spec.coverageM2 || 140));
+        const radiusMeters = Math.round(Math.sqrt(spec.coverageM2 || 140) * coverageFactor());
         const thumb = spec.image
           ? `<img src="${spec.image}" alt="${spec.name}" loading="lazy" class="w-10 h-10 object-contain shrink-0 bg-white rounded" />`
           : `<div class="w-8 h-8 rounded-full bg-nexus-primary flex items-center justify-center text-white shrink-0"><i data-lucide="wifi" class="w-4 h-4"></i></div>`;
@@ -1741,7 +1803,7 @@
                   </div>
                   <div class="text-xs text-nexus-muted">
                      <div class="font-bold uppercase tracking-wide mb-1">Fläche</div>
-                     <div class="text-base font-bold text-nexus-base">${area.toFixed(1)} m²</div>
+                     <div class="text-base font-bold text-nexus-base">${fmt1(area)} m²</div>
                   </div>
                   <button onclick="window.duplicateRoom('${sr.id}')" class="px-3 py-2 bg-nexus-surface border border-nexus-border text-nexus-base rounded hover:bg-nexus-border transition-colors font-bold text-sm" title="Raum duplizieren"><i data-lucide="copy" class="w-4 h-4 inline-block mr-1"></i> Duplizieren</button>
                   <button onclick="window.deleteRoom('${sr.id}')" class="px-4 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 transition-colors font-bold text-sm" title="Raum löschen"><i data-lucide="trash-2" class="w-4 h-4 inline-block mr-1"></i> Löschen</button>
@@ -1777,6 +1839,9 @@
                <button onclick="window.toggleHeatmap()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state.view && state.view.heatmap ? 'bg-emerald-600 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Signal-Heatmap umschalten">
                   <i data-lucide="thermometer" class="w-3.5 h-3.5"></i><span class="hidden md:inline"> Heatmap ${state.view && state.view.heatmap ? 'an' : 'aus'}</span>
                </button>
+               <select onchange="window.setCoverageProfile(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Coverage-Profil (Min-RSSI)" aria-label="Coverage-Profil">
+                  ${COVERAGE_PROFILES.map(p => `<option value="${p.id}" ${state.coverage?.profile === p.id ? 'selected' : ''}>${p.label} (${p.rssi} dBm)</option>`).join('')}
+               </select>
                <button onclick="window.toggleFullscreen()" id="planner-fs-btn" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Vollbild umschalten">
                   <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
                </button>
@@ -2428,7 +2493,7 @@
          inp.type = 'text';
          inp.inputMode = 'decimal';
          inp.className = 'edge-length-input';
-         inp.value = oldLen.toFixed(1);
+         inp.value = fmt1(oldLen);
          inp.style.left = midX + 'px';
          inp.style.top  = midY + 'px';
          labelsLayer.appendChild(inp);
@@ -2531,7 +2596,7 @@
          const areaBadge = document.createElement('div');
          areaBadge.className = 'room-area-badge';
          areaBadge.id = `area-${room.id}`;
-         areaBadge.textContent = areaVal.toFixed(1) + ' m²';
+         areaBadge.textContent = fmt1(areaVal) + ' m²';
          areaBadge.style.left = lX + 'px';
          areaBadge.style.top = lY + 'px';
          labelsLayer.appendChild(areaBadge);
@@ -2658,7 +2723,7 @@
                text.setAttribute('title', 'Doppelklick zum Bearbeiten');
                text.setAttribute('x', midX);
                text.setAttribute('y', midY);
-               text.textContent = dist.toFixed(1) + 'm';
+               text.textContent = fmt1(dist) + 'm';
                text.addEventListener('dblclick', (ev) => {
                   ev.stopPropagation();
                   ev.preventDefault();
@@ -2762,7 +2827,7 @@
                   let midY = (pt.y + nxt.y)/2 * CELL_SIZE - 6;
                   labels[i].setAttribute('x', midX);
                   labels[i].setAttribute('y', midY);
-                  labels[i].textContent = dist.toFixed(1) + 'm';
+                  labels[i].textContent = fmt1(dist) + 'm';
                }
             });
             
@@ -2787,7 +2852,7 @@
                if(areaEl) {
                   areaEl.style.left = lX + 'px';
                   areaEl.style.top = lY + 'px';
-                  areaEl.textContent = computeRoomArea(activeObj).toFixed(1) + ' m²';
+                  areaEl.textContent = fmt1(computeRoomArea(activeObj)) + ' m²';
                }
             }
          }
@@ -2932,7 +2997,7 @@
 
         const aps = currentFloor.aps.map(ap => {
           const spec = productCache.specs[ap.slug] || { coverageM2: 140 };
-          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2)) * CELL_SIZE };
+          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2) * coverageFactor()) * CELL_SIZE };
         });
 
         const crosses = (ax, ay, bx, by, cx, cy, dx, dy) => {
@@ -3003,7 +3068,7 @@
         // APs (einfacher Coverage-Kreis, nur wenn Heatmap aus)
         currentFloor.aps.forEach(apState => {
           const spec = productCache.specs[apState.slug] || { name: 'Unknown', coverageM2: 140 };
-          const pxRadius = Math.round(Math.sqrt(spec.coverageM2)) * CELL_SIZE;
+          const pxRadius = Math.round(Math.sqrt(spec.coverageM2) * coverageFactor()) * CELL_SIZE;
 
           if(!heatmapOn) {
             const cov = document.createElement('div');
@@ -3351,17 +3416,17 @@
         const over = allocation.switch.poe - switchBudget;
         warnings.push({ level: 'error', icon: 'alert-triangle',
           title: 'Switch-PoE-Budget überschritten',
-          msg: `Die zugeordneten Geräte ziehen ${allocation.switch.poe.toFixed(1)} W, aber der Switch liefert nur ${switchBudget} W (${over.toFixed(1)} W zu viel). Verlagere Geräte aufs Gateway oder wähle einen größeren Switch.` });
+          msg: `Die zugeordneten Geräte ziehen ${fmt1(allocation.switch.poe)} W, aber der Switch liefert nur ${switchBudget} W (${fmt1(over)} W zu viel). Verlagere Geräte aufs Gateway oder wähle einen größeren Switch.` });
       } else if(switchHasPoe && allocation.switch.poe > switchBudget / POE_HEADROOM) {
         warnings.push({ level: 'warn', icon: 'alert-triangle',
           title: 'Wenig PoE-Reserve',
-          msg: `Auslastung ${allocation.switch.poe.toFixed(1)} / ${switchBudget} W (${Math.round(allocation.switch.poe / switchBudget * 100)} %). Empfohlen sind mindestens ${Math.round((POE_HEADROOM - 1) * 100)} % Puffer für Startlasten und künftige Geräte.` });
+          msg: `Auslastung ${fmt1(allocation.switch.poe)} / ${switchBudget} W (${Math.round(allocation.switch.poe / switchBudget * 100)} %). Empfohlen sind mindestens ${Math.round((POE_HEADROOM - 1) * 100)} % Puffer für Startlasten und künftige Geräte.` });
       }
       if(gatewayHasPoe && allocation.gateway.poe > gatewayBudget) {
         const over = allocation.gateway.poe - gatewayBudget;
         warnings.push({ level: 'error', icon: 'alert-triangle',
           title: 'Gateway-PoE-Budget überschritten',
-          msg: `${allocation.gateway.poe.toFixed(1)} W zugeordnet, aber das Gateway liefert nur ${gatewayBudget} W (${over.toFixed(1)} W zu viel). Verlagere Geräte auf den Switch oder wähle ein anderes Gateway.` });
+          msg: `${fmt1(allocation.gateway.poe)} W zugeordnet, aber das Gateway liefert nur ${gatewayBudget} W (${fmt1(over)} W zu viel). Verlagere Geräte auf den Switch oder wähle ein anderes Gateway.` });
       }
       const switchPortsNeeded = allocation.switch.deviceCount + SWITCH_UPLINK_PORTS;
       if(activeSwitch.ports && switchPortsNeeded > activeSwitch.ports) {
@@ -3498,7 +3563,7 @@
               </div>
               <div class="text-right shrink-0">
                 <div class="text-xs text-nexus-muted uppercase font-bold tracking-wide">Auslastung</div>
-                <div class="font-bold text-xl ${valueClass}">${usedPoe.toFixed(1)}W <span class="text-sm font-normal text-nexus-muted">/ ${budget}W</span></div>
+                <div class="font-bold text-xl ${valueClass}">${fmt1(usedPoe)} W <span class="text-sm font-normal text-nexus-muted">/ ${budget} W</span></div>
                 <div class="text-[11px] text-nexus-muted">${allocation.switch.deviceCount + SWITCH_UPLINK_PORTS}/${sw.ports} Ports belegt</div>
               </div>
             </div>
@@ -3559,7 +3624,7 @@
               </div>
               <div class="text-right shrink-0">
                 <div class="text-xs text-nexus-muted uppercase font-bold tracking-wide">Auslastung</div>
-                <div class="font-bold text-xl ${valueClass}">${usedPoe.toFixed(1)}W <span class="text-sm font-normal text-nexus-muted">/ ${budget}W</span></div>
+                <div class="font-bold text-xl ${valueClass}">${fmt1(usedPoe)} W <span class="text-sm font-normal text-nexus-muted">/ ${budget} W</span></div>
                 <div class="text-[11px] text-nexus-muted">${gwPoeUsed}/${gwPoePorts} PoE-Ports belegt</div>
               </div>
             </div>
@@ -3592,7 +3657,7 @@
           <div class="card p-6" id="poe-assignment-card">
             <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
               <h3 class="text-base font-bold">PoE-Zuordnung</h3>
-              <span class="text-xs text-nexus-muted">Switch: ${allocation.switch.poe.toFixed(1)} W · Gateway: ${allocation.gateway.poe.toFixed(1)} W</span>
+              <span class="text-xs text-nexus-muted">Switch: ${fmt1(allocation.switch.poe)} W · Gateway: ${fmt1(allocation.gateway.poe)} W</span>
             </div>
             <p class="text-xs text-nexus-muted mb-3">Sowohl Switch als auch Gateway liefern PoE — wähle pro Gerät die Quelle.</p>
             <div class="flex items-center gap-3 mb-3 text-nexus-primary">${bulk('switch')} ${bulk('gateway')}</div>
@@ -3755,6 +3820,28 @@
       saveState();
     };
 
+    // Setter für Stromtarif, USV-Autonomie und Coverage-Profil (Iter. 2)
+    window.setEnergyTariff = (val) => {
+      const n = Number((val || '').toString().replace(',', '.'));
+      if(!Number.isFinite(n) || n < 0) return;
+      if(!state.energy) state.energy = { tariff: 0.32, upsRuntimeMin: 15 };
+      state.energy.tariff = Math.min(2, Math.max(0, n));
+      render();
+    };
+    window.setUpsRuntime = (min) => {
+      const n = parseInt(min);
+      if(!Number.isFinite(n) || n <= 0) return;
+      if(!state.energy) state.energy = { tariff: 0.32, upsRuntimeMin: 15 };
+      state.energy.upsRuntimeMin = Math.min(240, Math.max(1, n));
+      render();
+    };
+    window.setCoverageProfile = (id) => {
+      if(!COVERAGE_PROFILES.some(p => p.id === id)) return;
+      if(!state.coverage) state.coverage = { profile: 'general' };
+      state.coverage.profile = id;
+      render();
+    };
+
     const VLAN_PRESETS = {
       haus: [
         { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',   ssid: null },
@@ -3782,18 +3869,42 @@
       state.vlans = JSON.parse(JSON.stringify(VLAN_PRESETS[key]));
       render();
     };
+    // Liefert ein freies /24-Subnetz im 10.0.x.0-Bereich, das zu den bereits
+    // belegten Subnetzen nicht überlappt. Fallback auf das alte 192.168.x-Schema.
+    function suggestFreeSubnet(preferred) {
+      const used = (state.vlans || []).map(v => parseCIDR(v.subnet)).filter(Boolean);
+      const candidates = preferred ? [preferred] : [];
+      for(let x = 10; x <= 250; x += 10) candidates.push(`10.0.${x}.0/24`);
+      for(const c of candidates) {
+        const p = parseCIDR(c);
+        if(!p) continue;
+        if(!used.some(u => cidrsOverlap(u, p))) return c;
+      }
+      return preferred || '10.0.99.0/24';
+    }
+
     window.addVlan = () => {
       const existing = new Set(state.vlans.map(v => v.id));
       let nextId = 50; while(existing.has(nextId) && nextId < 4095) nextId += 10;
-      state.vlans.push({ id: nextId, name: 'Neues VLAN', subnet: `192.168.${nextId}.0/24`, purpose: 'custom', ssid: null });
+      state.vlans.push({ id: nextId, name: 'Neues VLAN', subnet: suggestFreeSubnet(`10.0.${nextId}.0/24`), purpose: 'custom', ssid: null });
       render();
     };
     window.removeVlan = (idx) => { state.vlans.splice(idx, 1); render(); };
     window.updateVlan = (idx, field, value) => {
-      if(!state.vlans[idx]) return;
+      const v = state.vlans[idx];
+      if(!v) return;
       if(field === 'id') value = Math.max(1, Math.min(4094, parseInt(value) || 1));
       if(field === 'ssid' && value === '') value = null;
-      state.vlans[idx][field] = value;
+      // Beim Wechsel des Zwecks: wenn das aktuelle Subnetz noch das ursprüngliche
+      // Default ist (also noch nicht vom User editiert), automatisch auf den
+      // Standard-Bereich für den neuen Zweck springen.
+      if(field === 'purpose' && VLAN_DEFAULT_SUBNETS[value]) {
+        const wasDefault = v.subnet === `10.0.${v.id}.0/24` || v.subnet === `192.168.${v.id}.0/24` || Object.values(VLAN_DEFAULT_SUBNETS).includes(v.subnet);
+        if(wasDefault) {
+          v.subnet = suggestFreeSubnet(VLAN_DEFAULT_SUBNETS[value]);
+        }
+      }
+      v[field] = value;
       saveState();
     };
 
@@ -3815,13 +3926,25 @@
 
       // Validierung
       const warnings = [];
-      const ids = new Set(), subs = new Set();
+      const ids = new Set();
+      const parsedSubs = [];
       state.vlans.forEach(v => {
         if(v.id < 1 || v.id > 4094) warnings.push(`VLAN-ID ${v.id} ungültig (1–4094).`);
         if(ids.has(v.id)) warnings.push(`VLAN-ID ${v.id} ist doppelt vergeben.`);
         ids.add(v.id);
-        if(subs.has(v.subnet)) warnings.push(`Subnetz ${v.subnet} ist doppelt vergeben.`);
-        subs.add(v.subnet);
+        if(v.subnet) {
+          const p = parseCIDR(v.subnet);
+          if(!p) {
+            warnings.push(`Subnetz ${v.subnet} ist ungültig (CIDR-Notation z. B. 10.0.10.0/24).`);
+          } else {
+            for(const o of parsedSubs) {
+              if(cidrsOverlap(o.cidr, p)) {
+                warnings.push(`Subnetze ${o.label} und ${v.subnet} überlappen sich.`);
+              }
+            }
+            parsedSubs.push({ cidr: p, label: v.subnet });
+          }
+        }
       });
       const hasCameras = state.floors.some(f => (f.cameras || []).length > 0);
       if(hasCameras && !state.vlans.some(v => v.purpose === 'camera')) {
@@ -4392,8 +4515,14 @@
       const poeWallDraw = deliveredPoe / POE_EFFICIENCY;
       const totalWatts = gatewayIdle + switchIdle + nvrIdle + poeWallDraw;
       const kwhYear = totalWatts * 24 * 365 / 1000;
-      const upsVA = Math.ceil(totalWatts * 1.5 / 10) * 10; // gerundet auf 10 VA
-      return { gatewayIdle, switchIdle, nvrIdle, deliveredPoe, poeWallDraw, totalWatts, kwhYear, upsVA };
+      const tariff = (state.energy?.tariff > 0 ? state.energy.tariff : 0.32);
+      const yearlyCost = kwhYear * tariff;
+      // USV-Dimensionierung: VA via 1,5×-Faktor (Power Factor + Reserve);
+      // Wh = Akkukapazität für gewählte Autonomie (Min). Auf 10 gerundet.
+      const upsVA = Math.ceil(totalWatts * 1.5 / 10) * 10;
+      const runtimeMin = (state.energy?.upsRuntimeMin > 0 ? state.energy.upsRuntimeMin : 15);
+      const upsWh = Math.ceil(totalWatts * (runtimeMin / 60) / 10) * 10;
+      return { gatewayIdle, switchIdle, nvrIdle, deliveredPoe, poeWallDraw, totalWatts, kwhYear, yearlyCost, tariff, upsVA, upsWh, upsRuntimeMin: runtimeMin };
     }
 
     window.exportProjectJson = () => {
@@ -4428,6 +4557,8 @@
             loaded.cabling = normalizeCablingState(loaded.cabling);
             loaded.rackView = normalizeRackView(loaded.rackView, loaded.racks);
             loaded.rackViewOpen = false;
+            loaded.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(loaded.energy || {}) };
+            loaded.coverage = { profile: 'general', ...(loaded.coverage || {}) };
             Object.assign(state, loaded);
             render();
             alert('Projekt erfolgreich geladen.');
@@ -4482,7 +4613,7 @@
         <div class="card p-0 overflow-hidden">
           <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
             <h3 class="font-bold">Laufende Kosten (monatlich)</h3>
-            <span class="text-sm text-nexus-muted">≈ <strong>${monthlySum} €/Monat</strong> · ${monthlySum * 12} €/Jahr</span>
+            <span class="text-sm text-nexus-muted">≈ <strong>${fmtEur0(monthlySum)} / Monat</strong> · ${fmtEur0(monthlySum * 12)} / Jahr</span>
           </div>
           <table class="w-full text-sm text-left">
             <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
@@ -4492,11 +4623,39 @@
               ${recurring.map(r => `<tr class="border-b border-nexus-border">
                 <td class="px-6 py-3 font-medium">${r.label}</td>
                 <td class="px-6 py-3 text-nexus-muted">${r.note || ''}</td>
-                <td class="px-4 py-3 text-right">${r.monthly} €</td>
+                <td class="px-4 py-3 text-right">${fmtEur0(r.monthly)}</td>
               </tr>`).join('')}
             </tbody>
           </table>
           <div class="px-6 py-3 text-[11px] text-nexus-muted bg-nexus-surface bg-opacity-30">Diese Kosten sind <strong>nicht</strong> in der Hardware-Stückliste oben enthalten — sie werden nur informativ ausgewiesen.</div>
+        </div>`;
+
+      // Kabel-Validierung: 100 m Kupfer-Limit, Cat-Klasse vs. Anwendung.
+      // Greift nur, wenn der User im Rack-View Verbindungen mit Längen gepflegt hat.
+      const cableIssues = [];
+      const conns = state.cabling?.connections || [];
+      conns.forEach(cn => {
+        const len = Number(cn.cableLengthM) || 0;
+        const cat = (cn.cableCategory || state.cabling?.defaultCategory || 'cat6a').toLowerCase();
+        if(len > 100) {
+          cableIssues.push({ severity: 'error', msg: `Verbindung ${fmt1(len)} m überschreitet die 100-m-Grenze für Twisted-Pair. Mit LWL/SFP+ (z. B. OM3-Multimode oder SM-LWL) und einem Aggregation-Switch arbeiten.` });
+        } else if(len > 90) {
+          cableIssues.push({ severity: 'warn', msg: `Verbindung ${fmt1(len)} m (${cat.toUpperCase()}) liegt nahe an der 100-m-Grenze. Mindestens Cat6a/Cat7 verwenden und Reserve einplanen.` });
+        } else if(len > 55 && (cat === 'cat5e' || cat === 'cat6')) {
+          cableIssues.push({ severity: 'warn', msg: `Verbindung ${fmt1(len)} m mit ${cat.toUpperCase()}: für PoE++ (bis 90 W, IEEE 802.3bt) und 10GBASE-T Cat6a ab 55 m empfohlen.` });
+        }
+      });
+      const cableCard = cableIssues.length === 0 ? '' : `
+        <div class="card p-0 overflow-hidden">
+          <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50">
+            <h3 class="font-bold">Verkabelung — Hinweise</h3>
+          </div>
+          <ul class="divide-y divide-nexus-border">
+            ${cableIssues.map(i => `<li class="px-6 py-3 text-sm flex items-start gap-2">
+              <span class="${i.severity === 'error' ? 'text-red-600' : 'text-amber-600'} mt-0.5"><i data-lucide="${i.severity === 'error' ? 'alert-octagon' : 'alert-triangle'}" class="w-4 h-4"></i></span>
+              <span>${i.msg}</span>
+            </li>`).join('')}
+          </ul>
         </div>`;
 
       const vlanCard = state.vlans && state.vlans.length > 0 ? `
@@ -4520,7 +4679,7 @@
           const a=aps[i], c=aps[j];
           const dist = Math.hypot((a.x||0)-(c.x||0), (a.y||0)-(c.y||0));
           if(dist < 8 && a.channel5 && c.channel5 && Math.abs(a.channel5 - c.channel5) <= 4) {
-            channelWarnings.push(`${f.name}: APs auf 5 GHz-Kanal ${a.channel5} und ${c.channel5} stehen zu nah (${dist.toFixed(1)}m).`);
+            channelWarnings.push(`${f.name}: APs auf 5 GHz-Kanal ${a.channel5} und ${c.channel5} stehen zu nah (${fmt1(dist)} m).`);
           }
         }
       });
@@ -4549,12 +4708,32 @@
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Gesamt-Strom (Wand)</div><div class="text-2xl font-bold">${p.totalWatts.toFixed(0)} W</div><div class="text-xs text-nexus-muted mt-1">Gateway ${p.gatewayIdle} W · Switch ${p.switchIdle} W${p.nvrIdle ? ' · NVR '+p.nvrIdle+' W' : ''} · PoE-Last ${p.deliveredPoe.toFixed(0)} W (≈ ${p.poeWallDraw.toFixed(0)} W Wand bei 90 % Wirkungsgrad)</div></div>
-            <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Stromkosten (geschätzt)</div><div class="text-2xl font-bold">${p.kwhYear.toFixed(0)} kWh/Jahr</div><div class="text-xs text-nexus-muted mt-1">≈ ${(p.kwhYear * 0.32).toFixed(0)} € bei 0,32 €/kWh</div></div>
-            <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">USV-Empfehlung</div><div class="text-2xl font-bold">≥ ${p.upsVA} VA</div><div class="text-xs text-nexus-muted mt-1">1,5×-Puffer auf Gesamtlast</div></div>
+            <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Gesamt-Strom (Wand)</div><div class="text-2xl font-bold">${fmt0(p.totalWatts)} W</div><div class="text-xs text-nexus-muted mt-1">Gateway ${fmt0(p.gatewayIdle)} W · Switch ${fmt0(p.switchIdle)} W${p.nvrIdle ? ' · NVR '+fmt0(p.nvrIdle)+' W' : ''} · PoE-Last ${fmt0(p.deliveredPoe)} W (≈ ${fmt0(p.poeWallDraw)} W Wand bei 90 % Wirkungsgrad)</div></div>
+            <div class="card p-5">
+              <div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Stromkosten (geschätzt)</div>
+              <div class="text-2xl font-bold">${fmt0(p.kwhYear)} kWh/Jahr</div>
+              <div class="text-xs text-nexus-muted mt-1 flex items-center gap-1 flex-wrap">
+                ≈ ${fmtEur0(p.yearlyCost)} bei
+                <input type="number" min="0" step="0.01" value="${p.tariff.toFixed(2)}" onchange="window.setEnergyTariff(this.value)" class="w-16 bg-nexus-surface border border-nexus-border rounded px-1 py-0.5 text-xs no-print" aria-label="Stromtarif in Euro pro kWh" />
+                <span>€/kWh</span>
+              </div>
+            </div>
+            <div class="card p-5">
+              <div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">USV-Empfehlung</div>
+              <div class="text-2xl font-bold">≥ ${fmt0(p.upsVA)} VA</div>
+              <div class="text-xs text-nexus-muted mt-1 flex items-center gap-1 flex-wrap">
+                ≈ ${fmt0(p.upsWh)} Wh für
+                <select onchange="window.setUpsRuntime(this.value)" class="bg-nexus-surface border border-nexus-border rounded px-1 py-0.5 text-xs no-print" aria-label="USV-Autonomie">
+                  ${[5,15,30,60,120].map(m => `<option value="${m}" ${p.upsRuntimeMin === m ? 'selected' : ''}>${m}</option>`).join('')}
+                </select>
+                <span>Min Autonomie</span>
+              </div>
+            </div>
           </div>
 
           ${recurringCard}
+
+          ${cableCard}
 
           ${vlanCard}
 
@@ -4562,7 +4741,7 @@
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
                <h3 class="font-bold">Stückliste (BOM)</h3>
                <div class="flex items-center gap-3">
-                 <span class="text-sm text-nexus-muted">Gesamt: <strong>~${sumTotal} €</strong></span>
+                 <span class="text-sm text-nexus-muted">Gesamt: <strong>~${fmtEur0(sumTotal)}</strong></span>
                  ${(state.bomOverrides?.removedKeys?.length || state.bomOverrides?.customRows?.length || Object.keys(state.bomOverrides?.quantityOverrides || {}).length) ? `<button onclick="window.resetBomOverrides()" class="btn-secondary text-xs flex items-center gap-1 no-print"><i data-lucide="rotate-ccw" class="w-3 h-3"></i> Auto wiederherstellen</button>` : ''}
                </div>
              </div>
@@ -4588,8 +4767,8 @@
                     </td>
                     <td class="px-4 py-3 text-right">${item.isCustom
                       ? `<input type="number" min="0" step="1" value="${item.price}" onchange="window.updateCustomBomRow('${item.customId}','price',this.value)" class="w-20 text-right bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"> €`
-                      : `~${item.price} €`}</td>
-                    <td class="px-4 py-3 text-right font-bold">~${item.price * item.qty} €</td>
+                      : `~${fmtEur0(item.price)}`}</td>
+                    <td class="px-4 py-3 text-right font-bold">~${fmtEur0(item.price * item.qty)}</td>
                     <td class="px-4 py-3 text-right no-print">
                       <button onclick="window.removeBomRow('${item.key}')" class="text-red-500 hover:text-red-700" title="Entfernen"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                     </td>
@@ -4661,7 +4840,7 @@
             if(showSwitch) {
               cards.push(`
                 <div class="card p-6">
-                   <h3 class="font-bold mb-1">PoE Power Budget · Switch (${switchPoe.toFixed(1)}W / ${switchBudget}W)${poeBadge(switchPoe, switchBudget)}</h3>
+                   <h3 class="font-bold mb-1">PoE Power Budget · Switch (${fmt1(switchPoe)} W / ${switchBudget} W)${poeBadge(switchPoe, switchBudget)}</h3>
                    <p class="text-xs text-nexus-muted mb-4">PoE-Quelle: ${b.activeSwitch.name}</p>
                    <div class="relative h-24 max-w-lg"><canvas id="poeChartSwitch"></canvas></div>
                 </div>`);
@@ -4669,7 +4848,7 @@
             if(b.gatewayHasPoe) {
               cards.push(`
                 <div class="card p-6">
-                   <h3 class="font-bold mb-1">PoE Power Budget · Gateway (${gatewayPoe.toFixed(1)}W / ${b.gatewayBudget}W)${poeBadge(gatewayPoe, b.gatewayBudget)}</h3>
+                   <h3 class="font-bold mb-1">PoE Power Budget · Gateway (${fmt1(gatewayPoe)} W / ${b.gatewayBudget} W)${poeBadge(gatewayPoe, b.gatewayBudget)}</h3>
                    <p class="text-xs text-nexus-muted mb-4">PoE-Quelle: ${b.gw.name}</p>
                    <div class="relative h-24 max-w-lg"><canvas id="poeChartGateway"></canvas></div>
                 </div>`);
