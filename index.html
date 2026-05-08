@@ -326,6 +326,14 @@
       box-shadow: 0 4px 16px rgba(0,0,0,0.25); z-index: 200;
       animation: fadeSlideIn 0.2s ease;
       pointer-events: none;
+      max-width: min(92vw, 520px); text-align: center;
+    }
+    .planner-toast.toast-error {
+      background: #b91c1c; color: #fff;
+      border: 1px solid #fca5a5;
+    }
+    .planner-toast.toast-warn {
+      background: #b45309; color: #fff;
     }
     .planner-controls button {
       width: 32px; height: 32px;
@@ -931,6 +939,12 @@
         updateFreshnessBadge();
         render(); // Trigger full app render
         installPlannerKeyboardShortcuts();
+        // Falls loadState() einen Fehler gemeldet hat (Quota/Parse/Format),
+        // ihn jetzt — nach dem ersten Render — sichtbar machen.
+        if(_loadStateError) {
+          showPlannerToast(_loadStateError, 'error');
+          _loadStateError = null;
+        }
       }, 500);
     }
 
@@ -1166,8 +1180,24 @@
 
     // --- State Persistence (localStorage) --- //
     const STATE_KEY = 'unifi-planner:state:v1';
+    let _saveQuotaWarned = false;
     function saveState() {
-      try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch(_) {}
+      try {
+        localStorage.setItem(STATE_KEY, JSON.stringify(state));
+      } catch(err) {
+        // Häufigste Ursache: Quota-Exceeded (z. B. großes Hintergrund-Bild als Base64).
+        // Wir warnen nur einmal pro Sitzung, sonst würde jeder Render ein Toast auslösen.
+        const isQuota = err && (err.name === 'QuotaExceededError'
+          || err.code === 22 || err.code === 1014);
+        if(!_saveQuotaWarned) {
+          _saveQuotaWarned = true;
+          const msg = isQuota
+            ? 'Speicher voll: Änderungen werden nicht im Browser gespeichert. Verkleinere Hintergrundbilder oder exportiere als JSON.'
+            : 'Projekt konnte nicht im Browser gespeichert werden: ' + (err?.message || err);
+          if(typeof showPlannerToast === 'function') showPlannerToast(msg, 'error');
+          if(typeof console !== 'undefined') console.warn('[saveState]', err);
+        }
+      }
     }
 
     // --- Undo / Redo (Raumplaner) --- //
@@ -1242,22 +1272,31 @@
     window.plannerRedo = plannerRedo;
 
     let _toastTimer = null;
-    function showPlannerToast(text) {
+    function showPlannerToast(text, variant) {
       const old = document.getElementById('planner-toast');
       if(old) old.remove();
       if(_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
       const t = document.createElement('div');
       t.id = 'planner-toast';
-      t.className = 'planner-toast';
+      t.className = 'planner-toast' + (variant === 'error' ? ' toast-error' : variant === 'warn' ? ' toast-warn' : '');
       t.textContent = text;
+      if(variant === 'error') t.setAttribute('role', 'alert');
       document.body.appendChild(t);
-      _toastTimer = setTimeout(() => { t.remove(); _toastTimer = null; }, 1600);
+      const duration = variant === 'error' ? 3800 : variant === 'warn' ? 2800 : 1600;
+      _toastTimer = setTimeout(() => { t.remove(); _toastTimer = null; }, duration);
     }
     window.showPlannerToast = showPlannerToast;
+    let _loadStateError = null; // wird nach dem Boot vom App-Init als Toast ausgespielt
     function loadState() {
+      let raw;
+      try { raw = localStorage.getItem(STATE_KEY); }
+      catch(err) {
+        _loadStateError = 'Browser-Speicher nicht zugänglich (Privater Modus?). Es wird mit einem leeren Projekt gestartet.';
+        if(typeof console !== 'undefined') console.warn('[loadState] localStorage read failed', err);
+        return;
+      }
+      if(!raw) return;
       try {
-        const raw = localStorage.getItem(STATE_KEY);
-        if(!raw) return;
         const parsed = JSON.parse(raw);
         if(parsed && typeof parsed === 'object' && Array.isArray(parsed.floors)) {
           // Migration: alte Floors ohne cameras[]
@@ -1284,8 +1323,13 @@
             if(fresh2) parsed.backup.isp2 = fresh2;
           }
           Object.assign(state, parsed);
+        } else {
+          _loadStateError = 'Gespeichertes Projekt hat ein unbekanntes Format und wurde verworfen. Du arbeitest mit einem neuen Projekt — dein altes ist nicht überschrieben.';
         }
-      } catch(_) { /* invalid JSON — stille Fallback auf Defaults */ }
+      } catch(err) {
+        _loadStateError = 'Gespeichertes Projekt konnte nicht gelesen werden (' + (err?.message || 'Parse-Fehler') + '). Es wird mit einem leeren Projekt gestartet.';
+        if(typeof console !== 'undefined') console.warn('[loadState]', err);
+      }
     }
     window.resetPlannerState = () => {
       if(!confirm('Aktuelles Projekt wirklich zurücksetzen? Alle Eingaben werden gelöscht.')) return;
@@ -1316,9 +1360,44 @@
     }
 
 
+    // --- Wizard-Validierung pro Schritt --- //
+    // Liefert die erste blockierende Fehlermeldung oder null. Warnungen
+    // (z. B. „kein VLAN für Kameras") werden im jeweiligen Step inline
+    // angezeigt und blockieren den Weiter-Button bewusst nicht.
+    function validateStep(step) {
+      if(step === 1) {
+        if(!state.isp) return 'Bitte einen Internetanbieter wählen.';
+        const dn = parseInt(state.speedDown), up = parseInt(state.speedUp);
+        if(!Number.isFinite(dn) || dn < 1) return 'Download-Geschwindigkeit ist ungültig.';
+        if(!Number.isFinite(up) || up < 1) return 'Upload-Geschwindigkeit ist ungültig.';
+        return null;
+      }
+      if(step === 4) {
+        const ids = new Set(), subs = new Set();
+        for(const v of (state.vlans || [])) {
+          if(v.id < 1 || v.id > 4094) return `VLAN-ID ${v.id} ist ungültig (erlaubt: 1–4094).`;
+          if(ids.has(v.id)) return `VLAN-ID ${v.id} ist doppelt vergeben.`;
+          ids.add(v.id);
+          if(v.subnet && subs.has(v.subnet)) return `Subnetz ${v.subnet} ist doppelt vergeben.`;
+          if(v.subnet) subs.add(v.subnet);
+        }
+        return null;
+      }
+      if(step === 5) {
+        const bu = state.backup;
+        if(!bu?.enabled) return null;
+        if(!bu.type) return 'Bitte Backup-Typ wählen oder Backup deaktivieren.';
+        if(bu.type === 'cellular' && !bu.cellularModel) return 'Bitte ein Mobilfunk-Modell wählen.';
+        if(bu.type === 'starlink' && !bu.starlinkAntenna) return 'Bitte eine Starlink-Antenne wählen.';
+        if(bu.type === 'isp2' && !bu.isp2) return 'Bitte einen Zweit-Anbieter wählen.';
+        return null;
+      }
+      return null;
+    }
+
     // --- Render Engine --- //
     const contentDiv = document.getElementById('app-content');
-    
+
     function render() {
       document.querySelectorAll('.step-node').forEach(el => el.className = `step-node ${parseInt(el.getAttribute('data-step')) === state.currentStep ? 'active' : parseInt(el.getAttribute('data-step')) < state.currentStep ? 'completed' : ''}`);
       document.querySelectorAll('.step-line').forEach(el => el.className = `step-line ${parseInt(el.id.replace('line-', '')) < state.currentStep ? 'active' : ''}`);
@@ -1330,7 +1409,13 @@
         btnNext.onclick = () => window.print();
       } else {
         btnNext.innerHTML = 'Weiter <i data-lucide="arrow-right" class="w-4 h-4"></i>';
-        btnNext.onclick = () => { if (state.currentStep < 6) { state.currentStep++; render(); } };
+        btnNext.onclick = () => {
+          if(state.currentStep >= 6) return;
+          const err = validateStep(state.currentStep);
+          if(err) { showPlannerToast(err, 'error'); return; }
+          state.currentStep++;
+          render();
+        };
       }
 
       contentDiv.innerHTML = '';
@@ -4380,6 +4465,40 @@
       const container = document.createElement('div');
       container.className = 'fade-in flex flex-col gap-8';
 
+      // Laufende Kosten (rein informativ — nicht in der Hardware-BOM enthalten).
+      // Aktuell: Starlink-Tarif. ISP-Tarife haben kein `monthly`-Feld und werden
+      // hier nicht erfasst.
+      const recurring = [];
+      if(state.backup?.enabled && state.backup.type === 'starlink' && state.backup.starlinkPlan) {
+        const slPlan = STARLINK_PLANS.find(pl => pl.id === state.backup.starlinkPlan);
+        if(slPlan) recurring.push({
+          label: 'Starlink-Tarif (' + slPlan.name + ')',
+          monthly: slPlan.monthly,
+          note: slPlan.data
+        });
+      }
+      const monthlySum = recurring.reduce((s, r) => s + (r.monthly || 0), 0);
+      const recurringCard = recurring.length === 0 ? '' : `
+        <div class="card p-0 overflow-hidden">
+          <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
+            <h3 class="font-bold">Laufende Kosten (monatlich)</h3>
+            <span class="text-sm text-nexus-muted">≈ <strong>${monthlySum} €/Monat</strong> · ${monthlySum * 12} €/Jahr</span>
+          </div>
+          <table class="w-full text-sm text-left">
+            <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
+              <tr><th class="px-6 py-3">Position</th><th class="px-6 py-3">Hinweis</th><th class="px-4 py-3 text-right">€/Monat</th></tr>
+            </thead>
+            <tbody>
+              ${recurring.map(r => `<tr class="border-b border-nexus-border">
+                <td class="px-6 py-3 font-medium">${r.label}</td>
+                <td class="px-6 py-3 text-nexus-muted">${r.note || ''}</td>
+                <td class="px-4 py-3 text-right">${r.monthly} €</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+          <div class="px-6 py-3 text-[11px] text-nexus-muted bg-nexus-surface bg-opacity-30">Diese Kosten sind <strong>nicht</strong> in der Hardware-Stückliste oben enthalten — sie werden nur informativ ausgewiesen.</div>
+        </div>`;
+
       const vlanCard = state.vlans && state.vlans.length > 0 ? `
           <div class="card p-0 overflow-hidden">
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50"><h3 class="font-bold">Netzwerk-Segmentierung (VLANs)</h3></div>
@@ -4434,6 +4553,8 @@
             <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Stromkosten (geschätzt)</div><div class="text-2xl font-bold">${p.kwhYear.toFixed(0)} kWh/Jahr</div><div class="text-xs text-nexus-muted mt-1">≈ ${(p.kwhYear * 0.32).toFixed(0)} € bei 0,32 €/kWh</div></div>
             <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">USV-Empfehlung</div><div class="text-2xl font-bold">≥ ${p.upsVA} VA</div><div class="text-xs text-nexus-muted mt-1">1,5×-Puffer auf Gesamtlast</div></div>
           </div>
+
+          ${recurringCard}
 
           ${vlanCard}
 
