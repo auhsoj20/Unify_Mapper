@@ -67,7 +67,7 @@
         --color-primary: #4f98a3; 
         --color-primary-hover: #5ab1bd;
         --color-text: #eaeaea;
-        --color-text-muted: #a1a1a1;
+        --color-text-muted: #bdbdbd;
         --color-border: color-mix(in oklch, white 12%, transparent);
       }
     }
@@ -630,6 +630,62 @@
     }
 
     @media print { #rack-overlay { display: none !important; } }
+
+    /* --- A11y, Touch-Targets, Reduced-Motion, erweitertes Print (Iteration 3) --- */
+
+    /* Touch-Targets ≥ 44 px auf Touch-Geräten für die Step-2-Toolbar.
+       Greift nur bei Coarse-Pointer (Mobile/Tablet) — Desktop bleibt kompakt. */
+    @media (pointer: coarse) {
+      #planner-card .flex.items-center > button,
+      #planner-card .flex.items-center > select,
+      #planner-card .floor-tab-wrap > button {
+        min-height: 44px;
+      }
+      .floor-tab-menu-btn {
+        min-width: 44px;
+        min-height: 44px;
+      }
+    }
+
+    /* Reduced Motion: Animationen/Transitions deaktivieren, wenn der User
+       das in seinen System-Einstellungen wünscht. */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    /* Sichtbarer Fokus-Indikator für Tastatur-Nutzer auf allen interaktiven
+       Elementen — die Tailwind-CDN setzt nur sehr dezente Defaults. */
+    button:focus-visible,
+    select:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+
+    /* Erweiterte Print-CSS: BOM / Topologie / Power-Karten druckfreundlich.
+       Dunkle Topologie-Karte wird in S/W ausgegeben, Tabellen brechen nicht
+       mitten in einer Zeile um. */
+    @media print {
+      body { color: #000 !important; }
+      .card { background: white !important; color: #000 !important; page-break-inside: avoid; }
+      .card.bg-\[\#1f2937\], .card[class*="bg-\[\#1f2937\]"] { background: #fff !important; color: #000 !important; border: 1px solid #999 !important; }
+      .card.bg-\[\#1f2937\] *, .card[class*="bg-\[\#1f2937\]"] * { color: #000 !important; }
+      table { page-break-inside: auto; }
+      tr { page-break-inside: avoid; page-break-after: auto; }
+      thead { display: table-header-group; }
+      tfoot { display: table-footer-group; }
+      .toggle-checkbox, .toggle-label { display: none !important; }
+      input[type=number], input[type=text], select { border: 1px solid #999 !important; background: white !important; color: #000 !important; }
+      h2, h3 { page-break-after: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
   </style>
 </head>
 <body class="min-h-screen text-nexus-base">
@@ -1050,11 +1106,17 @@
             window.deleteRoom?.(state.selectedRoomId);
             return;
          }
-         // Esc: Vollbild verlassen / Auswahl aufheben / Floor-Menü schließen
+         // Esc: Vollbild verlassen / BG-Popup schließen / Auswahl aufheben /
+         // Floor-Menü schließen.
          if(e.key === 'Escape') {
             const card = document.getElementById('planner-card');
             if(card && card.classList.contains('planner-fullscreen')) {
                window.toggleFullscreen?.();
+               return;
+            }
+            const bgPopup = document.getElementById('planner-bg-popup');
+            if(bgPopup) {
+               bgPopup.remove();
                return;
             }
             if(document.querySelector('.floor-tab-actions.open')) {
@@ -1804,7 +1866,7 @@
          return `
          <span class="floor-tab-wrap">
            <button id="tab-${f.id}" class="px-3 md:px-4 py-3 border-b-2 font-bold whitespace-nowrap ${isActive ? 'border-nexus-primary text-nexus-primary' : 'border-transparent text-nexus-muted hover:text-nexus-base'}" onclick="window.switchFloor('${f.id}')" ondblclick="window.startFloorRename('${f.id}', this); event.stopPropagation();" title="Doppelklick zum Umbenennen">${escapeHtml(f.name)}</button>
-           <button class="floor-tab-menu-btn" title="Etagen-Optionen" aria-haspopup="true" onclick="event.stopPropagation(); window.toggleFloorMenu('${f.id}', this)">⋯</button>
+           <button class="floor-tab-menu-btn" title="Etagen-Optionen" aria-haspopup="true" aria-label="Optionen für Etage ${escapeHtml(f.name)}" onclick="event.stopPropagation(); window.toggleFloorMenu('${f.id}', this)">⋯</button>
            <div class="floor-tab-actions" id="floor-menu-${f.id}" onclick="event.stopPropagation()">
              <button onclick="window.startFloorRename('${f.id}', document.getElementById('tab-${f.id}')); window.closeFloorMenus();"><i data-lucide="edit-3" class="w-4 h-4"></i> Umbenennen</button>
              <button onclick="window.duplicateFloor('${f.id}'); window.closeFloorMenus();"><i data-lucide="copy" class="w-4 h-4"></i> Duplizieren</button>
@@ -1813,7 +1875,7 @@
              <button class="danger" ${canDelete ? '' : 'disabled'} onclick="window.deleteFloor('${f.id}'); window.closeFloorMenus();"><i data-lucide="trash-2" class="w-4 h-4"></i> Etage löschen</button>
            </div>
          </span>`;
-      }).join('') + `<button class="px-4 py-3 text-nexus-muted hover:text-nexus-primary" onclick="window.addFloor()" title="Etage hinzufügen"><i data-lucide="plus" class="w-4 h-4"></i></button>`;
+      }).join('') + `<button class="px-4 py-3 text-nexus-muted hover:text-nexus-primary" onclick="window.addFloor()" title="Etage hinzufügen" aria-label="Etage hinzufügen"><i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i></button>`;
 
       let inspectorHtml = '';
       if(state.selectedRoomId) {
@@ -1855,14 +1917,14 @@
           <div class="flex justify-between items-center border-b border-nexus-border px-2 bg-nexus-surface bg-opacity-50 gap-2 flex-wrap rounded-t-[12px]">
              <div class="flex flex-wrap items-center overflow-x-auto" style="max-width:100%;">${tabsHtml}</div>
              <div class="flex items-center gap-1 md:gap-2 mr-1 md:mr-2 my-2 flex-wrap">
-               <button id="planner-btn-undo" onclick="window.plannerUndo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Rückgängig (Strg+Z)" disabled>
-                  <i data-lucide="undo-2" class="w-3.5 h-3.5"></i><span class="hidden md:inline">Undo</span>
+               <button id="planner-btn-undo" onclick="window.plannerUndo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Rückgängig (Strg+Z)" aria-label="Rückgängig" disabled>
+                  <i data-lucide="undo-2" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline">Undo</span>
                </button>
-               <button id="planner-btn-redo" onclick="window.plannerRedo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Wiederholen (Strg+Umschalt+Z)" disabled>
-                  <i data-lucide="redo-2" class="w-3.5 h-3.5"></i><span class="hidden md:inline">Redo</span>
+               <button id="planner-btn-redo" onclick="window.plannerRedo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Wiederholen (Strg+Umschalt+Z)" aria-label="Wiederholen" disabled>
+                  <i data-lucide="redo-2" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline">Redo</span>
                </button>
-               <button onclick="window.toggleHeatmap()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state.view && state.view.heatmap ? 'bg-emerald-600 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Signal-Heatmap umschalten">
-                  <i data-lucide="thermometer" class="w-3.5 h-3.5"></i><span class="hidden md:inline"> Heatmap ${state.view && state.view.heatmap ? 'an' : 'aus'}</span>
+               <button onclick="window.toggleHeatmap()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state.view && state.view.heatmap ? 'bg-emerald-600 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Signal-Heatmap umschalten" aria-label="Signal-Heatmap umschalten" aria-pressed="${state.view && state.view.heatmap ? 'true' : 'false'}">
+                  <i data-lucide="thermometer" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Heatmap ${state.view && state.view.heatmap ? 'an' : 'aus'}</span>
                </button>
                <select onchange="window.setCoverageProfile(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Coverage-Profil (Min-RSSI)" aria-label="Coverage-Profil">
                   ${COVERAGE_PROFILES.map(p => `<option value="${p.id}" ${state.coverage?.profile === p.id ? 'selected' : ''}>${p.label} (${p.rssi} dBm)</option>`).join('')}
@@ -1871,13 +1933,13 @@
                   ${WALL_MATERIALS.map(m => `<option value="${m.id}" ${(currentFloor.wallMaterial || DEFAULT_FLOOR_MATERIAL) === m.id ? 'selected' : ''} title="${m.hint}">${m.label}</option>`).join('')}
                </select>
                <button onclick="window.autoAssignChannels()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Kanäle automatisch verteilen (2,4 + 5 GHz)" aria-label="Kanäle automatisch verteilen">
-                  <i data-lucide="radio-tower" class="w-3.5 h-3.5"></i><span class="hidden md:inline"> Kanäle auto</span>
+                  <i data-lucide="radio-tower" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Kanäle auto</span>
                </button>
-               <button onclick="window.toggleFullscreen()" id="planner-fs-btn" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Vollbild umschalten">
-                  <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
+               <button onclick="window.toggleFullscreen()" id="planner-fs-btn" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Vollbild umschalten" aria-label="Vollbild umschalten">
+                  <i data-lucide="maximize-2" class="w-3.5 h-3.5" aria-hidden="true"></i>
                </button>
-               <button class="text-sm font-bold flex items-center gap-1 text-white bg-nexus-primary px-2 md:px-3 py-1.5 rounded hover:opacity-80 transition-opacity" onclick="window.addRoom()" title="Neuen Raum hinzufügen">
-                  <i data-lucide="plus-square" class="w-4 h-4"></i><span class="hidden md:inline"> Neuer Raum</span>
+               <button class="text-sm font-bold flex items-center gap-1 text-white bg-nexus-primary px-2 md:px-3 py-1.5 rounded hover:opacity-80 transition-opacity" onclick="window.addRoom()" title="Neuen Raum hinzufügen" aria-label="Neuen Raum hinzufügen">
+                  <i data-lucide="plus-square" class="w-4 h-4" aria-hidden="true"></i><span class="hidden md:inline"> Neuer Raum</span>
                </button>
              </div>
           </div>
@@ -2272,11 +2334,11 @@
       const hasBg = !!(currentFloor.backgroundImage && currentFloor.backgroundImage.dataUrl);
       const bgVisible = hasBg && currentFloor.backgroundImage.visible !== false;
       tools.innerHTML = `
-         <button type="button" data-act="fit"         title="Auf Räume zoomen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
-         <button type="button" data-act="bg-upload"   title="Grundriss-Bild laden"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
+         <button type="button" data-act="fit"         title="Auf Räume zoomen" aria-label="Auf Räume zoomen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
+         <button type="button" data-act="bg-upload"   title="Grundriss-Bild laden" aria-label="Grundriss-Bild laden"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
          ${hasBg ? `
-         <button type="button" data-act="bg-toggle" class="${bgVisible ? 'active' : ''}" title="Grundriss-Bild ein/aus"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-         <button type="button" data-act="bg-settings" title="Grundriss-Einstellungen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.36.86 1.16 1.42 2 1.51H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+         <button type="button" data-act="bg-toggle" class="${bgVisible ? 'active' : ''}" title="Grundriss-Bild ein/aus" aria-label="Grundriss-Bild ein- oder ausblenden" aria-pressed="${bgVisible ? 'true' : 'false'}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+         <button type="button" data-act="bg-settings" title="Grundriss-Einstellungen" aria-label="Grundriss-Einstellungen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.36.86 1.16 1.42 2 1.51H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
          ` : ''}
       `;
       planner.appendChild(tools);
