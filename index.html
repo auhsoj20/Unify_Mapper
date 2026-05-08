@@ -726,6 +726,31 @@
     ];
     const coverageFactor = () => (COVERAGE_PROFILES.find(p => p.id === state?.coverage?.profile)?.factor) || 1.0;
 
+    // --- Wand-Material pro Etage --- //
+    // Vereinfachtes Modell: jede Etage hat eine pauschale Material-Klasse, die
+    // den effektiven Reichweiten-Radius der APs reduziert. Keine echte
+    // Geometrie-/Wandschnitt-Berechnung — der Faktor steht stellvertretend für
+    // typische Mehrfachdämpfung in 5-GHz-Innenräumen.
+    const WALL_MATERIALS = [
+      { id: 'light',   label: 'Leicht (Trockenbau, Holz, Glas)', factor: 0.95, dB: 3,  hint: '~3 dB pro Wand bei 5 GHz' },
+      { id: 'medium',  label: 'Mittel (Massivbau, gemischt)',    factor: 0.85, dB: 7,  hint: '~7 dB pro Wand' },
+      { id: 'heavy',   label: 'Schwer (Beton, Stahlbeton)',      factor: 0.70, dB: 12, hint: '~12 dB pro Wand' },
+      { id: 'outdoor', label: 'Außenbereich (freie Sicht)',      factor: 1.10, dB: 0,  hint: 'kaum Hindernisse, leicht erweiterte Reichweite' }
+    ];
+    const DEFAULT_FLOOR_MATERIAL = 'medium';
+    const floorWallFactor = (floor) => {
+      const id = floor?.wallMaterial || DEFAULT_FLOOR_MATERIAL;
+      return (WALL_MATERIALS.find(m => m.id === id)?.factor) || 1.0;
+    };
+
+    // --- Channel-Plan: 2,4/5 GHz, DFS --- //
+    // 2,4 GHz: nur 3 nicht-überlappende Kanäle (1/6/11) sind brauchbar.
+    // 5 GHz: UNII-1 (36–48) + UNII-2 + UNII-2 extended (DFS, 52–144) +
+    // UNII-3 (149–161). DFS-Bereich kann durch Wetterradar gestört werden.
+    const CH24_NONOVERLAP = [1, 6, 11];
+    const CH5_LIST = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161];
+    const CH5_DFS = new Set([52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144]);
+
     // --- CIDR-Helfer für VLAN-Subnetz-Validierung --- //
     function parseCIDR(s) {
       if(typeof s !== 'string') return null;
@@ -1076,7 +1101,7 @@
       speedDown: 250,
       speedUp: 40,
       floors: [
-        { id: 'f-1', name: 'Erdgeschoss', rooms: [{ id: 'room-1', name: 'Wohnzimmer', w: 10, h: 8, x: 2, y: 2 }], aps: [], cameras: [] }
+        { id: 'f-1', name: 'Erdgeschoss', wallMaterial: 'medium', rooms: [{ id: 'room-1', name: 'Wohnzimmer', w: 10, h: 8, x: 2, y: 2 }], aps: [], cameras: [] }
       ],
       currentFloorId: 'f-1',
       selectedRoomId: null,
@@ -1349,8 +1374,8 @@
       try {
         const parsed = JSON.parse(raw);
         if(parsed && typeof parsed === 'object' && Array.isArray(parsed.floors)) {
-          // Migration: alte Floors ohne cameras[]
-          parsed.floors = parsed.floors.map(f => ({ cameras: [], ...f }));
+          // Migration: alte Floors ohne cameras[] / wallMaterial
+          parsed.floors = parsed.floors.map(f => ({ cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f }));
           if(!parsed.view) parsed.view = { heatmap: false };
           if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
           parsed.backup = normalizeBackupState(parsed.backup);
@@ -1842,6 +1867,12 @@
                <select onchange="window.setCoverageProfile(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Coverage-Profil (Min-RSSI)" aria-label="Coverage-Profil">
                   ${COVERAGE_PROFILES.map(p => `<option value="${p.id}" ${state.coverage?.profile === p.id ? 'selected' : ''}>${p.label} (${p.rssi} dBm)</option>`).join('')}
                </select>
+               <select onchange="window.setFloorMaterial(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Wandmaterial dieser Etage" aria-label="Wandmaterial">
+                  ${WALL_MATERIALS.map(m => `<option value="${m.id}" ${(currentFloor.wallMaterial || DEFAULT_FLOOR_MATERIAL) === m.id ? 'selected' : ''} title="${m.hint}">${m.label}</option>`).join('')}
+               </select>
+               <button onclick="window.autoAssignChannels()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Kanäle automatisch verteilen (2,4 + 5 GHz)" aria-label="Kanäle automatisch verteilen">
+                  <i data-lucide="radio-tower" class="w-3.5 h-3.5"></i><span class="hidden md:inline"> Kanäle auto</span>
+               </button>
                <button onclick="window.toggleFullscreen()" id="planner-fs-btn" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Vollbild umschalten">
                   <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
                </button>
@@ -2997,7 +3028,7 @@
 
         const aps = currentFloor.aps.map(ap => {
           const spec = productCache.specs[ap.slug] || { coverageM2: 140 };
-          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2) * coverageFactor()) * CELL_SIZE };
+          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor)) * CELL_SIZE };
         });
 
         const crosses = (ax, ay, bx, by, cx, cy, dx, dy) => {
@@ -3068,7 +3099,7 @@
         // APs (einfacher Coverage-Kreis, nur wenn Heatmap aus)
         currentFloor.aps.forEach(apState => {
           const spec = productCache.specs[apState.slug] || { name: 'Unknown', coverageM2: 140 };
-          const pxRadius = Math.round(Math.sqrt(spec.coverageM2) * coverageFactor()) * CELL_SIZE;
+          const pxRadius = Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor)) * CELL_SIZE;
 
           if(!heatmapOn) {
             const cov = document.createElement('div');
@@ -3841,6 +3872,65 @@
       state.coverage.profile = id;
       render();
     };
+    window.setFloorMaterial = (id) => {
+      if(!WALL_MATERIALS.some(m => m.id === id)) return;
+      const cf = state.floors.find(f => f.id === state.currentFloorId);
+      if(!cf) return;
+      cf.wallMaterial = id;
+      render();
+    };
+
+    // Greedy-Heuristik: weist jedem AP einen 2,4- und 5-GHz-Kanal zu, der
+    // bestmöglich von schon belegten APs in der Nähe entkoppelt ist.
+    // Reine Distanz-Maximierung — kein RF-Modell.
+    function recommendChannels(floor) {
+      const aps = floor?.aps || [];
+      const dist = (a, b) => Math.hypot((a.x ?? 0) - (b.x ?? 0), (a.y ?? 0) - (b.y ?? 0));
+      const result = aps.map(a => ({ id: a.id, channel24: null, channel5: null }));
+      // 2,4 GHz: bevorzuge den Kanal mit dem größten Abstand zum nächsten Konflikt.
+      for(let i = 0; i < aps.length; i++) {
+        const ap = aps[i];
+        const ranked = CH24_NONOVERLAP.map(ch => {
+          const conflicts = aps.filter((_, j) => j !== i && result[j].channel24 === ch);
+          const minD = conflicts.length ? Math.min(...conflicts.map(c => dist(ap, c))) : Infinity;
+          return { ch, minD };
+        }).sort((a, b) => b.minD - a.minD);
+        result[i].channel24 = ranked[0].ch;
+      }
+      // 5 GHz: gleiche Logik, aber Konflikte definieren wir als Kanaldifferenz ≤ 4
+      // (≈ überlappende 80-MHz-Blöcke). DFS-Kanäle leicht abwerten, damit sie
+      // erst genutzt werden, wenn UNII-1/3 voll sind.
+      for(let i = 0; i < aps.length; i++) {
+        const ap = aps[i];
+        const ranked = CH5_LIST.map(ch => {
+          const conflicts = aps.filter((_, j) => j !== i && result[j].channel5 != null && Math.abs(result[j].channel5 - ch) <= 4);
+          const minD = conflicts.length ? Math.min(...conflicts.map(c => dist(ap, c))) : Infinity;
+          const dfsPenalty = CH5_DFS.has(ch) ? 0.95 : 1.0;
+          return { ch, score: minD * dfsPenalty };
+        }).sort((a, b) => b.score - a.score);
+        result[i].channel5 = ranked[0].ch;
+      }
+      return result;
+    }
+
+    window.autoAssignChannels = () => {
+      const floor = state.floors.find(f => f.id === state.currentFloorId);
+      if(!floor || !(floor.aps || []).length) {
+        showPlannerToast('Keine APs auf dieser Etage.', 'warn');
+        return;
+      }
+      const rec = recommendChannels(floor);
+      let changed = 0;
+      rec.forEach(r => {
+        const ap = floor.aps.find(a => a.id === r.id);
+        if(!ap) return;
+        if(ap.channel24 !== r.channel24 || ap.channel5 !== r.channel5) changed++;
+        ap.channel24 = r.channel24;
+        ap.channel5 = r.channel5;
+      });
+      render();
+      showPlannerToast(changed === 0 ? 'Kanäle waren bereits optimal verteilt.' : `Kanäle für ${changed} AP${changed === 1 ? '' : 's'} neu zugewiesen.`);
+    };
 
     const VLAN_PRESETS = {
       haus: [
@@ -4548,7 +4638,7 @@
             const obj = JSON.parse(reader.result);
             const loaded = obj.state || obj;
             if(!loaded || !Array.isArray(loaded.floors)) throw new Error('Ungültige Projektdatei (floors fehlt).');
-            loaded.floors = loaded.floors.map(f => ({ cameras: [], ...f }));
+            loaded.floors = loaded.floors.map(f => ({ cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f }));
             if(!loaded.view) loaded.view = { heatmap: false };
             if(!Array.isArray(loaded.vlans)) loaded.vlans = [];
             loaded.backup = normalizeBackupState(loaded.backup);
@@ -4671,8 +4761,10 @@
              </table>
           </div>` : '';
 
-      // Kanal-Kollisionswarnung
+      // Kanal-Kollisionswarnung — 2,4 GHz (1/6/11) und 5 GHz (Δ ≤ 4),
+      // plus DFS-Hinweis falls Kanäle aus dem Wetterradar-Bereich genutzt werden.
       const channelWarnings = [];
+      const dfsAps = [];
       state.floors.forEach(f => {
         const aps = f.aps || [];
         for(let i=0;i<aps.length;i++) for(let j=i+1;j<aps.length;j++) {
@@ -4681,12 +4773,25 @@
           if(dist < 8 && a.channel5 && c.channel5 && Math.abs(a.channel5 - c.channel5) <= 4) {
             channelWarnings.push(`${f.name}: APs auf 5 GHz-Kanal ${a.channel5} und ${c.channel5} stehen zu nah (${fmt1(dist)} m).`);
           }
+          if(dist < 8 && a.channel24 && c.channel24 && a.channel24 === c.channel24) {
+            channelWarnings.push(`${f.name}: zwei APs senden auf demselben 2,4-GHz-Kanal ${a.channel24} im Abstand von nur ${fmt1(dist)} m. Empfohlene Kanäle: 1/6/11.`);
+          }
         }
+        aps.forEach(ap => {
+          if(ap.channel5 && CH5_DFS.has(ap.channel5)) {
+            dfsAps.push(`${f.name} · Kanal ${ap.channel5}`);
+          }
+        });
       });
       const warnCard = channelWarnings.length > 0 ? `
           <div class="card p-5 border-l-4 border-yellow-500 bg-yellow-50">
              <h3 class="font-bold text-yellow-800 mb-2 flex items-center gap-2"><i data-lucide="alert-triangle" class="w-4 h-4"></i> Kanal-Kollision erkannt</h3>
              <ul class="text-sm text-yellow-900 list-disc pl-5 space-y-1">${channelWarnings.map(w => `<li>${w}</li>`).join('')}</ul>
+             <p class="text-xs text-yellow-900 mt-2">Tipp: in Schritt 2 den Knopf <em>„Kanäle auto"</em> nutzen, um eine distanzbasierte Verteilung anzuwenden.</p>
+          </div>` : '';
+      const dfsCard = dfsAps.length > 0 ? `
+          <div class="card p-4 border-l-4 border-blue-400 bg-blue-50">
+             <p class="text-sm text-blue-900"><i data-lucide="info" class="w-4 h-4 inline align-text-bottom"></i> <strong>DFS-Kanäle aktiv:</strong> ${dfsAps.join(', ')}. Diese können durch Wetterradar kurzzeitig ausweichen — für VoIP/Video besser UNII-1 (36–48) oder UNII-3 (149–161) bevorzugen.</p>
           </div>` : '';
 
       container.innerHTML = `
@@ -4701,6 +4806,8 @@
         <div id="dash-content" class="grid grid-cols-1 border-t border-nexus-border pt-8 gap-8">
 
           ${warnCard}
+
+          ${dfsCard}
 
           <div class="card p-6 bg-[#1f2937] text-white">
              <h3 class="text-lg font-bold mb-6 text-gray-200">Netzwerk-Topologie (${b.allAps.length} APs · ${b.allCameras.length} Kameras)</h3>
