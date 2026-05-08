@@ -4829,6 +4829,135 @@
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
 
+    // Baut ein einfaches Topologie-SVG: WAN → Gateway → Switch → APs/Kameras,
+    // plus optional NVR und Mesh-Uplink-Reihe (gestrichelt). Rein deklarativ —
+    // kein Canvas, damit das Ergebnis ohne weitere Tools druck- und exportfähig
+    // ist.
+    function buildTopologySvg(b) {
+      const W = 880;
+      const boxW = 150, boxH = 48;
+      const cx = W / 2;
+      const meshAps = state.floors.flatMap(f => (f.aps || []).filter(ap => ap.meshUplink));
+      const wiredAps = state.floors.flatMap(f => (f.aps || []).filter(ap => !ap.meshUplink));
+      const cams = b.allCameras || [];
+      const hasBackup = !!state.backup?.enabled;
+      const nvrSlug = cams.length > 0 ? (cams.length > 10 ? 'unvr-pro' : 'unvr') : null;
+      const nvrSpec = nvrSlug ? (productCache.specs[nvrSlug] || { name: 'NVR' }) : null;
+
+      const endpoints = [
+        ...wiredAps.map(ap => ({ kind: 'ap',  label: productCache.specs[ap.slug]?.name || ap.slug })),
+        ...cams.map(c    => ({ kind: 'cam', label: productCache.specs[c.slug]?.name || c.slug }))
+      ];
+      const perRow = Math.min(5, Math.max(1, Math.floor((W - 40) / (boxW + 20))));
+      const wiredRows = Math.max(1, Math.ceil(endpoints.length / perRow));
+      const meshRows = meshAps.length > 0 ? Math.ceil(meshAps.length / perRow) : 0;
+
+      const yWan = 30;
+      const yGw = yWan + 80;
+      const ySw = yGw + 80;
+      const yEndStart = ySw + 90;
+      const rowGap = boxH + 36;
+      const yMeshStart = yEndStart + wiredRows * rowGap + (meshRows > 0 ? 20 : 0);
+      const H = yMeshStart + meshRows * rowGap + 40;
+
+      const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const box = (x, y, title, sub, colorClass) => {
+        const fill   = colorClass === 'wan'  ? '#0f172a'
+                     : colorClass === 'gw'   ? '#1e3a8a'
+                     : colorClass === 'sw'   ? '#065f46'
+                     : colorClass === 'nvr'  ? '#5b21b6'
+                     : colorClass === 'cam'  ? '#7c2d12'
+                     : colorClass === 'mesh' ? '#5b21b6'
+                     :                          '#1f2937';
+        const stroke = colorClass === 'wan'  ? '#475569'
+                     : colorClass === 'gw'   ? '#3b82f6'
+                     : colorClass === 'sw'   ? '#10b981'
+                     : colorClass === 'nvr'  ? '#a855f7'
+                     : colorClass === 'cam'  ? '#fb923c'
+                     : colorClass === 'mesh' ? '#a855f7'
+                     :                          '#94a3b8';
+        return `<g>
+          <rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="6" ry="6" fill="${fill}" stroke="${stroke}" stroke-width="2"/>
+          <text x="${x + boxW/2}" y="${y + 20}" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="13" font-weight="700">${esc(title)}</text>
+          <text x="${x + boxW/2}" y="${y + 36}" text-anchor="middle" fill="#cbd5e1" font-family="sans-serif" font-size="11">${esc(sub)}</text>
+        </g>`;
+      };
+      const line = (x1, y1, x2, y2, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#64748b" stroke-width="2" ${dash ? 'stroke-dasharray="6 4"' : ''}/>`;
+
+      const parts = [];
+      // WAN
+      const wanLabel = state.isp ? `${state.isp.name}` : 'Internet';
+      const wanSub = state.isp ? state.isp.type : 'WAN';
+      parts.push(box(cx - boxW/2, yWan, wanLabel, wanSub, 'wan'));
+      // Backup-WAN (kleiner, rechts oben)
+      if(hasBackup) {
+        const backupLabel = state.backup.type === 'starlink' ? 'Starlink' : state.backup.type === 'cellular' ? '5G/LTE Backup' : 'Zweit-Anbieter';
+        parts.push(box(cx + boxW/2 + 30, yWan, backupLabel, 'WAN2 (Failover)', 'wan'));
+        parts.push(line(cx + boxW/2 + 30 + boxW/2, yWan + boxH, cx, yGw, true));
+      }
+      parts.push(line(cx, yWan + boxH, cx, yGw));
+
+      // Gateway
+      parts.push(box(cx - boxW/2, yGw, b.gw.name, 'Gateway', 'gw'));
+      parts.push(line(cx, yGw + boxH, cx, ySw));
+
+      // Switch (+ NVR rechts daneben falls Kameras vorhanden)
+      parts.push(box(cx - boxW/2, ySw, b.activeSwitch.name, 'Switch', 'sw'));
+      if(nvrSpec) {
+        parts.push(box(cx + boxW/2 + 30, ySw, nvrSpec.name, 'NVR', 'nvr'));
+        parts.push(line(cx + boxW/2, ySw + boxH/2, cx + boxW/2 + 30, ySw + boxH/2));
+      }
+
+      // Wired Endpoints (APs + Cams) — Reihen
+      endpoints.forEach((ep, i) => {
+        const row = Math.floor(i / perRow);
+        const col = i % perRow;
+        const rowCount = Math.min(perRow, endpoints.length - row * perRow);
+        const totalRowW = rowCount * boxW + (rowCount - 1) * 20;
+        const startX = cx - totalRowW / 2;
+        const x = startX + col * (boxW + 20);
+        const y = yEndStart + row * rowGap;
+        parts.push(box(x, y, ep.label, ep.kind === 'cam' ? 'Kamera' : 'AP (kabel)', ep.kind));
+        parts.push(line(cx, ySw + boxH, x + boxW/2, y));
+      });
+
+      // Mesh-APs als separate Reihe mit gestricheltem Uplink
+      if(meshAps.length > 0) {
+        meshAps.forEach((ap, i) => {
+          const row = Math.floor(i / perRow);
+          const col = i % perRow;
+          const rowCount = Math.min(perRow, meshAps.length - row * perRow);
+          const totalRowW = rowCount * boxW + (rowCount - 1) * 20;
+          const startX = cx - totalRowW / 2;
+          const x = startX + col * (boxW + 20);
+          const y = yMeshStart + row * rowGap;
+          const apName = productCache.specs[ap.slug]?.name || ap.slug;
+          parts.push(box(x, y, apName, 'AP (Mesh)', 'mesh'));
+          // Mesh-Uplink von der nächsten Wired-AP-Reihe oder vom Switch (gestrichelt)
+          parts.push(line(cx, ySw + boxH, x + boxW/2, y, true));
+        });
+      }
+
+      const title = `Netzwerk-Topologie · ${endpoints.length + meshAps.length} Endgeräte`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" aria-label="${esc(title)}">
+        <rect width="${W}" height="${H}" fill="#0f172a"/>
+        <text x="20" y="22" fill="#cbd5e1" font-family="sans-serif" font-size="12" font-weight="600">${esc(title)}</text>
+        ${parts.join('\n')}
+      </svg>`;
+    }
+
+    window.exportTopologySvg = () => {
+      const b = buildBom();
+      const svg = buildTopologySvg(b);
+      const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0,10);
+      a.href = url; a.download = `unifi-topologie-${stamp}.svg`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
     function renderStep6() {
       const b = buildBom();
       const p = computePower(b);
@@ -4980,8 +5109,11 @@
           ${meshCard}
 
           <div class="card p-6 bg-[#1f2937] text-white">
-             <h3 class="text-lg font-bold mb-6 text-gray-200">Netzwerk-Topologie (${b.allAps.length} APs · ${b.allCameras.length} Kameras)</h3>
-             <div class="flex flex-col items-center gap-6"><div class="text-nexus-primary font-bold">${b.gw.name}</div></div>
+             <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+               <h3 class="text-lg font-bold text-gray-200">Netzwerk-Topologie (${b.allAps.length} APs · ${b.allCameras.length} Kameras)</h3>
+               <button onclick="window.exportTopologySvg()" class="btn-secondary text-xs flex items-center gap-1 no-print" aria-label="Topologie als SVG herunterladen"><i data-lucide="download" class="w-3 h-3" aria-hidden="true"></i> SVG laden</button>
+             </div>
+             <div class="overflow-x-auto bg-[#0f172a] rounded-lg p-2">${buildTopologySvg(b)}</div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
