@@ -826,6 +826,17 @@
       return ((p1.network & m) >>> 0) === ((p2.network & m) >>> 0);
     }
 
+    // WLAN-Sicherheitsmodi pro SSID/VLAN (Iter. 4). Default WPA3 Personal —
+    // Enterprise erfordert einen RADIUS-Server, der separat eingerichtet wird.
+    const WPA_MODES = [
+      { id: 'wpa3-personal',   label: 'WPA3 Personal',   short: 'WPA3-P',  hint: 'Modern, mit Passwort. Standard für Heim/Büro.' },
+      { id: 'wpa3-enterprise', label: 'WPA3 Enterprise', short: 'WPA3-E',  hint: 'Pro-Benutzer-Authentifizierung via RADIUS/802.1X.' },
+      { id: 'wpa2-wpa3',       label: 'WPA2/WPA3 Mixed',  short: 'Mixed',  hint: 'Übergangsmodus für ältere Clients (z. B. IoT vor 2019).' },
+      { id: 'wpa2-personal',   label: 'WPA2 Personal',   short: 'WPA2-P',  hint: 'Legacy — nur für Geräte ohne WPA3-Support.' },
+      { id: 'open',            label: 'Offen (kein PSK)', short: 'Open',   hint: 'Nicht empfohlen. Höchstens für captive-portal-gestützte Gast-WLANs.' }
+    ];
+    const DEFAULT_WPA_MODE = 'wpa3-personal';
+
     // Default-Subnetze pro VLAN-Zweck (Vorschlag beim Anlegen / Wechsel von „custom").
     const VLAN_DEFAULT_SUBNETS = {
       mgmt:   '10.0.10.0/24',
@@ -1463,10 +1474,17 @@
       try {
         const parsed = JSON.parse(raw);
         if(parsed && typeof parsed === 'object' && Array.isArray(parsed.floors)) {
-          // Migration: alte Floors ohne cameras[] / wallMaterial
-          parsed.floors = parsed.floors.map(f => ({ cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f }));
+          // Migration: alte Floors ohne cameras[] / wallMaterial,
+          // alte APs ohne meshUplink-Flag.
+          parsed.floors = parsed.floors.map(f => {
+            const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
+            merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+            return merged;
+          });
           if(!parsed.view) parsed.view = { heatmap: false };
           if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
+          // Alte VLANs ohne wpaMode auf den Default heben.
+          parsed.vlans = parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v }));
           parsed.backup = normalizeBackupState(parsed.backup);
           parsed.bomOverrides = normalizeBomOverrides(parsed.bomOverrides);
           if(!parsed.poeAssignments || typeof parsed.poeAssignments !== 'object') parsed.poeAssignments = {};
@@ -3010,7 +3028,10 @@
             currentFloor.cameras.push({ id: 'cam_'+Date.now(), slug, x, y });
          } else {
             const { channel24, channel5 } = allocateApChannels(currentFloor);
-            currentFloor.aps.push({ id: 'ap_'+Date.now(), slug, x, y, channel24, channel5 });
+            // Mesh-/Extender-Modelle senden ihren Uplink kabellos. Standard-APs
+            // brauchen weiterhin Cat6 — der Default ist daher false.
+            const isMeshModel = /(^|-)(mesh|extender)(-|$)/i.test(slug);
+            currentFloor.aps.push({ id: 'ap_'+Date.now(), slug, x, y, channel24, channel5, meshUplink: isMeshModel });
          }
          drawAps();
          saveState();
@@ -4029,23 +4050,23 @@
 
     const VLAN_PRESETS = {
       haus: [
-        { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',   ssid: null },
-        { id: 10, name: 'Haupt',      subnet: '192.168.10.0/24', purpose: 'main',   ssid: 'HomeNet' },
-        { id: 20, name: 'Gast',       subnet: '192.168.20.0/24', purpose: 'guest',  ssid: 'HomeNet-Guest' },
-        { id: 30, name: 'IoT',        subnet: '192.168.30.0/24', purpose: 'iot',    ssid: 'HomeNet-IoT' },
-        { id: 40, name: 'Kameras',    subnet: '192.168.40.0/24', purpose: 'camera', ssid: null }
+        { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',   ssid: null,              wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Haupt',      subnet: '192.168.10.0/24', purpose: 'main',   ssid: 'HomeNet',         wpaMode: 'wpa3-personal' },
+        { id: 20, name: 'Gast',       subnet: '192.168.20.0/24', purpose: 'guest',  ssid: 'HomeNet-Guest',   wpaMode: 'wpa3-personal' },
+        { id: 30, name: 'IoT',        subnet: '192.168.30.0/24', purpose: 'iot',    ssid: 'HomeNet-IoT',     wpaMode: 'wpa2-wpa3' },
+        { id: 40, name: 'Kameras',    subnet: '192.168.40.0/24', purpose: 'camera', ssid: null,              wpaMode: 'wpa3-personal' }
       ],
       buero: [
-        { id: 1,   name: 'Management', subnet: '10.0.1.0/24',   purpose: 'mgmt',   ssid: null },
-        { id: 10,  name: 'Mitarbeiter',subnet: '10.0.10.0/24',  purpose: 'main',   ssid: 'Office-Staff' },
-        { id: 20,  name: 'Gast',       subnet: '10.0.20.0/24',  purpose: 'guest',  ssid: 'Office-Guest' },
-        { id: 30,  name: 'VoIP',       subnet: '10.0.30.0/24',  purpose: 'voip',   ssid: null },
-        { id: 40,  name: 'Kameras',    subnet: '10.0.40.0/24',  purpose: 'camera', ssid: null },
-        { id: 50,  name: 'Server',     subnet: '10.0.50.0/24',  purpose: 'server', ssid: null }
+        { id: 1,   name: 'Management', subnet: '10.0.1.0/24',   purpose: 'mgmt',   ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 10,  name: 'Mitarbeiter',subnet: '10.0.10.0/24',  purpose: 'main',   ssid: 'Office-Staff',  wpaMode: 'wpa3-enterprise' },
+        { id: 20,  name: 'Gast',       subnet: '10.0.20.0/24',  purpose: 'guest',  ssid: 'Office-Guest',  wpaMode: 'wpa3-personal' },
+        { id: 30,  name: 'VoIP',       subnet: '10.0.30.0/24',  purpose: 'voip',   ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 40,  name: 'Kameras',    subnet: '10.0.40.0/24',  purpose: 'camera', ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 50,  name: 'Server',     subnet: '10.0.50.0/24',  purpose: 'server', ssid: null,            wpaMode: 'wpa3-personal' }
       ],
       ferien: [
-        { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',  ssid: null },
-        { id: 10, name: 'Gäste',      subnet: '192.168.10.0/24', purpose: 'guest', ssid: 'Ferienhaus-WLAN' }
+        { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',  ssid: null,                  wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Gäste',      subnet: '192.168.10.0/24', purpose: 'guest', ssid: 'Ferienhaus-WLAN',     wpaMode: 'wpa3-personal' }
       ]
     };
 
@@ -4071,7 +4092,7 @@
     window.addVlan = () => {
       const existing = new Set(state.vlans.map(v => v.id));
       let nextId = 50; while(existing.has(nextId) && nextId < 4095) nextId += 10;
-      state.vlans.push({ id: nextId, name: 'Neues VLAN', subnet: suggestFreeSubnet(`10.0.${nextId}.0/24`), purpose: 'custom', ssid: null });
+      state.vlans.push({ id: nextId, name: 'Neues VLAN', subnet: suggestFreeSubnet(`10.0.${nextId}.0/24`), purpose: 'custom', ssid: null, wpaMode: DEFAULT_WPA_MODE });
       render();
     };
     window.removeVlan = (idx) => { state.vlans.splice(idx, 1); render(); };
@@ -4080,6 +4101,7 @@
       if(!v) return;
       if(field === 'id') value = Math.max(1, Math.min(4094, parseInt(value) || 1));
       if(field === 'ssid' && value === '') value = null;
+      if(field === 'wpaMode' && !WPA_MODES.some(w => w.id === value)) value = DEFAULT_WPA_MODE;
       // Beim Wechsel des Zwecks: wenn das aktuelle Subnetz noch das ursprüngliche
       // Default ist (also noch nicht vom User editiert), automatisch auf den
       // Standard-Bereich für den neuen Zweck springen.
@@ -4108,11 +4130,13 @@
 
       const purposes = ['mgmt','main','guest','iot','camera','voip','server','custom'];
       const purposeOpts = (cur) => purposes.map(p => `<option value="${p}" ${p===cur?'selected':''}>${p}</option>`).join('');
+      const wpaOpts = (cur) => WPA_MODES.map(w => `<option value="${w.id}" ${w.id===(cur||DEFAULT_WPA_MODE)?'selected':''} title="${w.hint}">${w.short}</option>`).join('');
 
       // Validierung
       const warnings = [];
       const ids = new Set();
       const parsedSubs = [];
+      let hasEnterprise = false;
       state.vlans.forEach(v => {
         if(v.id < 1 || v.id > 4094) warnings.push(`VLAN-ID ${v.id} ungültig (1–4094).`);
         if(ids.has(v.id)) warnings.push(`VLAN-ID ${v.id} ist doppelt vergeben.`);
@@ -4130,7 +4154,10 @@
             parsedSubs.push({ cidr: p, label: v.subnet });
           }
         }
+        if(v.ssid && v.wpaMode === 'wpa3-enterprise') hasEnterprise = true;
+        if(v.ssid && v.wpaMode === 'open') warnings.push(`SSID „${v.ssid}" ist als <strong>Offen</strong> konfiguriert — Captive Portal nutzen oder mind. WPA2 wählen.`);
       });
+      if(hasEnterprise) warnings.push('WPA3 Enterprise gewählt: erfordert einen RADIUS-Server (UniFi Identity Endpoint, FreeRADIUS oder ein NPS auf Windows Server).');
       const hasCameras = state.floors.some(f => (f.cameras || []).length > 0);
       if(hasCameras && !state.vlans.some(v => v.purpose === 'camera')) {
         warnings.push('Kameras sind geplant, aber es existiert kein VLAN mit Zweck „camera". Empfohlen: separates Segment.');
@@ -4154,6 +4181,7 @@
                 <th class="px-4 py-3 text-left">Subnetz (CIDR)</th>
                 <th class="px-4 py-3 text-left">Zweck</th>
                 <th class="px-4 py-3 text-left">SSID</th>
+                <th class="px-4 py-3 text-left">WLAN-Sicherheit</th>
                 <th class="px-2 py-3"></th>
               </tr>
             </thead>
@@ -4165,7 +4193,8 @@
                   <td class="px-4 py-2"><input type="text" value="${v.subnet}" onchange="window.updateVlan(${i},'subnet',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 font-mono text-xs"></td>
                   <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'purpose',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${purposeOpts(v.purpose)}</select></td>
                   <td class="px-4 py-2"><input type="text" value="${v.ssid || ''}" placeholder="—" onchange="window.updateVlan(${i},'ssid',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"></td>
-                  <td class="px-2 py-2 text-right"><button onclick="window.removeVlan(${i})" class="text-red-500 hover:text-red-700" title="Entfernen"><i data-lucide="trash-2" class="w-4 h-4"></i></button></td>
+                  <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'wpaMode',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs" ${v.ssid ? '' : 'disabled title="Nur relevant, wenn das VLAN eine SSID ausstrahlt"'}>${wpaOpts(v.wpaMode)}</select></td>
+                  <td class="px-2 py-2 text-right"><button onclick="window.removeVlan(${i})" class="text-red-500 hover:text-red-700" title="Entfernen" aria-label="VLAN ${v.id} entfernen"><i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i></button></td>
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -4659,13 +4688,16 @@
 
       // Kabel-Fallback: wenn das Rack-View nie geöffnet wurde, gibt es keine
       // computeRackBomAddons-Beträge. Wir schätzen Verlegekabel und Patchkabel
-      // pauschal aus der Endgerätezahl, damit die BOM trotzdem realistisch ist.
-      if(!rackViewUsed && endpointCount > 0) {
+      // pauschal aus der Endgerätezahl — Mesh-APs zählen NICHT mit, da sie
+      // ihren Uplink kabellos via 5-GHz-Backhaul aufbauen.
+      const wiredAps = allAps.filter(ap => !ap.meshUplink).length;
+      const wiredEndpoints = wiredAps + allCameras.length;
+      if(!rackViewUsed && wiredEndpoints > 0) {
         const avgLen = state.cabling?.defaultLengthPerFloorM > 0 ? state.cabling.defaultLengthPerFloorM : 15;
-        const meters = Math.ceil(endpointCount * avgLen / 5) * 5;
+        const meters = Math.ceil(wiredEndpoints * avgLen / 5) * 5;
         const cat = (state.cabling?.defaultCategory || 'cat6a').toLowerCase();
         autoBom.push({ category: 'Zubehör', name: `${cat.toUpperCase()} Verlegekabel (Meter, geschätzt)`, slug: 'acc-cable-' + cat, qty: meters, price: 1 });
-        autoBom.push({ category: 'Zubehör', name: 'Cat6a Patchkabel 0,5 m', slug: 'acc-patch-cable', qty: endpointCount, price: 3 });
+        autoBom.push({ category: 'Zubehör', name: 'Cat6a Patchkabel 0,5 m', slug: 'acc-patch-cable', qty: wiredEndpoints, price: 3 });
       }
 
       // Rack-Addons anhängen (Kabel/Patch/Blindblenden + ggf. dynamisches Rack)
@@ -4747,9 +4779,14 @@
             const obj = JSON.parse(reader.result);
             const loaded = obj.state || obj;
             if(!loaded || !Array.isArray(loaded.floors)) throw new Error('Ungültige Projektdatei (floors fehlt).');
-            loaded.floors = loaded.floors.map(f => ({ cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f }));
+            loaded.floors = loaded.floors.map(f => {
+              const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
+              merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+              return merged;
+            });
             if(!loaded.view) loaded.view = { heatmap: false };
             if(!Array.isArray(loaded.vlans)) loaded.vlans = [];
+            loaded.vlans = loaded.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v }));
             loaded.backup = normalizeBackupState(loaded.backup);
             loaded.bomOverrides = normalizeBomOverrides(loaded.bomOverrides);
             loaded.racks = normalizeRacksState(loaded.racks);
@@ -4867,10 +4904,13 @@
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50"><h3 class="font-bold">Netzwerk-Segmentierung (VLANs)</h3></div>
              <table class="w-full text-sm text-left">
                <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
-                 <tr><th class="px-6 py-3">ID</th><th class="px-6 py-3">Name</th><th class="px-6 py-3">Subnetz</th><th class="px-6 py-3">Zweck</th><th class="px-6 py-3">SSID</th></tr>
+                 <tr><th class="px-6 py-3">ID</th><th class="px-6 py-3">Name</th><th class="px-6 py-3">Subnetz</th><th class="px-6 py-3">Zweck</th><th class="px-6 py-3">SSID</th><th class="px-6 py-3">WLAN-Sicherheit</th></tr>
                </thead>
                <tbody>
-                 ${state.vlans.map(v => `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono">${v.id}</td><td class="px-6 py-3 font-medium">${v.name}</td><td class="px-6 py-3 font-mono text-xs">${v.subnet}</td><td class="px-6 py-3">${v.purpose}</td><td class="px-6 py-3">${v.ssid || '—'}</td></tr>`).join('')}
+                 ${state.vlans.map(v => {
+                   const wpa = WPA_MODES.find(w => w.id === (v.wpaMode || DEFAULT_WPA_MODE)) || WPA_MODES[0];
+                   return `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono">${v.id}</td><td class="px-6 py-3 font-medium">${v.name}</td><td class="px-6 py-3 font-mono text-xs">${v.subnet}</td><td class="px-6 py-3">${v.purpose}</td><td class="px-6 py-3">${v.ssid || '—'}</td><td class="px-6 py-3 text-xs">${v.ssid ? wpa.label : '—'}</td></tr>`;
+                 }).join('')}
                </tbody>
              </table>
           </div>` : '';
@@ -4908,6 +4948,20 @@
              <p class="text-sm text-blue-900"><i data-lucide="info" class="w-4 h-4 inline align-text-bottom"></i> <strong>DFS-Kanäle aktiv:</strong> ${dfsAps.join(', ')}. Diese können durch Wetterradar kurzzeitig ausweichen — für VoIP/Video besser UNII-1 (36–48) oder UNII-3 (149–161) bevorzugen.</p>
           </div>` : '';
 
+      // Mesh-Hinweis: APs mit Mesh-Uplink benötigen kein Cat6, dafür ein
+      // dediziertes 5-GHz-Backhaul. Throughput sinkt durch geteilten Funk.
+      const meshAps = state.floors.flatMap(f => (f.aps || []).filter(ap => ap.meshUplink));
+      const meshCard = meshAps.length === 0 ? '' : `
+          <div class="card p-4 border-l-4 border-purple-400 bg-purple-50">
+             <p class="text-sm text-purple-900">
+               <i data-lucide="wifi" class="w-4 h-4 inline align-text-bottom"></i>
+               <strong>${meshAps.length} AP${meshAps.length === 1 ? '' : 's'} mit Mesh-Uplink:</strong>
+               kabellos via 5-GHz-Backhaul angebunden — daher kein Verlegekabel/Patchkabel in der BOM.
+               Throughput halbiert sich, da Funk geteilt wird (Backhaul + Clients).
+               Ein dedizierter 5-GHz-Backhaul-Kanal abseits der Client-Kanäle ist empfehlenswert.
+             </p>
+          </div>`;
+
       container.innerHTML = `
         <div class="print:hidden flex flex-wrap items-center justify-between gap-4">
           <h2 class="mb-0">6. Ergebnis & Zusammenfassung</h2>
@@ -4922,6 +4976,8 @@
           ${warnCard}
 
           ${dfsCard}
+
+          ${meshCard}
 
           <div class="card p-6 bg-[#1f2937] text-white">
              <h3 class="text-lg font-bold mb-6 text-gray-200">Netzwerk-Topologie (${b.allAps.length} APs · ${b.allCameras.length} Kameras)</h3>
