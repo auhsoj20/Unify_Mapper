@@ -1208,7 +1208,8 @@
       rackView: { faqCollapsed: false, activeRackId: 'r-main', customPalette: [] },
       rackViewOpen: false,       // ephemer; beim Boot immer false
       energy: { tariff: 0.32, upsRuntimeMin: 15 },  // €/kWh, USV-Autonomie in Min
-      coverage: { profile: 'general' }              // siehe COVERAGE_PROFILES
+      coverage: { profile: 'general' },             // siehe COVERAGE_PROFILES
+      recording: { retentionDays: 14, fpsProfile: 'standard' }  // NVR-Speicher (Iter. 5)
     };
 
     // Backup-State Defaults + Migration alter Schema-Versionen.
@@ -1495,6 +1496,7 @@
           // Migration: neue Felder aus Iteration 2 mit Defaults auffüllen.
           parsed.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(parsed.energy || {}) };
           parsed.coverage = { profile: 'general', ...(parsed.coverage || {}) };
+          parsed.recording = { retentionDays: 14, fpsProfile: 'standard', ...(parsed.recording || {}) };
           // Vollbild-Modus beim Reload nicht persistieren
           if(parsed.view && typeof parsed.view === 'object') parsed.view.plannerFullscreen = false;
           // ISP-Objekte frisch aus aktueller ispList auflösen, damit neue Felder
@@ -3988,6 +3990,43 @@
       state.coverage.profile = id;
       render();
     };
+    window.setRecordingRetention = (days) => {
+      const n = parseInt(days);
+      if(!Number.isFinite(n) || n <= 0) return;
+      if(!state.recording) state.recording = { retentionDays: 14, fpsProfile: 'standard' };
+      state.recording.retentionDays = Math.min(365, Math.max(1, n));
+      render();
+    };
+    window.setRecordingFps = (profile) => {
+      if(!['low','standard','high'].includes(profile)) return;
+      if(!state.recording) state.recording = { retentionDays: 14, fpsProfile: 'standard' };
+      state.recording.fpsProfile = profile;
+      render();
+    };
+
+    // NVR-Speicher-Schätzung (H.265, 24/7, Smart Detect aus). Faustformel:
+    // ~2 GB/Tag pro Megapixel bei 15 fps Standard. Profile skalieren mit
+    // Faktoren (low ≈ 8 fps, high ≈ 30 fps + Smart Detect).
+    function camDailyGB(cam, profile) {
+      const spec = productCache.specs[cam.slug] || {};
+      const mp = spec.resolutionMP || 4;
+      const factor = profile === 'high' ? 1.75 : profile === 'low' ? 0.55 : 1.0;
+      return mp * 2 * factor;
+    }
+    function recommendNvr(tbNeeded) {
+      if(tbNeeded < 5)  return { slug: 'unvr',            bays: 4, label: 'Network Video Recorder',            hint: 'Heim-NVR mit 4× 2,5"-Bays (max. ~16 TB roh).' };
+      if(tbNeeded < 30) return { slug: 'unvr-pro',        bays: 7, label: 'Network Video Recorder Pro',        hint: 'Pro-NVR mit 7× 3,5"-Bays (max. ~140 TB roh).' };
+      return                  { slug: 'unvr-enterprise', bays: 8, label: 'Network Video Recorder Enterprise', hint: 'Enterprise-NVR mit 8× 3,5"-Bays + redundanter PSU.' };
+    }
+    // Empfohlene HDD-Größe pro Bay: TB-Bedarf / Bays × 1,3 Reserve, gerundet auf
+    // gängige Größen (2/4/6/8/12/14/16/18/20 TB).
+    function recommendHddSize(tbNeeded, bays) {
+      if(tbNeeded <= 0 || bays <= 0) return 0;
+      const perBay = (tbNeeded * 1.3) / bays;
+      const sizes = [2, 4, 6, 8, 12, 14, 16, 18, 20];
+      for(const s of sizes) if(s >= perBay) return s;
+      return 22;
+    }
     window.setFloorMaterial = (id) => {
       if(!WALL_MATERIALS.some(m => m.id === id)) return;
       const cf = state.floors.find(f => f.id === state.currentFloorId);
@@ -4795,6 +4834,7 @@
             loaded.rackViewOpen = false;
             loaded.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(loaded.energy || {}) };
             loaded.coverage = { profile: 'general', ...(loaded.coverage || {}) };
+            loaded.recording = { retentionDays: 14, fpsProfile: 'standard', ...(loaded.recording || {}) };
             Object.assign(state, loaded);
             const slugIssues = validateSlugRefs(state);
             render();
@@ -5028,6 +5068,64 @@
           </ul>
         </div>`;
 
+      // NVR-Speicher-Berechnung (Iter. 5) — nur wenn Kameras platziert sind.
+      const cams = state.floors.flatMap(f => f.cameras || []);
+      let recordingCard = '';
+      let dsgvoCard = '';
+      if(cams.length > 0) {
+        const rec = state.recording || { retentionDays: 14, fpsProfile: 'standard' };
+        const dailyGB = cams.reduce((s, c) => s + camDailyGB(c, rec.fpsProfile), 0);
+        const totalGB = dailyGB * rec.retentionDays;
+        const totalTB = totalGB / 1024;
+        const nvrRec = recommendNvr(totalTB);
+        const hddSize = recommendHddSize(totalTB, nvrRec.bays);
+        const fpsLabels = { low: 'Niedrig (≈ 8 fps)', standard: 'Standard (≈ 15 fps)', high: 'Hoch (≈ 30 fps + Smart Detect)' };
+        recordingCard = `
+          <div class="card p-0 overflow-hidden">
+            <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50">
+              <h3 class="font-bold">Aufzeichnungs-Speicher (UniFi Protect)</h3>
+            </div>
+            <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wide text-nexus-muted mb-1">Aufbewahrungsdauer</label>
+                <select onchange="window.setRecordingRetention(this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm no-print" aria-label="Aufbewahrungsdauer in Tagen">
+                  ${[3,7,14,30,60,90,180,365].map(d => `<option value="${d}" ${rec.retentionDays === d ? 'selected' : ''}>${d} Tage</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wide text-nexus-muted mb-1">fps-Profil</label>
+                <select onchange="window.setRecordingFps(this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm no-print" aria-label="Bildrate-Profil">
+                  ${Object.entries(fpsLabels).map(([k, l]) => `<option value="${k}" ${rec.fpsProfile === k ? 'selected' : ''}>${l}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Geschätzter Bedarf</div>
+                <div class="text-2xl font-bold">${fmt1(totalTB)} TB</div>
+                <div class="text-xs text-nexus-muted mt-1">${fmt0(dailyGB)} GB/Tag · ${cams.length} Kamera${cams.length === 1 ? '' : 's'}</div>
+              </div>
+            </div>
+            <div class="px-6 pb-6 text-sm">
+              <div class="card p-4 bg-nexus-surface bg-opacity-40">
+                <div class="font-bold mb-1">Empfehlung: ${nvrRec.label} + ${nvrRec.bays}× ${hddSize} TB HDD</div>
+                <p class="text-xs text-nexus-muted">${nvrRec.hint} Reserve 30 % für Smart-Detect-Events und Snapshots eingeplant.</p>
+                <p class="text-[11px] text-nexus-muted mt-2">Faustformel: ~2 GB/Tag pro Megapixel bei 15 fps H.265. Tatsächlicher Bedarf hängt von Bewegungsanteil, Kompression und Smart-Detect-Konfiguration ab.</p>
+              </div>
+            </div>
+          </div>`;
+        dsgvoCard = `
+          <div class="card p-5 border-l-4 border-amber-500 bg-amber-50">
+            <h3 class="font-bold text-amber-900 mb-2 flex items-center gap-2"><i data-lucide="shield-alert" class="w-4 h-4" aria-hidden="true"></i> Datenschutz &amp; Compliance (Kameras)</h3>
+            <ul class="text-sm text-amber-900 list-disc pl-5 space-y-1">
+              <li>Sichtbaren Hinweis-Aushang am Eingang anbringen — DSGVO Art. 13 verlangt Information vor dem Erfassungsbereich.</li>
+              <li>Aufbewahrungsdauer ohne Vorfall: max. 72 Stunden (LfDI-Empfehlung). Aktuell eingestellt: <strong>${state.recording?.retentionDays || 14} Tage</strong> — bei &gt; 72 h begründungspflichtig.</li>
+              <li>Sichtfeld auf eigenes Grundstück beschränken; Nachbargrundstück, Gehweg, öffentlicher Raum sind tabu.</li>
+              <li>Verzeichnis Verarbeitungstätigkeiten (Art. 30 DSGVO) ergänzen — Verantwortliche/r, Zweck, Dauer, Empfänger.</li>
+              ${cams.length > 5 ? '<li><strong>Datenschutz-Folgenabschätzung (Art. 35 DSGVO)</strong> empfohlen — &gt; 5 Kameras gelten als systematische Überwachung.</li>' : ''}
+              <li>Bei Audio-Mitschnitt: separat einwilligungspflichtig (§ 201 StGB). UniFi Protect-Audio standardmäßig deaktivieren.</li>
+            </ul>
+          </div>`;
+      }
+
       const vlanCard = state.vlans && state.vlans.length > 0 ? `
           <div class="card p-0 overflow-hidden">
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50"><h3 class="font-bold">Netzwerk-Segmentierung (VLANs)</h3></div>
@@ -5143,6 +5241,10 @@
           ${recurringCard}
 
           ${cableCard}
+
+          ${recordingCard}
+
+          ${dsgvoCard}
 
           ${vlanCard}
 
