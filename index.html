@@ -1297,6 +1297,33 @@
         customPalette
       };
     }
+    // Stellt sicher, dass referenzierte Produkt-Slugs (Gateway, Switch,
+    // platzierte APs/Kameras) noch im Katalog existieren. Unbekannte
+    // Top-Level-Refs werden auf null zurückgesetzt, damit die Auto-Empfehlung
+    // greift. Floor-Geräte mit unbekanntem Slug werden behalten (Fallback-
+    // Anzeige funktioniert), aber die Anzahl wird gemeldet, damit der User
+    // weiß, dass etwas zu prüfen ist. Liefert die Liste der Hinweise.
+    function validateSlugRefs(s) {
+      const issues = [];
+      if(s.gateway && !productCache.specs[s.gateway]) {
+        issues.push(`Gateway "${s.gateway}" ist nicht mehr im Katalog — Auto-Empfehlung aktiv.`);
+        s.gateway = null;
+      }
+      if(s.selectedSwitch && !productCache.specs[s.selectedSwitch]) {
+        issues.push(`Switch "${s.selectedSwitch}" ist nicht mehr im Katalog — Auto-Empfehlung aktiv.`);
+        s.selectedSwitch = null;
+      }
+      let unknownDevices = 0;
+      (s.floors || []).forEach(f => {
+        (f.aps || []).forEach(ap => { if(ap.slug && !productCache.specs[ap.slug]) unknownDevices++; });
+        (f.cameras || []).forEach(c => { if(c.slug && !productCache.specs[c.slug]) unknownDevices++; });
+      });
+      if(unknownDevices > 0) {
+        issues.push(`${unknownDevices} platzierte${unknownDevices === 1 ? 's' : ''} Gerät${unknownDevices === 1 ? '' : 'e'} verwende${unknownDevices === 1 ? 't' : 'n'} ein Modell, das nicht mehr im Katalog ist. Bitte in Schritt 2 prüfen und ggf. ersetzen.`);
+      }
+      return issues;
+    }
+
     // Entfernt Cabling-Einträge, deren Endgerät (AP/Kamera) oder rack-Item nicht mehr existiert.
     // Gibt die Anzahl der entfernten Einträge zurück.
     function pruneOrphanConnections() {
@@ -1463,6 +1490,12 @@
             if(fresh2) parsed.backup.isp2 = fresh2;
           }
           Object.assign(state, parsed);
+          // Slug-Refs gegen aktuellen Produktkatalog prüfen — wichtig nach
+          // Updates der unifi-products.js, die Modelle entfernen oder umbenennen.
+          const slugIssues = validateSlugRefs(state);
+          if(slugIssues.length > 0 && !_loadStateError) {
+            _loadStateError = slugIssues.join(' ');
+          }
         } else {
           _loadStateError = 'Gespeichertes Projekt hat ein unbekanntes Format und wurde verworfen. Du arbeitest mit einem neuen Projekt — dein altes ist nicht überschrieben.';
         }
@@ -4601,7 +4634,8 @@
       const mountPrice = 25;
       if(allAps.length > 0) autoBom.push({ category: 'Zubehör', name: 'AP-Deckenmount (Standard)', slug: 'acc-mount-ceiling', qty: allAps.length, price: mountPrice });
       if(allCameras.length > 0) autoBom.push({ category: 'Zubehör', name: 'Kamera-Wandmount', slug: 'acc-mount-cam', qty: allCameras.length, price: mountPrice });
-      const totalDevices = 1 + (state.isp?.modemPrice > 0 ? 1 : 0) + 1 + allAps.length + allCameras.length + (allCameras.length > 0 ? 1 : 0);
+      const endpointCount = allAps.length + allCameras.length;
+      const totalDevices = 1 + (state.isp?.modemPrice > 0 ? 1 : 0) + 1 + endpointCount + (allCameras.length > 0 ? 1 : 0);
 
       // Rack-Addons aus Rack-Ansicht (Kabelmeter, Patchkabel, Blindblenden, dynamisches Rack)
       let rackAddons = [];
@@ -4614,11 +4648,24 @@
         if(!rackViewUsed || !Array.from(rackAddonSlugs).some(s => s.startsWith('acc-rack-'))) {
           autoBom.push({ category: 'Zubehör', name: '19" Wand-Rack 6HE', slug: 'acc-rack-6u', qty: 1, price: 149 });
         }
-        // Patchpanel-Fallback: falls Rack-View nicht genutzt oder kein Patchpanel im Rack
+        // Patchpanel-Fallback: falls Rack-View nicht genutzt oder kein Patchpanel im Rack.
+        // Anzahl skaliert mit Endgeräten (1× 24-Port pro 24 APs+Kameras).
         const hasRackPatchpanel = (state.racks || []).some(r => (r.items || []).some(it => it.kind === 'patchpanel'));
         if(!rackViewUsed || !hasRackPatchpanel) {
-          autoBom.push({ category: 'Zubehör', name: 'Patchpanel 24-Port Cat6a', slug: 'acc-patch-24', qty: 1, price: 59 });
+          const ppQty = Math.max(1, Math.ceil(endpointCount / 24));
+          autoBom.push({ category: 'Zubehör', name: 'Patchpanel 24-Port Cat6a', slug: 'acc-patch-24', qty: ppQty, price: 59 });
         }
+      }
+
+      // Kabel-Fallback: wenn das Rack-View nie geöffnet wurde, gibt es keine
+      // computeRackBomAddons-Beträge. Wir schätzen Verlegekabel und Patchkabel
+      // pauschal aus der Endgerätezahl, damit die BOM trotzdem realistisch ist.
+      if(!rackViewUsed && endpointCount > 0) {
+        const avgLen = state.cabling?.defaultLengthPerFloorM > 0 ? state.cabling.defaultLengthPerFloorM : 15;
+        const meters = Math.ceil(endpointCount * avgLen / 5) * 5;
+        const cat = (state.cabling?.defaultCategory || 'cat6a').toLowerCase();
+        autoBom.push({ category: 'Zubehör', name: `${cat.toUpperCase()} Verlegekabel (Meter, geschätzt)`, slug: 'acc-cable-' + cat, qty: meters, price: 1 });
+        autoBom.push({ category: 'Zubehör', name: 'Cat6a Patchkabel 0,5 m', slug: 'acc-patch-cable', qty: endpointCount, price: 3 });
       }
 
       // Rack-Addons anhängen (Kabel/Patch/Blindblenden + ggf. dynamisches Rack)
@@ -4712,8 +4759,13 @@
             loaded.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(loaded.energy || {}) };
             loaded.coverage = { profile: 'general', ...(loaded.coverage || {}) };
             Object.assign(state, loaded);
+            const slugIssues = validateSlugRefs(state);
             render();
-            alert('Projekt erfolgreich geladen.');
+            if(slugIssues.length > 0) {
+              alert('Projekt geladen mit Hinweisen:\n\n• ' + slugIssues.join('\n• '));
+            } else {
+              alert('Projekt erfolgreich geladen.');
+            }
           } catch(err) {
             alert('Fehler beim Laden: ' + err.message);
           }
