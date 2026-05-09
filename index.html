@@ -16,13 +16,14 @@
 
   <style>
     :root {
-      --fs-base: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+      --fs-base: clamp(1rem, 1rem + 0.25vw, 1.125rem);
       --fs-lg: clamp(1.125rem, 1.05rem + 0.38vw, 1.3125rem);
       --fs-xl: clamp(1.25rem, 1.1rem + 0.75vw, 1.625rem);
       --fs-2xl: clamp(1.5rem, 1.25rem + 1.25vw, 2.125rem);
       --fs-3xl: clamp(1.875rem, 1.5rem + 1.88vw, 2.8125rem);
-      
-      --color-surface: #f7f6f2; 
+      --page-padding-x: clamp(0.75rem, 3vw, 2rem);
+
+      --color-surface: #f7f6f2;
       --color-surface-card: #ffffff;
       --color-primary: #01696f; 
       --color-primary-hover: #015256;
@@ -47,7 +48,11 @@
     h1, .h1 { font-family: 'Cabinet Grotesk', sans-serif; font-size: var(--fs-3xl); line-height: 1.1; font-weight: 800; }
     h2, .h2 { font-family: 'Cabinet Grotesk', sans-serif; font-size: var(--fs-2xl); line-height: 1.15; font-weight: 700; }
     h3, .h3 { font-family: 'Cabinet Grotesk', sans-serif; font-size: var(--fs-xl); line-height: 1.2; font-weight: 700; }
-    
+    @media (max-width: 640px) {
+      h2, .h2 { line-height: 1.3; }
+      h3, .h3 { line-height: 1.35; }
+    }
+
     .card {
       background: var(--color-surface-card);
       border: 1px solid var(--color-border);
@@ -55,10 +60,17 @@
       box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), 0 4px 12px 0 rgba(0, 0, 0, 0.05);
       transition: box-shadow 0.2s ease, transform 0.2s ease;
     }
-    
+
     .card-hover:hover {
       box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), 0 8px 30px rgba(0, 0, 0, 0.12);
       transform: translateY(-2px);
+    }
+    /* Hover-Effekte auf Touch-Geräten unterdrücken — sticky Hover vermeiden */
+    @media (hover: none) {
+      .card-hover:hover {
+        box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), 0 4px 12px 0 rgba(0, 0, 0, 0.05);
+        transform: none;
+      }
     }
 
     .tile-selected {
@@ -79,11 +91,15 @@
       #dash-content { display: block !important; }
     }
 
-    .step-node { width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.875rem; background: var(--color-surface-card); border: 2px solid var(--color-border); color: var(--color-text-muted); transition: all 0.3s ease; }
+    .step-node { width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.875rem; background: var(--color-surface-card); border: 2px solid var(--color-border); color: var(--color-text-muted); transition: all 0.3s ease; flex-shrink: 0; }
     .step-node.active { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }
     .step-node.completed { border-color: var(--color-primary); color: var(--color-primary); }
-    .step-line { flex: 1; height: 2px; background: var(--color-border); margin: 0 0.5rem; transition: background 0.3s ease; }
+    .step-line { flex: 1; height: 2px; background: var(--color-border); margin: 0 0.5rem; transition: background 0.3s ease; min-width: 8px; }
     .step-line.active { background: var(--color-primary); }
+    @media (max-width: 480px) {
+      .step-node { width: 1.5rem; height: 1.5rem; font-size: 0.75rem; border-width: 1.5px; }
+      .step-line { margin: 0 0.25rem; }
+    }
 
     #planner-area {
       background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
@@ -92,12 +108,21 @@
       position: relative;
       overflow: hidden;
       touch-action: none;
-      height: clamp(360px, 60vh, 560px);
+      height: clamp(320px, 55vh, 560px);
       border-bottom-left-radius: 12px;
       border-bottom-right-radius: 12px;
     }
+    @media (max-width: 480px) {
+      #planner-area { height: clamp(300px, 50vh, 420px); }
+    }
     #planner-inspector-slot:not(:empty) {
       padding: 0 0.75rem 0.75rem 0.75rem;
+    }
+    @media (max-width: 640px) {
+      #planner-inspector-slot:not(:empty) {
+        max-height: 35vh;
+        overflow-y: auto;
+      }
     }
     #planner-area svg polygon,
     #planner-area svg circle,
@@ -203,6 +228,67 @@
     @media (pointer: coarse) {
       .planner-tools button { width: 40px; height: 40px; }
     }
+    /* Auf engen Mobile-Viewports Werkzeug-Leiste an die Unterseite des
+       Plannerbereichs setzen, damit sie nicht mit den Zoom-Buttons (rechts oben)
+       um Platz konkurriert. */
+    @media (max-width: 480px) {
+      .planner-tools {
+        top: auto;
+        bottom: 8px;
+        left: 8px;
+        flex-direction: row;
+      }
+    }
+
+    /* Overflow-Menü für Step-2-Toolbar auf Mobile.
+       Auf Desktop: alle Buttons inline.
+       Auf Mobile (≤640px): Heatmap/Coverage/RF-Band/Wandmaterial unter "Optionen". */
+    .planner-toolbar-more { position: relative; display: none; }
+    .planner-toolbar-more > summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 4px;
+      padding: 0.4rem 0.6rem;
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      background: var(--color-surface);
+      color: var(--color-text-muted);
+      font-size: 0.75rem;
+      font-weight: 700;
+      min-height: 36px;
+    }
+    .planner-toolbar-more > summary::-webkit-details-marker { display: none; }
+    .planner-toolbar-more[open] > summary { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+    .planner-toolbar-more-panel {
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      z-index: 20;
+      background: var(--color-surface-card);
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.18);
+      padding: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      min-width: 220px;
+    }
+    .planner-toolbar-more-panel select,
+    .planner-toolbar-more-panel button {
+      width: 100%;
+      min-height: 40px;
+    }
+    @media (max-width: 640px) {
+      .planner-toolbar-more { display: inline-flex; }
+      .planner-toolbar-collapsible { display: none !important; }
+    }
+    /* Größere Touch-Targets für Toolbar-Selects/Buttons auf Touch-Geräten */
+    @media (pointer: coarse) {
+      #planner-card .planner-toolbar select,
+      #planner-card .planner-toolbar button { min-height: 40px; }
+    }
+
     #planner-bg-img {
       position: absolute;
       inset: 0;
@@ -216,6 +302,16 @@
       position: relative;
       display: inline-flex;
       align-items: center;
+      scroll-snap-align: start;
+      flex-shrink: 0;
+    }
+    #planner-floor-tabs > .floor-tab-wrap > button {
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    @media (min-width: 768px) {
+      #planner-floor-tabs > .floor-tab-wrap > button { max-width: none; }
     }
     .floor-tab-actions {
       display: none;
@@ -367,7 +463,7 @@
         overflow-x: auto;
         scroll-snap-type: x mandatory;
         -webkit-overflow-scrolling: touch;
-        padding-bottom: 4px;
+        padding: 4px 0 8px;
       }
       #ap-toolbar > [data-slug],
       #cam-toolbar > [data-slug],
@@ -376,6 +472,35 @@
         scroll-snap-align: start;
         flex-shrink: 0;
       }
+    }
+    @media (max-width: 480px) {
+      #ap-toolbar > [data-slug],
+      #cam-toolbar > [data-slug],
+      #doorbell-toolbar > [data-slug] {
+        min-width: 168px;
+      }
+    }
+
+    /* Generischer Wrapper für Tabellen, die auf Mobile horizontal scrollen sollen.
+       Tabellen, die mehr Spalten haben als die Mobile-Breite zulässt, werden
+       in <div class="table-scroll"> gewickelt. */
+    .table-scroll {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .table-scroll > table { min-width: 640px; }
+    .table-scroll-wide > table { min-width: 820px; }
+
+    /* Tailwind text-[11px] auf Mobile auf mindestens 12px anheben für Lesbarkeit. */
+    @media (max-width: 640px) {
+      .text-\[11px\] { font-size: 12px !important; line-height: 1.4 !important; }
+      .text-\[10px\] { font-size: 11px !important; }
+    }
+
+    /* Number-Inputs ohne Mobile-Decoration: keine Spinner, größeres Tap-Target */
+    @media (pointer: coarse) {
+      input[type="number"], input[type="text"], select { min-height: 36px; }
     }
     @media (pointer: coarse) {
       .vertex-delete-btn {
@@ -419,6 +544,11 @@
 
     .toggle-checkbox:checked { right: 0; border-color: var(--color-primary); }
     .toggle-checkbox:checked + .toggle-label { background-color: var(--color-primary); }
+    /* Toggle-Switches mit ausreichender Touch-Hit-Zone */
+    @media (pointer: coarse) {
+      .toggle-checkbox, .toggle-label { min-height: 24px; }
+      label:has(> .toggle-checkbox) { min-height: 44px; display: flex; align-items: center; }
+    }
 
     /* Freshness Badge */
     .data-badge { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; background: var(--color-surface); padding: 0.25rem 0.75rem; border-radius: 99px; border: 1px solid var(--color-border); }
@@ -443,12 +573,18 @@
     }
     .rack-overlay.hidden { display: none; }
     .rack-overlay-header {
-      display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;
-      padding: 0.75rem 1.25rem;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
       background: var(--color-surface-card);
       border-bottom: 1px solid var(--color-border);
     }
-    .rack-overlay-header .rack-title { font-family: 'Cabinet Grotesk', sans-serif; font-weight: 700; font-size: var(--fs-xl); margin-right: auto; display: flex; align-items: center; gap: 0.5rem; }
+    @media (min-width: 768px) {
+      .rack-overlay-header { gap: 0.75rem; padding: 0.75rem 1.25rem; }
+    }
+    .rack-overlay-header .rack-title { font-family: 'Cabinet Grotesk', sans-serif; font-weight: 700; font-size: var(--fs-lg); margin-right: auto; display: flex; align-items: center; gap: 0.5rem; }
+    @media (min-width: 768px) {
+      .rack-overlay-header .rack-title { font-size: var(--fs-xl); }
+    }
     .rack-overlay-body {
       flex: 1; display: grid;
       grid-template-columns: 380px 1fr 360px;
@@ -462,13 +598,20 @@
       .rack-overlay-body { grid-template-columns: 1fr; overflow-y: auto; }
       .rack-col { max-height: none; border-right: none; border-bottom: 1px solid var(--color-border); }
     }
+    /* Auf engen Mobile-Viewports FAQ-Panel kompakt zeigen, Padding reduzieren */
+    @media (max-width: 640px) {
+      .rack-col { padding: 0.75rem; }
+      .rack-faq-panel { padding: 0.75rem; }
+      .rack-overlay-body, .rack-overlay-body.faq-collapsed { grid-template-columns: 1fr; }
+    }
 
     /* Rack Frame (left col) */
     .rack-frame-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; }
     .rack-frame {
       --rack-u-height: 26px;
       position: relative;
-      width: 300px;
+      width: 100%;
+      max-width: 300px;
       background: #1a1916;
       border: 6px solid #2a2825;
       border-radius: 8px;
@@ -505,7 +648,7 @@
       border-radius: 3px;
       color: #f0ece6;
       padding: 2px 6px;
-      font-size: 11px;
+      font-size: clamp(10px, 2.5vw, 11px);
       font-weight: 500;
       display: flex; align-items: center; gap: 6px;
       cursor: grab;
@@ -558,7 +701,7 @@
     }
 
     /* Cabling */
-    .rack-cabling-table { width: 100%; font-size: 0.8125rem; border-collapse: collapse; }
+    .rack-cabling-table { width: 100%; font-size: 0.8125rem; border-collapse: collapse; min-width: 600px; }
     .rack-cabling-table th { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--color-border); color: var(--color-text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
     .rack-cabling-table td { padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--color-border); vertical-align: middle; }
     .rack-cabling-table tr.orphan td { background: color-mix(in oklch, #dc2626 10%, transparent); }
@@ -686,8 +829,8 @@
       position: relative;
       z-index: 1;
       max-width: 32rem;
-      width: 100%;
-      padding: 1.75rem;
+      width: calc(100% - 0.5rem);
+      padding: clamp(1rem, 5vw, 1.75rem);
       max-height: calc(100vh - 2rem);
       overflow-y: auto;
     }
@@ -744,22 +887,22 @@
   </div>
 
   <header id="header" class="sticky top-0 z-40 bg-nexus-surfaceCard border-b border-nexus-border backdrop-blur-md bg-opacity-80">
-    <div class="max-w-6xl mx-auto px-4 md:px-8 py-4 flex flex-wrap items-center justify-between gap-4">
-      <div class="flex items-center gap-3">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" class="text-nexus-primary">
+    <div class="max-w-6xl mx-auto px-3 sm:px-4 md:px-8 py-2 md:py-4 flex flex-wrap items-center justify-between gap-2 md:gap-4">
+      <div class="flex items-center gap-2 md:gap-3 min-w-0">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" class="text-nexus-primary shrink-0 md:w-8 md:h-8">
           <path d="M5 8V14C5 17.866 8.13401 21 12 21C15.866 21 19 17.866 19 14V8H15V14C15 15.6569 13.6569 17 12 17C10.3431 17 9 15.6569 9 14V8H5Z" fill="currentColor"/>
           <circle cx="12" cy="4" r="2" fill="currentColor"/>
         </svg>
-        <span class="font-display font-bold text-xl tracking-tight">Setup Planner</span>
+        <span class="font-display font-bold text-base md:text-xl tracking-tight truncate">Setup Planner</span>
       </div>
       <div id="freshness-container" class="no-print"></div>
-      <button id="btn-rack-view" onclick="window.openRackView()" class="btn-secondary no-print text-xs" style="display:none; padding: 0.4rem 0.8rem;" title="Rack-Ansicht öffnen – Geräte im Rack anordnen und verkabeln">
-        <i data-lucide="server" class="w-4 h-4"></i> Rack-Ansicht
+      <button id="btn-rack-view" onclick="window.openRackView()" class="btn-secondary no-print text-xs" style="display:none; padding: 0.5rem 0.75rem; min-height: 40px;" title="Rack-Ansicht öffnen – Geräte im Rack anordnen und verkabeln">
+        <i data-lucide="server" class="w-4 h-4"></i> <span class="hidden sm:inline">Rack-Ansicht</span><span class="sm:hidden">Rack</span>
       </button>
     </div>
   </header>
 
-  <div class="max-w-4xl mx-auto px-4 mt-8 mb-8 no-print" id="progress-container" style="display:none;">
+  <div class="max-w-4xl mx-auto px-3 sm:px-4 mt-4 md:mt-8 mb-4 md:mb-8 no-print" id="progress-container" style="display:none;">
     <div class="flex items-center justify-between max-w-2xl mx-auto">
       <div class="step-node active" data-step="1">1</div>
       <div class="step-line" id="line-1"></div>
@@ -773,17 +916,17 @@
       <div class="step-line" id="line-5"></div>
       <div class="step-node" data-step="6">6</div>
     </div>
-    <div class="flex items-center justify-between max-w-2xl mx-auto mt-2 text-xs md:text-sm text-nexus-muted font-medium text-center">
-      <div class="w-16">Internet</div>
-      <div class="w-16">Räume & APs</div>
-      <div class="w-16">Switch & PoE</div>
-      <div class="w-16">Features</div>
-      <div class="w-16">Backup</div>
-      <div class="w-16">Ergebnis</div>
+    <div class="flex items-start justify-between max-w-2xl mx-auto mt-2 text-[10px] sm:text-xs md:text-sm text-nexus-muted font-medium text-center leading-tight">
+      <div class="w-12 sm:w-16 truncate" title="Internet">Internet</div>
+      <div class="w-12 sm:w-16 truncate" title="Räume &amp; APs">Räume</div>
+      <div class="w-12 sm:w-16 truncate" title="Switch &amp; PoE">Switch</div>
+      <div class="w-12 sm:w-16 truncate" title="Features">Features</div>
+      <div class="w-12 sm:w-16 truncate" title="Backup">Backup</div>
+      <div class="w-12 sm:w-16 truncate" title="Ergebnis">Ergebnis</div>
     </div>
   </div>
 
-  <main class="max-w-4xl mx-auto px-4 pb-8 relative min-h-[500px]" id="app-content">
+  <main class="max-w-4xl mx-auto px-3 sm:px-4 pb-8 relative min-h-[500px]" id="app-content">
     <div id="loader-overlay">
        <i data-lucide="loader-2" class="w-10 h-10 animate-spin text-nexus-primary mb-4"></i>
        <h3 class="font-bold">Lade Live-Produktdaten...</h3>
@@ -791,7 +934,7 @@
     </div>
   </main>
 
-  <footer id="legal-footer" class="max-w-4xl mx-auto px-4 pb-32 pt-6 text-xs text-nexus-muted no-print">
+  <footer id="legal-footer" class="max-w-4xl mx-auto px-3 sm:px-4 pb-32 pt-4 md:pt-6 text-xs text-nexus-muted leading-relaxed no-print">
     <div class="border-t border-nexus-border pt-4 leading-relaxed text-center">
       <p class="mb-1">
         <strong class="text-nexus-base">Hinweis:</strong>
@@ -2057,7 +2200,7 @@
             <div class="flex justify-between mb-2 items-center">
               <label class="font-medium text-sm">Download${state.isp ? ` <span class="text-xs text-nexus-muted font-normal">· max. ${state.isp.maxDown} Mbit/s</span>` : ''}</label>
               <div class="flex items-center gap-1 font-bold text-nexus-primary">
-                <input type="number" id="input-down" min="16" max="${state.isp?.maxDown ?? 10000}" value="${state.speedDown}" class="w-16 text-right bg-transparent border-b border-transparent hover:border-nexus-border focus:border-nexus-primary focus:outline-none appearance-none" style="-moz-appearance: textfield;">
+                <input type="number" inputmode="numeric" id="input-down" min="16" max="${state.isp?.maxDown ?? 10000}" value="${state.speedDown}" class="w-16 text-right bg-transparent border-b border-transparent hover:border-nexus-border focus:border-nexus-primary focus:outline-none appearance-none" style="-moz-appearance: textfield;">
                 <span>Mbit/s</span>
               </div>
             </div>
@@ -2067,7 +2210,7 @@
             <div class="flex justify-between mb-2 items-center">
               <label class="font-medium text-sm">Upload${state.isp ? ` <span class="text-xs text-nexus-muted font-normal">· max. ${state.isp.maxUp} Mbit/s</span>` : ''}</label>
               <div class="flex items-center gap-1 font-bold text-nexus-primary">
-                <input type="number" id="input-up" min="10" max="${state.isp?.maxUp ?? 10000}" value="${state.speedUp}" class="w-16 text-right bg-transparent border-b border-transparent hover:border-nexus-border focus:border-nexus-primary focus:outline-none appearance-none" style="-moz-appearance: textfield;">
+                <input type="number" inputmode="numeric" id="input-up" min="10" max="${state.isp?.maxUp ?? 10000}" value="${state.speedUp}" class="w-16 text-right bg-transparent border-b border-transparent hover:border-nexus-border focus:border-nexus-primary focus:outline-none appearance-none" style="-moz-appearance: textfield;">
                 <span>Mbit/s</span>
               </div>
             </div>
@@ -2342,8 +2485,8 @@
          if(sr) {
             const area = computeRoomArea(sr);
             inspectorHtml = `
-               <div class="card p-4 flex flex-wrap gap-3 items-end mt-2 bg-nexus-surfaceCard border-l-4 border-l-nexus-primary">
-                  <div class="flex-1 min-w-[200px]">
+               <div class="card p-3 sm:p-4 flex flex-wrap gap-2 sm:gap-3 items-end mt-2 bg-nexus-surfaceCard border-l-4 border-l-nexus-primary">
+                  <div class="flex-1 min-w-0 sm:min-w-[200px] basis-full sm:basis-auto">
                      <label class="block text-xs font-bold mb-1 text-nexus-primary">Ausgewählter Raum</label>
                      <input type="text" id="insp-name" value="${escapeHtml(sr.name)}" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm focus:outline-none focus:border-nexus-primary font-bold">
                   </div>
@@ -2351,8 +2494,8 @@
                      <div class="font-bold uppercase tracking-wide mb-1">Fläche</div>
                      <div class="text-base font-bold text-nexus-base">${fmt1(area)} m²</div>
                   </div>
-                  <button onclick="window.duplicateRoom('${sr.id}')" class="px-3 py-2 bg-nexus-surface border border-nexus-border text-nexus-base rounded hover:bg-nexus-border transition-colors font-bold text-sm" title="Raum duplizieren"><i data-lucide="copy" class="w-4 h-4 inline-block mr-1"></i> Duplizieren</button>
-                  <button onclick="window.deleteRoom('${sr.id}')" class="px-4 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 transition-colors font-bold text-sm" title="Raum löschen"><i data-lucide="trash-2" class="w-4 h-4 inline-block mr-1"></i> Löschen</button>
+                  <button onclick="window.duplicateRoom('${sr.id}')" class="px-3 py-2 bg-nexus-surface border border-nexus-border text-nexus-base rounded hover:bg-nexus-border transition-colors font-bold text-sm flex-grow sm:flex-grow-0" title="Raum duplizieren"><i data-lucide="copy" class="w-4 h-4 inline-block mr-1"></i> Duplizieren</button>
+                  <button onclick="window.deleteRoom('${sr.id}')" class="px-4 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 transition-colors font-bold text-sm flex-grow sm:flex-grow-0" title="Raum löschen"><i data-lucide="trash-2" class="w-4 h-4 inline-block mr-1"></i> Löschen</button>
                </div>
             `;
          }
@@ -2375,8 +2518,8 @@
         
         <div class="card" id="planner-card" style="overflow:visible;">
           <div class="flex justify-between items-center border-b border-nexus-border px-2 bg-nexus-surface bg-opacity-50 gap-2 flex-wrap rounded-t-[12px]">
-             <div class="flex flex-wrap items-center overflow-x-auto" style="max-width:100%;">${tabsHtml}</div>
-             <div class="flex items-center gap-1 md:gap-2 mr-1 md:mr-2 my-2 flex-wrap">
+             <div id="planner-floor-tabs" class="flex flex-nowrap items-center overflow-x-auto" style="max-width:100%; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;">${tabsHtml}</div>
+             <div class="planner-toolbar flex items-center gap-1 md:gap-2 mr-1 md:mr-2 my-2 flex-wrap">
                <button id="planner-btn-undo" onclick="window.plannerUndo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Rückgängig (Strg+Z)" aria-label="Rückgängig" disabled>
                   <i data-lucide="undo-2" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline">Undo</span>
                </button>
@@ -2386,15 +2529,32 @@
                <button onclick="window.toggleHeatmap()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state.view && state.view.heatmap ? 'bg-emerald-600 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Signal-Heatmap umschalten" aria-label="Signal-Heatmap umschalten" aria-pressed="${state.view && state.view.heatmap ? 'true' : 'false'}">
                   <i data-lucide="thermometer" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Heatmap ${state.view && state.view.heatmap ? 'an' : 'aus'}</span>
                </button>
-               <select onchange="window.setCoverageProfile(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Coverage-Profil (Min-RSSI)" aria-label="Coverage-Profil">
+               <select onchange="window.setCoverageProfile(this.value)" class="planner-toolbar-collapsible text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Coverage-Profil (Min-RSSI)" aria-label="Coverage-Profil">
                   ${COVERAGE_PROFILES.map(p => `<option value="${p.id}" ${state.coverage?.profile === p.id ? 'selected' : ''}>${p.label} (${p.rssi} dBm)</option>`).join('')}
                </select>
-               <select onchange="window.setRfBand(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="WLAN-Band für Heatmap-Berechnung" aria-label="WLAN-Band">
+               <select onchange="window.setRfBand(this.value)" class="planner-toolbar-collapsible text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="WLAN-Band für Heatmap-Berechnung" aria-label="WLAN-Band">
                   ${RF_BANDS.map(b => `<option value="${b.id}" ${(state.view?.band || DEFAULT_RF_BAND) === b.id ? 'selected' : ''} title="${b.hint}">${b.label}</option>`).join('')}
                </select>
-               <select onchange="window.setFloorMaterial(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Wandmaterial dieser Etage" aria-label="Wandmaterial">
+               <select onchange="window.setFloorMaterial(this.value)" class="planner-toolbar-collapsible text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Wandmaterial dieser Etage" aria-label="Wandmaterial">
                   ${WALL_MATERIALS.map(m => `<option value="${m.id}" ${(currentFloor.wallMaterial || DEFAULT_FLOOR_MATERIAL) === m.id ? 'selected' : ''} title="${m.hint}">${m.label}</option>`).join('')}
                </select>
+               <details class="planner-toolbar-more" aria-label="Weitere Planner-Optionen">
+                  <summary title="Weitere Optionen"><i data-lucide="sliders-horizontal" class="w-3.5 h-3.5" aria-hidden="true"></i> Optionen</summary>
+                  <div class="planner-toolbar-more-panel">
+                     <label class="text-[11px] font-bold uppercase tracking-wide text-nexus-muted">Coverage-Profil</label>
+                     <select onchange="window.setCoverageProfile(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-base border border-nexus-border focus:outline-none focus:border-nexus-primary" aria-label="Coverage-Profil">
+                        ${COVERAGE_PROFILES.map(p => `<option value="${p.id}" ${state.coverage?.profile === p.id ? 'selected' : ''}>${p.label} (${p.rssi} dBm)</option>`).join('')}
+                     </select>
+                     <label class="text-[11px] font-bold uppercase tracking-wide text-nexus-muted">WLAN-Band</label>
+                     <select onchange="window.setRfBand(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-base border border-nexus-border focus:outline-none focus:border-nexus-primary" aria-label="WLAN-Band">
+                        ${RF_BANDS.map(b => `<option value="${b.id}" ${(state.view?.band || DEFAULT_RF_BAND) === b.id ? 'selected' : ''} title="${b.hint}">${b.label}</option>`).join('')}
+                     </select>
+                     <label class="text-[11px] font-bold uppercase tracking-wide text-nexus-muted">Wandmaterial</label>
+                     <select onchange="window.setFloorMaterial(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-base border border-nexus-border focus:outline-none focus:border-nexus-primary" aria-label="Wandmaterial">
+                        ${WALL_MATERIALS.map(m => `<option value="${m.id}" ${(currentFloor.wallMaterial || DEFAULT_FLOOR_MATERIAL) === m.id ? 'selected' : ''} title="${m.hint}">${m.label}</option>`).join('')}
+                     </select>
+                  </div>
+               </details>
                <button onclick="window.autoAssignChannels()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Kanäle automatisch verteilen (2,4 + 5 GHz)" aria-label="Kanäle automatisch verteilen">
                   <i data-lucide="radio-tower" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Kanäle auto</span>
                </button>
@@ -5137,6 +5297,7 @@
         <div class="card p-6 text-center text-nexus-muted text-sm">Noch keine VLANs definiert. Wähle ein Preset oder füge manuell hinzu.</div>
       ` : `
         <div class="card p-0 overflow-hidden">
+          <div class="table-scroll table-scroll-wide">
           <table class="w-full text-sm">
             <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
               <tr>
@@ -5154,7 +5315,7 @@
             <tbody>
               ${state.vlans.map((v, i) => `
                 <tr class="border-t border-nexus-border">
-                  <td class="px-4 py-2"><input type="number" min="1" max="4094" value="${v.id}" onchange="window.updateVlan(${i},'id',this.value)" class="w-20 bg-nexus-surface border border-nexus-border rounded px-2 py-1 font-mono text-xs"></td>
+                  <td class="px-4 py-2"><input type="number" inputmode="numeric" min="1" max="4094" value="${v.id}" onchange="window.updateVlan(${i},'id',this.value)" class="w-20 bg-nexus-surface border border-nexus-border rounded px-2 py-1 font-mono text-xs"></td>
                   <td class="px-4 py-2"><input type="text" value="${v.name}" onchange="window.updateVlan(${i},'name',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"></td>
                   <td class="px-4 py-2"><input type="text" value="${v.subnet}" onchange="window.updateVlan(${i},'subnet',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 font-mono text-xs"></td>
                   <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'purpose',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${purposeOpts(v.purpose)}</select></td>
@@ -5166,6 +5327,7 @@
                 </tr>`).join('')}
             </tbody>
           </table>
+          </div>
         </div>
       `;
 
@@ -5213,7 +5375,7 @@
                   <div class="font-bold text-sm">${p.name}</div>
                   <div class="text-xs text-nexus-muted mt-0.5">${p.type === 'handset' ? 'DECT-Handset · kein PoE' : `${p.displayInch || '—'}″ Touch · ${p.poeWatts || 0} W PoE`} · ${p.price} €</div>
                 </div>
-                <input type="number" min="0" max="99" value="${qty}" onchange="window.setTalkDeviceQty('${p.slug}', this.value)" class="w-16 bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-sm text-center" aria-label="Anzahl ${p.name}" />
+                <input type="number" inputmode="numeric" min="0" max="99" value="${qty}" onchange="window.setTalkDeviceQty('${p.slug}', this.value)" class="w-16 bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-sm text-center" aria-label="Anzahl ${p.name}" />
               </label>`;
             }).join('')}
           </div>
@@ -5248,14 +5410,14 @@
 
         <div class="card p-5">
           <h3 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="network" class="w-4 h-4 text-nexus-primary"></i> Netzwerk-Segmentierung (VLANs)</h3>
-          <div class="flex flex-wrap gap-2 mb-3">
-            <button onclick="window.applyVlanPreset('haus')" class="btn-secondary text-xs">Preset: Einfamilienhaus</button>
-            <button onclick="window.applyVlanPreset('buero')" class="btn-secondary text-xs">Preset: KMU-Büro</button>
-            <button onclick="window.applyVlanPreset('ferien')" class="btn-secondary text-xs">Preset: Ferienhaus</button>
-            <button onclick="window.applyVlanPreset('praxis')" class="btn-secondary text-xs">Preset: Arztpraxis</button>
-            <button onclick="window.applyVlanPreset('schule')" class="btn-secondary text-xs">Preset: Schule</button>
-            <button onclick="window.applyVlanPreset('hotel')" class="btn-secondary text-xs">Preset: Hotel/Gastronomie</button>
-            <button onclick="window.addVlan()" class="btn-primary text-xs flex items-center gap-1"><i data-lucide="plus" class="w-3 h-3"></i> VLAN hinzufügen</button>
+          <div class="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 mb-3">
+            <button onclick="window.applyVlanPreset('haus')" class="btn-secondary text-xs justify-center">Preset: Einfamilienhaus</button>
+            <button onclick="window.applyVlanPreset('buero')" class="btn-secondary text-xs justify-center">Preset: KMU-Büro</button>
+            <button onclick="window.applyVlanPreset('ferien')" class="btn-secondary text-xs justify-center">Preset: Ferienhaus</button>
+            <button onclick="window.applyVlanPreset('praxis')" class="btn-secondary text-xs justify-center">Preset: Arztpraxis</button>
+            <button onclick="window.applyVlanPreset('schule')" class="btn-secondary text-xs justify-center">Preset: Schule</button>
+            <button onclick="window.applyVlanPreset('hotel')" class="btn-secondary text-xs justify-center">Preset: Hotel/Gastronomie</button>
+            <button onclick="window.addVlan()" class="btn-primary text-xs flex items-center justify-center gap-1 col-span-2 sm:col-span-1"><i data-lucide="plus" class="w-3 h-3"></i> VLAN hinzufügen</button>
           </div>
           ${tableHtml}
         </div>
@@ -5305,11 +5467,11 @@
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="text-xs text-nexus-muted block mb-1">Download (Mbit/s)${bu.isp2 ? ` <span class="text-nexus-muted">· max. ${bu.isp2.maxDown}</span>` : ''}</label>
-              <input type="number" min="1" max="${bu.isp2?.maxDown ?? 10000}" value="${bu.speedDown2}" onchange="window.setBackupSpeed('speedDown2', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm">
+              <input type="number" inputmode="numeric" min="1" max="${bu.isp2?.maxDown ?? 10000}" value="${bu.speedDown2}" onchange="window.setBackupSpeed('speedDown2', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm">
             </div>
             <div>
               <label class="text-xs text-nexus-muted block mb-1">Upload (Mbit/s)${bu.isp2 ? ` <span class="text-nexus-muted">· max. ${bu.isp2.maxUp}</span>` : ''}</label>
-              <input type="number" min="1" max="${bu.isp2?.maxUp ?? 10000}" value="${bu.speedUp2}" onchange="window.setBackupSpeed('speedUp2', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm">
+              <input type="number" inputmode="numeric" min="1" max="${bu.isp2?.maxUp ?? 10000}" value="${bu.speedUp2}" onchange="window.setBackupSpeed('speedUp2', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm">
             </div>
           </div>
         </div>` : '';
@@ -6458,25 +6620,27 @@
          };
          return `
           <div class="card p-0 overflow-hidden">
-            <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50">
+            <div class="px-3 sm:px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50">
               <h3 class="font-bold">Firewall-Matrix (Inter-VLAN-Routing)</h3>
               <p class="text-xs text-nexus-muted mt-1">Welche Ziele erreichen die VLAN-Clients laut der gewählten Isolation. Im UniFi-Controller als Firewall-Regeln im Tab „Internet/LAN In" abbilden.</p>
             </div>
+            <div class="table-scroll">
             <table class="w-full text-sm text-left">
               <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
-                <tr><th class="px-6 py-3">Quelle</th><th class="px-6 py-3">Stufe</th><th class="px-6 py-3">Erreichbare Ziele</th></tr>
+                <tr><th class="px-3 sm:px-6 py-3">Quelle</th><th class="px-3 sm:px-6 py-3">Stufe</th><th class="px-3 sm:px-6 py-3">Erreichbare Ziele</th></tr>
               </thead>
               <tbody>
                 ${state.vlans.map(v => {
                   const iso = VLAN_ISOLATION.find(i => i.id === (v.isolation || 'none')) || VLAN_ISOLATION[0];
                   return `<tr class="border-b border-nexus-border">
-                    <td class="px-6 py-3 font-medium">#${v.id} ${v.name}</td>
-                    <td class="px-6 py-3 text-xs">${iso.label}</td>
-                    <td class="px-6 py-3 text-xs">${allows(v).join(' · ')}</td>
+                    <td class="px-3 sm:px-6 py-3 font-medium">#${v.id} ${v.name}</td>
+                    <td class="px-3 sm:px-6 py-3 text-xs">${iso.label}</td>
+                    <td class="px-3 sm:px-6 py-3 text-xs" style="word-break: break-word;">${allows(v).join(' · ')}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
             </table>
+            </div>
           </div>`;
       })() : '';
 
@@ -6605,43 +6769,44 @@
           ${fwCard}
 
           <div class="card p-0 overflow-hidden">
-             <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
+             <div class="px-3 sm:px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
                <h3 class="font-bold">Stückliste (BOM)</h3>
                <div class="flex items-center gap-3">
                  <span class="text-sm text-nexus-muted">Gesamt: <strong>~${fmtEur0(sumTotal)}</strong></span>
                  ${(state.bomOverrides?.removedKeys?.length || state.bomOverrides?.customRows?.length || Object.keys(state.bomOverrides?.quantityOverrides || {}).length) ? `<button onclick="window.resetBomOverrides()" class="btn-secondary text-xs flex items-center gap-1 no-print"><i data-lucide="rotate-ccw" class="w-3 h-3"></i> Auto wiederherstellen</button>` : ''}
                </div>
              </div>
+             <div class="table-scroll">
              <table class="w-full text-sm text-left">
                <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
                  <tr>
-                   <th class="px-6 py-3">Typ</th>
-                   <th class="px-6 py-3">Modell</th>
-                   <th class="px-4 py-3 text-center">Menge</th>
-                   <th class="px-4 py-3 text-right">Einzel</th>
-                   <th class="px-4 py-3 text-right">Gesamt</th>
-                   <th class="px-4 py-3 text-right no-print"></th>
+                   <th class="px-3 sm:px-6 py-3">Typ</th>
+                   <th class="px-3 sm:px-6 py-3">Modell</th>
+                   <th class="px-3 sm:px-4 py-3 text-center">Menge</th>
+                   <th class="px-3 sm:px-4 py-3 text-right hidden sm:table-cell">Einzel</th>
+                   <th class="px-3 sm:px-4 py-3 text-right">Gesamt</th>
+                   <th class="px-3 sm:px-4 py-3 text-right no-print"></th>
                  </tr>
                </thead>
                <tbody>
                   ${b.bom.map(item => `<tr class="border-b border-nexus-border ${item.isCustom ? 'bg-nexus-primary bg-opacity-5' : ''}">
-                    <td class="px-6 py-3 font-medium">${item.category}${item.isCustom ? ' <span class="ml-1 text-[10px] uppercase tracking-wide bg-nexus-primary text-white px-1.5 py-0.5 rounded">Manuell</span>' : ''}</td>
-                    <td class="px-6 py-3">${item.isCustom
+                    <td class="px-3 sm:px-6 py-3 font-medium">${item.category}${item.isCustom ? ' <span class="ml-1 text-[10px] uppercase tracking-wide bg-nexus-primary text-white px-1.5 py-0.5 rounded">Manuell</span>' : ''}</td>
+                    <td class="px-3 sm:px-6 py-3">${item.isCustom
                       ? `<input type="text" value="${(item.name || '').replace(/"/g,'&quot;')}" onchange="window.updateCustomBomRow('${item.customId}','name',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">`
                       : item.name}</td>
-                    <td class="px-4 py-3 text-center">
-                      <input type="number" min="0" max="999" value="${item.qty}" onchange="window.setBomQuantity('${item.key}', this.value)" class="w-16 text-center bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">
+                    <td class="px-3 sm:px-4 py-3 text-center">
+                      <input type="number" inputmode="numeric" min="0" max="999" value="${item.qty}" onchange="window.setBomQuantity('${item.key}', this.value)" class="w-16 text-center bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">
                     </td>
-                    <td class="px-4 py-3 text-right">${item.isCustom
-                      ? `<input type="number" min="0" step="1" value="${item.price}" onchange="window.updateCustomBomRow('${item.customId}','price',this.value)" class="w-20 text-right bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"> €`
+                    <td class="px-3 sm:px-4 py-3 text-right hidden sm:table-cell">${item.isCustom
+                      ? `<input type="number" inputmode="numeric" min="0" step="1" value="${item.price}" onchange="window.updateCustomBomRow('${item.customId}','price',this.value)" class="w-20 text-right bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"> €`
                       : `~${fmtEur0(item.price)}`}</td>
-                    <td class="px-4 py-3 text-right font-bold">~${fmtEur0(item.price * item.qty)}</td>
-                    <td class="px-4 py-3 text-right no-print">
+                    <td class="px-3 sm:px-4 py-3 text-right font-bold">~${fmtEur0(item.price * item.qty)}</td>
+                    <td class="px-3 sm:px-4 py-3 text-right no-print">
                       <button onclick="window.removeBomRow('${item.key}')" class="text-red-500 hover:text-red-700" title="Entfernen"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                     </td>
                   </tr>`).join('')}
                   ${(state.bomOverrides?.removedKeys || []).length > 0 ? `<tr class="border-b border-nexus-border bg-nexus-surface bg-opacity-30 no-print">
-                    <td colspan="6" class="px-6 py-3 text-xs text-nexus-muted">
+                    <td colspan="6" class="px-3 sm:px-6 py-3 text-xs text-nexus-muted">
                       <div class="flex items-center gap-2 flex-wrap">
                         <span><i data-lucide="eye-off" class="w-3 h-3 inline"></i> Entfernt:</span>
                         ${state.bomOverrides.removedKeys.map(k => {
@@ -6653,36 +6818,37 @@
                   </tr>` : ''}
                </tbody>
              </table>
-             <div class="px-6 py-4 border-t border-nexus-border bg-nexus-surface bg-opacity-30 no-print">
+             </div>
+             <div class="px-3 sm:px-6 py-4 border-t border-nexus-border bg-nexus-surface bg-opacity-30 no-print">
                <details>
                  <summary class="cursor-pointer text-sm font-bold flex items-center gap-2 select-none"><i data-lucide="plus-circle" class="w-4 h-4 text-nexus-primary"></i> Position hinzufügen</summary>
-                 <form id="bom-add-form" onsubmit="event.preventDefault(); window.addCustomBomRow();" class="grid grid-cols-1 md:grid-cols-6 gap-2 mt-3 items-end">
-                   <div class="md:col-span-1">
+                 <form id="bom-add-form" onsubmit="event.preventDefault(); window.addCustomBomRow();" class="grid grid-cols-2 md:grid-cols-6 gap-2 mt-3 items-end">
+                   <div class="col-span-2 md:col-span-1">
                      <label class="text-xs text-nexus-muted block mb-1">Kategorie</label>
-                     <select name="cat" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">
+                     <select name="cat" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-xs">
                        ${BOM_CUSTOM_CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
                      </select>
                    </div>
-                   <div class="md:col-span-2">
+                   <div class="col-span-2 md:col-span-2">
                      <label class="text-xs text-nexus-muted block mb-1">UniFi-Katalog (optional)</label>
-                     <select name="catalog" onchange="window.bomFormCatalogPick(this)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">
+                     <select name="catalog" onchange="window.bomFormCatalogPick(this)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-xs">
                        <option value="">— Freitext —</option>
                        ${Object.entries(productCache.specs).filter(([,p]) => p && p.name).map(([slug, p]) => `<option value="${slug}">${p.name}</option>`).join('')}
                      </select>
                    </div>
-                   <div class="md:col-span-1">
+                   <div class="col-span-2 md:col-span-1">
                      <label class="text-xs text-nexus-muted block mb-1">Modell/Name</label>
-                     <input name="name" type="text" placeholder="z. B. USB-C Kabel 2m" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">
+                     <input name="name" type="text" placeholder="z. B. USB-C Kabel 2m" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-xs">
                    </div>
                    <div>
                      <label class="text-xs text-nexus-muted block mb-1">Menge</label>
-                     <input name="qty" type="number" min="1" max="999" value="1" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">
+                     <input name="qty" type="number" inputmode="numeric" min="1" max="999" value="1" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-xs">
                    </div>
                    <div>
                      <label class="text-xs text-nexus-muted block mb-1">Preis €</label>
-                     <input name="price" type="number" min="0" step="1" value="0" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">
+                     <input name="price" type="number" inputmode="decimal" min="0" step="1" value="0" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-xs">
                    </div>
-                   <div class="md:col-span-6">
+                   <div class="col-span-2 md:col-span-6">
                      <button type="submit" class="btn-primary text-xs flex items-center gap-1"><i data-lucide="plus" class="w-3 h-3"></i> Hinzufügen</button>
                    </div>
                  </form>
