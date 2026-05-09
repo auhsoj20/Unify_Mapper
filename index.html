@@ -873,6 +873,25 @@
     ];
     const coverageFactor = () => (COVERAGE_PROFILES.find(p => p.id === state?.coverage?.profile)?.factor) || 1.0;
 
+    // RF-Bänder (Iter. 15, P1 #9): Reichweite hängt vom Band ab. 2,4 GHz hat
+    // bessere Wand-Penetration (~ +20 %), 6 GHz höhere Pfaddämpfung (~ −30 %).
+    // 6 GHz benötigt WiFi-6E- oder WiFi-7-APs (Tag „feature:wifi-6-ghz" in
+    // unifi-products.js). Bands ohne Support liefern Faktor 0 und werden in
+    // der Heatmap dieses Bandes nicht gerechnet.
+    const RF_BANDS = [
+      { id: '2.4', label: '2,4 GHz', factor: 1.20, requires: null,                  hint: 'Bessere Wand-Penetration, aber niedrige Datenrate. Nur 1/6/11 sind überlappungsfrei.' },
+      { id: '5',   label: '5 GHz',   factor: 1.00, requires: null,                  hint: 'Standard-Band. Hohe Datenrate, mittlere Reichweite.' },
+      { id: '6',   label: '6 GHz',   factor: 0.70, requires: 'feature:wifi-6-ghz',  hint: 'WiFi 6E/7 — höchste Datenrate, kürzeste Reichweite. Nur 6-GHz-fähige APs werden gezeigt.' }
+    ];
+    const DEFAULT_RF_BAND = '5';
+    const bandFactor = () => (RF_BANDS.find(b => b.id === state?.view?.band)?.factor) || 1.0;
+    const apHasBand = (spec, bandId) => {
+      if(!spec) return false;
+      const b = RF_BANDS.find(x => x.id === bandId);
+      if(!b || !b.requires) return true;
+      return Array.isArray(spec.tags) && spec.tags.includes(b.requires);
+    };
+
     // --- Wand-Material pro Etage --- //
     // Vereinfachtes Modell: jede Etage hat eine pauschale Material-Klasse, die
     // den effektiven Reichweiten-Radius der APs reduziert. Keine echte
@@ -1315,7 +1334,7 @@
       switchPorts: [],
       features: { vlan: false, ids: true, vpn: false, cameras: false, talk: false, contentFilter: false },
       vlans: [],
-      view: { heatmap: false },
+      view: { heatmap: false, band: DEFAULT_RF_BAND },
       backup: {
         enabled: false,
         type: null,              // 'cellular' | 'isp2' | 'starlink'
@@ -1641,7 +1660,8 @@
             merged.rooms = (merged.rooms || []).map(r => ({ apertures: [], ...r }));
             return merged;
           });
-          if(!parsed.view) parsed.view = { heatmap: false };
+          if(!parsed.view) parsed.view = { heatmap: false, band: DEFAULT_RF_BAND };
+          if(!parsed.view.band || !RF_BANDS.some(b => b.id === parsed.view.band)) parsed.view.band = DEFAULT_RF_BAND;
           if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
           // Alte VLANs ohne wpaMode/isolation/clientIsolation auf Defaults heben.
           parsed.vlans = applyIsolationDefaults(parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
@@ -1737,7 +1757,7 @@
         switchPorts: [],
         features: { vlan: true, ids: true, vpn: false, cameras: true, talk: false, contentFilter: false },
         vlans: applyIsolationDefaults(presetVlans),
-        view: { heatmap: false },
+        view: { heatmap: false, band: DEFAULT_RF_BAND },
         backup: normalizeBackupState({ enabled: false }),
         bomOverrides: { removedKeys: [], customRows: [], quantityOverrides: {} },
         poeAssignments: {},
@@ -2074,7 +2094,7 @@
       const apItems = productCache.wifi.map(p => {
         const spec = productCache.specs[p.slug];
         if(!spec) return '';
-        const radiusMeters = Math.round(Math.sqrt(spec.coverageM2 || 140) * coverageFactor());
+        const radiusMeters = Math.round(Math.sqrt(spec.coverageM2 || 140) * coverageFactor() * bandFactor());
         const ant = getAntennaInfo(spec);
         const antTitle = ant ? `${spec.name} — ${ant.summary}` : spec.name;
         const thumb = spec.image
@@ -2224,6 +2244,9 @@
                </button>
                <select onchange="window.setCoverageProfile(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Coverage-Profil (Min-RSSI)" aria-label="Coverage-Profil">
                   ${COVERAGE_PROFILES.map(p => `<option value="${p.id}" ${state.coverage?.profile === p.id ? 'selected' : ''}>${p.label} (${p.rssi} dBm)</option>`).join('')}
+               </select>
+               <select onchange="window.setRfBand(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="WLAN-Band für Heatmap-Berechnung" aria-label="WLAN-Band">
+                  ${RF_BANDS.map(b => `<option value="${b.id}" ${(state.view?.band || DEFAULT_RF_BAND) === b.id ? 'selected' : ''} title="${b.hint}">${b.label}</option>`).join('')}
                </select>
                <select onchange="window.setFloorMaterial(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Wandmaterial dieser Etage" aria-label="Wandmaterial">
                   ${WALL_MATERIALS.map(m => `<option value="${m.id}" ${(currentFloor.wallMaterial || DEFAULT_FLOOR_MATERIAL) === m.id ? 'selected' : ''} title="${m.hint}">${m.label}</option>`).join('')}
@@ -3621,7 +3644,9 @@
 
         const aps = currentFloor.aps.map(ap => {
           const spec = productCache.specs[ap.slug] || { coverageM2: 140 };
-          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor)) * CELL_SIZE };
+          const bandOk = apHasBand(spec, state.view?.band || DEFAULT_RF_BAND);
+          if(!bandOk) return { x: ap.x, y: ap.y, r: 0 };
+          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor) * bandFactor()) * CELL_SIZE };
         });
 
         const crosses = (ax, ay, bx, by, cx, cy, dx, dy) => {
@@ -3692,7 +3717,10 @@
         // APs (einfacher Coverage-Kreis, nur wenn Heatmap aus)
         currentFloor.aps.forEach(apState => {
           const spec = productCache.specs[apState.slug] || { name: 'Unknown', coverageM2: 140 };
-          const pxRadius = Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor)) * CELL_SIZE;
+          const bandActive = apHasBand(spec, state.view?.band || DEFAULT_RF_BAND);
+          const pxRadius = bandActive
+            ? Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor) * bandFactor()) * CELL_SIZE
+            : 0;
 
           if(!heatmapOn) {
             const cov = document.createElement('div');
@@ -4670,6 +4698,12 @@
       cf.wallMaterial = id;
       render();
     };
+    window.setRfBand = (id) => {
+      if(!RF_BANDS.some(b => b.id === id)) return;
+      if(!state.view) state.view = { heatmap: false, band: DEFAULT_RF_BAND };
+      state.view.band = id;
+      render();
+    };
     window.setAperturesMode = (mode) => {
       // null | 'door' | 'window' — toggle: nochmal denselben drücken schaltet ab.
       if(mode != null && !APERTURE_TYPES[mode]) mode = null;
@@ -4945,6 +4979,59 @@
         </div>
       `;
 
+      // VPN-Empfehlungen (P1 #23) — wird gezeigt, wenn der VPN-Toggle an
+      // ist. Listet die in UniFi verfügbaren VPN-Optionen mit konkretem
+      // Use-Case und Konfigurations-Hinweis.
+      const vpnRecoCard = state.features.vpn ? `
+        <div class="card p-5 mt-2">
+          <h3 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="key-round" class="w-4 h-4 text-nexus-primary" aria-hidden="true"></i> VPN-Empfehlungen</h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">UniFi Site Magic</div>
+              <p class="text-xs text-nexus-muted">Site-to-Site-VPN zwischen zwei UniFi-Standorten via WireGuard. Setup mit ein paar Klicks im UniFi-Identity-Dashboard, hohe Bandbreite.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Voraussetzung: aktive UniFi-Site auf beiden Seiten und Cloud-Adoption (UID).</p>
+            </div>
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">UniFi Teleport</div>
+              <p class="text-xs text-nexus-muted">Remote-Client-VPN in der WiFiman-/UniFi-App. Vorgefertigt, ohne Server-Setup, Zero-Trust-Login via UID.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Geeignet für Mitarbeiter-Zugriff aufs Büro-Netz, kein klassisches OpenVPN-Profil nötig.</p>
+            </div>
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">WireGuard / OpenVPN / L2TP</div>
+              <p class="text-xs text-nexus-muted">Klassische VPN-Server direkt im Gateway. Für Site-to-Site oder Legacy-Clients ohne UniFi-Account.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">UCG Max / UDM Pro / EFG unterstützen alle drei. Settings → VPN im Network-Controller.</p>
+            </div>
+          </div>
+          <p class="text-[11px] text-nexus-muted mt-3"><i data-lucide="info" class="w-3 h-3 inline align-text-bottom" aria-hidden="true"></i> Für reine Remote-Wartung reicht meist Teleport. Site Magic ist die einfachste Lösung für Multi-Standort-Setups.</p>
+        </div>` : '';
+
+      // RADIUS-Empfehlung (P1 #23) — wird gezeigt, sobald irgendein VLAN
+      // WPA3-Enterprise nutzt (Iter. 4a setzt hasEnterprise). Drei
+      // pragmatische Server-Optionen.
+      const radiusRecoCard = hasEnterprise ? `
+        <div class="card p-5 mt-2">
+          <h3 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="server" class="w-4 h-4 text-nexus-primary" aria-hidden="true"></i> RADIUS-Server für WPA3 Enterprise</h3>
+          <p class="text-sm text-nexus-muted mb-3">Mindestens eine SSID nutzt WPA3 Enterprise — ein RADIUS/802.1X-Server ist erforderlich. Drei pragmatische Optionen:</p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">UniFi Identity Endpoint</div>
+              <p class="text-xs text-nexus-muted">Cloud-basierte Identity-Lösung von Ubiquiti. Pro-Benutzer-Profile, MFA, ohne eigenen Server. Lizenzkosten pro Benutzer/Monat.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Beste Wahl für SMB-Setups, die schon UID nutzen.</p>
+            </div>
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">FreeRADIUS</div>
+              <p class="text-xs text-nexus-muted">Open-Source-RADIUS, läuft auf einem Linux-Container/-VM. Hohe Flexibilität, kostenlos, dafür Pflege selbst.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Sinnvoll bei vorhandenem Linux-Knowhow oder existierender LDAP-/AD-Backend-Anbindung.</p>
+            </div>
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">Windows Server NPS</div>
+              <p class="text-xs text-nexus-muted">Network Policy Server als Windows-Server-Rolle. Direkte AD-Integration, gut für Domain-gebundene Geräte.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Standard im Windows-Umfeld; benötigt eine Windows-Server-Lizenz.</p>
+            </div>
+          </div>
+          <p class="text-[11px] text-nexus-muted mt-3"><i data-lucide="info" class="w-3 h-3 inline align-text-bottom" aria-hidden="true"></i> Im UniFi-Controller den RADIUS-Server unter <code>Settings → Profiles → RADIUS</code> hinterlegen, dann pro WPA3-Enterprise-SSID auswählen.</p>
+        </div>` : '';
+
       container.innerHTML = `
         <h2 class="mb-2">4. Erweiterte Funktionen</h2>
 
@@ -4971,6 +5058,8 @@
           ${tc('contentFilter', 'Content-Filter', 'DNS-basierter Schutz (Kategorien)',          'filter',           state.features.contentFilter)}
           ${tc('talk',          'UniFi Talk',     'VoIP-Telefonanlage im Gateway',             'phone',            state.features.talk)}
         </div>
+        ${vpnRecoCard}
+        ${radiusRecoCard}
       `;
       contentDiv.appendChild(container);
     }
@@ -5600,7 +5689,8 @@
           merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
           return merged;
         });
-        if(!parsed.view) parsed.view = { heatmap: false };
+        if(!parsed.view) parsed.view = { heatmap: false, band: DEFAULT_RF_BAND };
+        if(!parsed.view.band || !RF_BANDS.some(b => b.id === parsed.view.band)) parsed.view.band = DEFAULT_RF_BAND;
         if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
         parsed.vlans = applyIsolationDefaults(parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
         parsed.backup = normalizeBackupState(parsed.backup);
@@ -5674,7 +5764,8 @@
               merged.rooms = (merged.rooms || []).map(r => ({ apertures: [], ...r }));
               return merged;
             });
-            if(!loaded.view) loaded.view = { heatmap: false };
+            if(!loaded.view) loaded.view = { heatmap: false, band: DEFAULT_RF_BAND };
+            if(!loaded.view.band || !RF_BANDS.some(b => b.id === loaded.view.band)) loaded.view.band = DEFAULT_RF_BAND;
             if(!Array.isArray(loaded.vlans)) loaded.vlans = [];
             loaded.vlans = applyIsolationDefaults(loaded.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
             loaded.backup = normalizeBackupState(loaded.backup);
