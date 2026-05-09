@@ -61,6 +61,12 @@
       transform: translateY(-2px);
     }
 
+    .tile-selected {
+      border-color: var(--color-primary) !important;
+      background: color-mix(in oklch, var(--color-primary) 10%, var(--color-surface-card)) !important;
+      box-shadow: 0 0 0 2px var(--color-primary), 0 6px 20px color-mix(in oklch, var(--color-primary) 22%, transparent) !important;
+    }
+
     .btn-primary { background: var(--color-primary); color: #fff; padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 500; transition: background 0.2s ease; display: inline-flex; align-items: center; gap: 0.5rem; }
     .btn-primary:hover { background: var(--color-primary-hover); }
     .btn-secondary { background: transparent; color: var(--color-text); border: 1px solid var(--color-border); padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 500; transition: background 0.2s ease; display: inline-flex; align-items: center; gap: 0.5rem; }
@@ -5279,7 +5285,7 @@
       const gwIsDualWan = DUAL_WAN_GATEWAYS.has(gwCurrent.slug);
 
       const backupTypeCard = (id, icon, title, desc, extra = '') => `
-        <label class="card p-4 cursor-pointer flex items-start gap-3 ${bu.type === id ? 'border-nexus-primary border-2' : ''}" ${bu.enabled ? '' : 'style="opacity:0.5;pointer-events:none"'}>
+        <label class="card p-4 cursor-pointer flex items-start gap-3 ${bu.type === id ? 'tile-selected' : ''}" ${bu.enabled ? '' : 'style="opacity:0.5;pointer-events:none"'}>
           <input type="radio" name="backup-type" value="${id}" ${bu.type === id ? 'checked' : ''} onchange="window.setBackupType('${id}')" class="mt-1">
           <div class="flex-1">
             <div class="font-bold flex items-center gap-2"><i data-lucide="${icon}" class="w-4 h-4 text-nexus-primary"></i> ${title}</div>
@@ -5348,7 +5354,7 @@
           <label class="text-xs font-bold uppercase tracking-wide text-nexus-muted">UniFi-Mobilfunk-Lösung wählen</label>
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             ${cellularList.map(p => `
-              <label class="card p-3 cursor-pointer flex gap-3 ${bu.cellularModel === p.id ? 'border-nexus-primary border-2' : ''}">
+              <label class="card p-3 cursor-pointer flex gap-3 ${bu.cellularModel === p.id ? 'tile-selected' : ''}">
                 <input type="radio" name="bu-cellular" value="${p.id}" ${bu.cellularModel === p.id ? 'checked' : ''} onchange="window.setBackupCellular('${p.id}')" class="sr-only">
                 ${cellularImg(p)}
                 <div class="flex flex-col gap-1 min-w-0 flex-1">
@@ -5373,7 +5379,7 @@
             <label class="text-xs font-bold uppercase tracking-wide text-nexus-muted block mb-2">Kompatible Starlink-Antenne</label>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
               ${STARLINK_ANTENNAS.map(a => `
-                <label class="card p-3 cursor-pointer flex flex-col gap-1 ${bu.starlinkAntenna === a.id ? 'border-nexus-primary border-2' : ''}">
+                <label class="card p-3 cursor-pointer flex flex-col gap-1 ${bu.starlinkAntenna === a.id ? 'tile-selected' : ''}">
                   <input type="radio" name="bu-sl-ant" value="${a.id}" ${bu.starlinkAntenna === a.id ? 'checked' : ''} onchange="window.setStarlinkAntenna('${a.id}')" class="sr-only">
                   <div class="font-bold text-sm">${a.name}</div>
                   <div class="text-xs text-nexus-muted"><strong class="text-nexus-text">${a.price} €</strong> UVP · ${a.speed}</div>
