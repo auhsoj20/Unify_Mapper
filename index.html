@@ -3959,13 +3959,14 @@
         // Kameras
         currentFloor.cameras.forEach(camState => {
           const spec = productCache.specs[camState.slug] || { name: 'Kamera', poeWatts: 8 };
+          const isDoorbell = spec.type === 'doorbell';
           const dotContainer = document.createElement('div');
           dotContainer.className = 'draggable-ap pointer-events-auto flex flex-col items-center cursor-move group';
           dotContainer.style.left = camState.x + 'px'; dotContainer.style.top = camState.y + 'px';
           dotContainer.innerHTML = `
-            <div class="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center shadow hover:scale-110 transition-transform"><i data-lucide="video" class="w-3 h-3"></i></div>
-            <span class="absolute top-7 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 text-[9px] font-bold shadow-sm whitespace-nowrap text-purple-900">${spec.name}</span>
-            <button class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-4 h-4 items-center justify-center hidden group-hover:flex" title="Kamera löschen"><i data-lucide="trash-2" class="w-2.5 h-2.5 pointer-events-none"></i></button>
+            <div class="w-6 h-6 ${isDoorbell ? 'bg-orange-500' : 'bg-purple-600'} text-white rounded-full flex items-center justify-center shadow hover:scale-110 transition-transform"><i data-lucide="${isDoorbell ? 'bell' : 'video'}" class="w-3 h-3"></i></div>
+            <span class="absolute top-7 ${isDoorbell ? 'bg-orange-50 border-orange-200 text-orange-900' : 'bg-purple-50 border-purple-200 text-purple-900'} px-1.5 py-0.5 rounded border text-[9px] font-bold shadow-sm whitespace-nowrap">${spec.name}</span>
+            <button class="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-4 h-4 items-center justify-center hidden group-hover:flex" title="${isDoorbell ? 'Türsprechanlage' : 'Kamera'} löschen"><i data-lucide="trash-2" class="w-2.5 h-2.5 pointer-events-none"></i></button>
           `;
           dotContainer.addEventListener('pointerdown', (e) => {
              if(e.pointerType === 'mouse' && e.button !== 0) return;
@@ -3990,7 +3991,7 @@
              saveState();
           });
           attachLongPress(dotContainer, () => {
-             if(confirm(`Kamera „${spec.name}" entfernen?`)) {
+             if(confirm(`${isDoorbell ? 'Türsprechanlage' : 'Kamera'} „${spec.name}" entfernen?`)) {
                 pushPlannerHistory();
                 currentFloor.cameras = currentFloor.cameras.filter(c => c.id !== camState.id);
                 if(dragMode==='cam') dragMode = null;
