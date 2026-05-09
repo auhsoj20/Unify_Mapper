@@ -2475,6 +2475,94 @@
          showPlannerToast('Auf Räume gezoomt');
       };
 
+      // 2-Punkt-Maßstabskalibrierung: User klickt zwei Punkte mit bekanntem
+      // realem Abstand und gibt die reale Distanz in Metern ein. Die scale
+      // des Hintergrund-Bilds wird anschließend so angepasst, dass der
+      // gemessene Welt-Abstand mit der Eingabe übereinstimmt.
+      const startBgCalibration = () => {
+         if(!currentFloor.backgroundImage) {
+            showPlannerToast('Erst ein Hintergrundbild laden.', 'warn');
+            return;
+         }
+         showPlannerToast('Maßstab kalibrieren: zwei Punkte mit bekannter Distanz anklicken (Esc bricht ab).');
+         let p1 = null, marker1 = null;
+         const r0 = planner.getBoundingClientRect();
+         const makeMarker = (clientX, clientY, label) => {
+            const m = document.createElement('div');
+            m.style.cssText = `position:absolute;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transform:translate(-50%,-50%);z-index:50;pointer-events:none;`;
+            m.setAttribute('aria-hidden', 'true');
+            const r = planner.getBoundingClientRect();
+            m.style.left = (clientX - r.left) + 'px';
+            m.style.top  = (clientY - r.top) + 'px';
+            if(label) {
+               const lbl = document.createElement('div');
+               lbl.style.cssText = `position:absolute;left:14px;top:-2px;background:#1f2937;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap;`;
+               lbl.textContent = label;
+               m.appendChild(lbl);
+            }
+            planner.appendChild(m);
+            return m;
+         };
+         const cleanup = () => {
+            planner.removeEventListener('click', onClick, true);
+            planner.removeEventListener('pointerdown', stopOther, true);
+            document.removeEventListener('keydown', onKey, true);
+            if(marker1) marker1.remove();
+            planner.style.cursor = '';
+         };
+         planner.style.cursor = 'crosshair';
+         const stopOther = (e) => { e.stopPropagation(); };
+         const onClick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const wpt = clientToWorld(e.clientX, e.clientY);
+            if(!p1) {
+               p1 = wpt;
+               marker1 = makeMarker(e.clientX, e.clientY, 'A');
+               showPlannerToast('Erster Punkt gesetzt — jetzt zweiten Punkt klicken.');
+               return;
+            }
+            const marker2 = makeMarker(e.clientX, e.clientY, 'B');
+            const dx = wpt.x - p1.x, dy = wpt.y - p1.y;
+            const measuredM = Math.hypot(dx, dy);
+            if(measuredM <= 0.01) {
+               showPlannerToast('Punkte zu nah beieinander.', 'warn');
+               marker2.remove();
+               cleanup();
+               return;
+            }
+            const input = prompt(`Welche reale Distanz haben die beiden Punkte? (Meter)\n\nIm aktuellen Maßstab gemessen: ${fmt1(measuredM)} m.`);
+            marker2.remove();
+            if(input == null) { cleanup(); showPlannerToast('Kalibrierung abgebrochen.'); return; }
+            const real = parseFloat(String(input).replace(',', '.'));
+            if(!Number.isFinite(real) || real <= 0) {
+               showPlannerToast('Ungültiger Wert — Kalibrierung abgebrochen.', 'error');
+               cleanup();
+               return;
+            }
+            const factor = real / measuredM;
+            const oldScale = currentFloor.backgroundImage.scale || 1;
+            const newScale = Math.max(0.05, Math.min(20, oldScale * factor));
+            pushPlannerHistory();
+            currentFloor.backgroundImage.scale = newScale;
+            cleanup();
+            saveState();
+            render();
+            showPlannerToast(`Maßstab kalibriert: ${fmt1(real)} m → Skala ${fmt1(newScale)}.`);
+         };
+         const onKey = (e) => {
+            if(e.key === 'Escape') {
+               cleanup();
+               showPlannerToast('Kalibrierung abgebrochen.');
+            }
+         };
+         // capture-phase: Wir wollen vor dem normalen pointerdown-/click-Handler
+         // dran sein, damit kein Raum verschoben oder Auswahl geändert wird.
+         planner.addEventListener('click', onClick, true);
+         planner.addEventListener('pointerdown', stopOther, true);
+         document.addEventListener('keydown', onKey, true);
+      };
+
       // Settings popup für Hintergrund-Grundriss
       const openBgSettings = () => {
          if(!currentFloor.backgroundImage) return;
@@ -2509,17 +2597,22 @@
                <span class="text-[11px] text-nexus-muted">Größe (Skalierung)</span>
                <input id="bg-scale" type="range" min="0.2" max="3" step="0.05" value="${bg.scale ?? 1}" class="w-full">
             </label>
+            <button id="bg-calibrate" class="text-xs px-2 py-1 rounded border border-nexus-primary text-nexus-primary bg-nexus-primary bg-opacity-10 hover:bg-opacity-20 flex items-center justify-center gap-1">
+               <i data-lucide="ruler" class="w-3 h-3" aria-hidden="true"></i> Maßstab kalibrieren (2 Punkte)
+            </button>
             <div class="flex gap-2 mt-1">
                <button id="bg-replace" class="flex-1 text-xs px-2 py-1 rounded border border-nexus-border bg-nexus-surface hover:bg-nexus-border">Ersetzen</button>
                <button id="bg-remove" class="flex-1 text-xs px-2 py-1 rounded border border-red-300 text-red-600 bg-red-50 hover:bg-red-100">Entfernen</button>
             </div>
          `;
          planner.appendChild(popup);
+         lucide.createIcons({ attrs: { 'aria-hidden': 'true' } });
          popup.addEventListener('pointerdown', (e) => e.stopPropagation());
          popup.querySelector('#bg-opacity').addEventListener('input', (e) => window.setFloorBackgroundOpacity(e.target.value));
          popup.querySelector('#bg-scale').addEventListener('change', (e) => window.setFloorBackgroundScale(e.target.value));
          popup.querySelector('#bg-replace').addEventListener('click', () => { popup.remove(); window.uploadFloorBackground(); });
          popup.querySelector('#bg-remove').addEventListener('click', () => { popup.remove(); window.removeFloorBackground(); });
+         popup.querySelector('#bg-calibrate').addEventListener('click', () => { popup.remove(); startBgCalibration(); });
          setTimeout(() => {
             const onDoc = (ev) => {
                if(!popup.contains(ev.target)) {
