@@ -1128,7 +1128,10 @@
 
     async function initializeApp() {
       initDataFromDB();
-      loadState();
+      // Wenn die URL einen #share=…-Hash hat, daraus laden — sonst aus
+      // localStorage. Hash gewinnt, weil es eine explizite Empfangs-Aktion ist.
+      const loadedFromHash = (typeof tryLoadFromHash === 'function') ? tryLoadFromHash() : false;
+      if(!loadedFromHash) loadState();
 
       const overlay = document.getElementById('loader-overlay');
 
@@ -5038,6 +5041,108 @@
       return { gatewayIdle, switchIdle, nvrIdle, deliveredPoe, poeWallDraw, totalWatts, kwhYear, yearlyCost, tariff, upsVA, upsWh, upsRuntimeMin: runtimeMin };
     }
 
+    // --- Share-Link (Iter. 7) --- //
+    // Encoded den State als URL-sicheres Base64 in den Hash. Hintergrundbilder
+    // werden ausgeschlossen (zu groß für URLs), die übrigen Daten reichen für
+    // Kollaboration und Hand-off.
+    function buildShareablePayload() {
+      const clone = JSON.parse(JSON.stringify(state));
+      let strippedImages = 0;
+      (clone.floors || []).forEach(f => {
+        if(f.backgroundImage?.dataUrl) {
+          delete f.backgroundImage.dataUrl;
+          f.backgroundImage._stripped = true;
+          strippedImages++;
+        }
+      });
+      delete clone.rackViewOpen;
+      delete clone.selectedRoomId;
+      return { payload: clone, strippedImages };
+    }
+    function encodeShareData(obj) {
+      const json = JSON.stringify(obj);
+      const bytes = new TextEncoder().encode(json);
+      let binary = '';
+      for(let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function decodeShareData(s) {
+      let b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+      while(b64.length % 4) b64 += '=';
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for(let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const json = new TextDecoder().decode(bytes);
+      return JSON.parse(json);
+    }
+    // Wird vor loadState() aufgerufen. Liefert true, wenn aus dem Hash
+    // erfolgreich geladen wurde — dann überspringt initializeApp() den
+    // localStorage-Load.
+    function tryLoadFromHash() {
+      const HASH_PREFIX = '#share=';
+      if(typeof location === 'undefined' || !location.hash || !location.hash.startsWith(HASH_PREFIX)) return false;
+      const data = location.hash.slice(HASH_PREFIX.length);
+      const stripHash = () => {
+        try { history.replaceState(null, '', location.pathname + location.search); } catch(_) {}
+      };
+      try {
+        const parsed = decodeShareData(data);
+        if(!parsed || !Array.isArray(parsed.floors)) throw new Error('Ungültiges Share-Format');
+        if(!confirm('Geteiltes Projekt aus URL laden? Dein aktuelles Projekt wird ersetzt (du kannst es vor dem Übernehmen exportieren).')) {
+          stripHash();
+          return false;
+        }
+        // Migration aus Loader nachziehen
+        parsed.floors = parsed.floors.map(f => {
+          const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
+          merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+          return merged;
+        });
+        if(!parsed.view) parsed.view = { heatmap: false };
+        if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
+        parsed.vlans = applyIsolationDefaults(parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
+        parsed.backup = normalizeBackupState(parsed.backup);
+        parsed.bomOverrides = normalizeBomOverrides(parsed.bomOverrides);
+        if(!parsed.poeAssignments || typeof parsed.poeAssignments !== 'object') parsed.poeAssignments = {};
+        parsed.racks = normalizeRacksState(parsed.racks);
+        parsed.cabling = normalizeCablingState(parsed.cabling);
+        parsed.rackView = normalizeRackView(parsed.rackView, parsed.racks);
+        parsed.rackViewOpen = false;
+        parsed.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(parsed.energy || {}) };
+        parsed.coverage = { profile: 'general', ...(parsed.coverage || {}) };
+        parsed.recording = { retentionDays: 14, fpsProfile: 'standard', ...(parsed.recording || {}) };
+        Object.assign(state, parsed);
+        const slugIssues = validateSlugRefs(state);
+        if(slugIssues.length > 0) _loadStateError = slugIssues.join(' ');
+        stripHash();
+        return true;
+      } catch(err) {
+        _loadStateError = 'Share-Link konnte nicht entschlüsselt werden: ' + (err.message || 'unbekannter Fehler');
+        stripHash();
+        return false;
+      }
+    }
+
+    window.copyShareLink = async () => {
+      const { payload, strippedImages } = buildShareablePayload();
+      const encoded = encodeShareData(payload);
+      const url = location.origin + location.pathname + '#share=' + encoded;
+      if(url.length > 16384) {
+        if(!confirm(`Der Link ist sehr lang (${(url.length/1024).toFixed(1)} KB). Einige Server/Browser schneiden lange URLs ab. Trotzdem kopieren?`)) return;
+      }
+      const note = strippedImages > 0
+        ? ` Hinweis: ${strippedImages} Hintergrundbild${strippedImages === 1 ? '' : 'er'} nicht im Link — separat als JSON teilen.`
+        : '';
+      try {
+        await navigator.clipboard.writeText(url);
+        showPlannerToast('Share-Link in Zwischenablage kopiert.' + note);
+      } catch(_) {
+        // Clipboard-API verweigert → Fallback Prompt
+        const ok = prompt('Share-Link manuell kopieren (Zwischenablage-API blockiert):', url);
+        if(ok != null) showPlannerToast('Link bereit.' + note);
+      }
+    };
+
     window.exportProjectJson = () => {
       const payload = { _meta: { app: 'unifi-setup-planner', version: 1, exportedAt: new Date().toISOString() }, state };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -5512,6 +5617,7 @@
           <div class="flex flex-wrap gap-2 no-print">
             <button onclick="window.exportProjectJson()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="save" class="w-3 h-3"></i> Projekt speichern (.json)</button>
             <button onclick="window.importProjectJson()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="folder-open" class="w-3 h-3"></i> Projekt laden</button>
+            <button onclick="window.copyShareLink()" class="btn-secondary text-xs flex items-center gap-1" title="Komprimierten Projektstand als URL in die Zwischenablage kopieren (ohne Hintergrundbilder)"><i data-lucide="link" class="w-3 h-3"></i> Share-Link kopieren</button>
             <button onclick="window.exportBomCsv()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="file-spreadsheet" class="w-3 h-3"></i> BOM als CSV</button>
           </div>
         </div>
