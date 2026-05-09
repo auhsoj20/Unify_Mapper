@@ -770,6 +770,35 @@
     const fmtEur0 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
     const fmtEur2 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+    // Fokus-Trap für Modals (Iter. 12). Hält Tab/Shift+Tab innerhalb des
+    // Containers, fokussiert das erste fokussierbare Element automatisch und
+    // gibt beim Schließen den Fokus an das Element zurück, das vor dem
+    // Öffnen aktiv war. Liefert eine Cleanup-Funktion.
+    function trapFocus(modal) {
+      if(!modal) return () => {};
+      const previousActive = document.activeElement;
+      const sel = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+      const focusables = () => Array.from(modal.querySelectorAll(sel)).filter(el => el.offsetParent !== null);
+      const onKey = (e) => {
+        if(e.key !== 'Tab') return;
+        const list = focusables();
+        if(list.length === 0) return;
+        const first = list[0], last = list[list.length - 1];
+        if(e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+        else if(!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+      };
+      modal.addEventListener('keydown', onKey);
+      // Erstes fokussierbares Element automatisch fokussieren (nicht synchron,
+      // damit das Element im DOM angekommen ist).
+      setTimeout(() => { const f = focusables(); if(f.length) f[0].focus(); }, 0);
+      return () => {
+        modal.removeEventListener('keydown', onKey);
+        if(previousActive && typeof previousActive.focus === 'function') {
+          try { previousActive.focus(); } catch(_) {}
+        }
+      };
+    }
+
     // Long-Press-Handler für Touch (Iter. 10): nach `ms` ohne Bewegung wird
     // `cb(originalEvent)` aufgerufen — typisch für Kontextmenüs auf Mobile.
     // Mehr als 8 px Bewegung gilt als Drag und bricht ab.
@@ -1251,15 +1280,19 @@
       const formatted = updatedDate.toLocaleDateString('de-DE') + ' ' + updatedDate.toLocaleTimeString('de-DE', {hour: '2-digit', minute:'2-digit'});
       
       cont.innerHTML = `
-        <div class="data-badge flex items-center justify-between gap-4">
+        <div class="data-badge flex items-center justify-between gap-4 flex-wrap">
           <div class="flex items-center gap-2">
             <i data-lucide="database" class="w-3 h-3 text-nexus-muted"></i>
-            <span class="hidden md:inline">Produktstand (Lokal):</span> 
+            <span class="hidden md:inline">Produktstand (Lokal):</span>
             <span class="text-nexus-muted font-mono bg-nexus-surfaceCard px-2 py-0.5 rounded border border-nexus-border">${formatted}</span>
           </div>
-          <div class="flex items-center gap-4">
+          <div class="flex items-center gap-3 flex-wrap">
+            <span id="save-indicator" class="text-[11px] text-nexus-muted opacity-0 transition-opacity duration-300" aria-live="polite" title="Wird automatisch im Browser gespeichert"><i data-lucide="check-circle-2" class="w-3 h-3 inline align-text-bottom" aria-hidden="true"></i> Gespeichert</span>
+            <button onclick="window.loadDemoProject()" class="flex items-center gap-1 hover:text-nexus-primary transition-colors text-xs font-bold uppercase tracking-wide" title="Beispielprojekt laden — überschreibt das aktuelle Projekt">
+              <i data-lucide="sparkles" class="w-3 h-3"></i> Demo
+            </button>
             <button onclick="window.resetPlannerState()" class="flex items-center gap-1 hover:text-red-500 transition-colors text-xs font-bold uppercase tracking-wide" title="Projekt zurücksetzen (lokaler Speicher)">
-               <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset
+              <i data-lucide="rotate-ccw" class="w-3 h-3"></i> Reset
             </button>
           </div>
         </div>
@@ -1473,9 +1506,18 @@
     // --- State Persistence (localStorage) --- //
     const STATE_KEY = 'unifi-planner:state:v1';
     let _saveQuotaWarned = false;
+    let _saveIndicatorTimer = null;
+    function flashSaveIndicator() {
+      const el = document.getElementById('save-indicator');
+      if(!el) return;
+      el.style.opacity = '1';
+      if(_saveIndicatorTimer) clearTimeout(_saveIndicatorTimer);
+      _saveIndicatorTimer = setTimeout(() => { el.style.opacity = '0'; _saveIndicatorTimer = null; }, 1400);
+    }
     function saveState() {
       try {
         localStorage.setItem(STATE_KEY, JSON.stringify(state));
+        flashSaveIndicator();
       } catch(err) {
         // Häufigste Ursache: Quota-Exceeded (z. B. großes Hintergrund-Bild als Base64).
         // Wir warnen nur einmal pro Sitzung, sonst würde jeder Render ein Toast auslösen.
@@ -1645,6 +1687,72 @@
       if(!confirm('Aktuelles Projekt wirklich zurücksetzen? Alle Eingaben werden gelöscht.')) return;
       try { localStorage.removeItem(STATE_KEY); } catch(_) {}
       location.reload();
+    };
+
+    // Demo-Projekt: kompaktes EFH-Setup (2 Etagen, 4 Räume, Glasfaser, IoT-VLANs,
+    // ein paar APs/Kameras). Hilft Erstnutzern, das Tool ohne leere Bühne zu
+    // erkunden. Überschreibt das aktuelle Projekt nach Confirm.
+    window.loadDemoProject = () => {
+      if(!confirm('Beispielprojekt laden? Dein aktuelles Projekt wird überschrieben (vorher ggf. als JSON exportieren).')) return;
+      const isp = ispList.find(i => i.id === 'telekom_fiber') || ispList[0];
+      const demoFloors = [
+        {
+          id: 'f-1', name: 'Erdgeschoss', wallMaterial: 'medium',
+          rooms: [
+            { id: 'demo-r-wohn', name: 'Wohnzimmer', points: [{x:2,y:2},{x:8,y:2},{x:8,y:7},{x:2,y:7}], apertures: [{ edgeIndex: 0, t: 0.5, length: 0.9, type: 'door' }] },
+            { id: 'demo-r-kueche', name: 'Küche', points: [{x:8,y:2},{x:13,y:2},{x:13,y:6},{x:8,y:6}], apertures: [] },
+            { id: 'demo-r-flur', name: 'Flur', points: [{x:2,y:7},{x:13,y:7},{x:13,y:9},{x:2,y:9}], apertures: [] }
+          ],
+          aps: [
+            { id: 'demo-ap-1', slug: 'u7-pro', x: 100, y: 80, channel24: 1, channel5: 36, meshUplink: false },
+            { id: 'demo-ap-2', slug: 'u7-pro', x: 220, y: 80, channel24: 6, channel5: 44, meshUplink: false }
+          ],
+          cameras: [
+            { id: 'demo-cam-1', slug: 'g5-bullet', x: 50, y: 30 }
+          ]
+        },
+        {
+          id: 'f-2', name: 'Obergeschoss', wallMaterial: 'medium',
+          rooms: [
+            { id: 'demo-r-bad', name: 'Bad', points: [{x:2,y:2},{x:6,y:2},{x:6,y:6},{x:2,y:6}], apertures: [] },
+            { id: 'demo-r-schlaf', name: 'Schlafzimmer', points: [{x:6,y:2},{x:13,y:2},{x:13,y:8},{x:6,y:8}], apertures: [{ edgeIndex: 3, t: 0.5, length: 0.9, type: 'door' }] }
+          ],
+          aps: [
+            { id: 'demo-ap-3', slug: 'u7-lite', x: 180, y: 100, channel24: 11, channel5: 149, meshUplink: false }
+          ],
+          cameras: []
+        }
+      ];
+      const presetVlans = JSON.parse(JSON.stringify(VLAN_PRESETS.haus));
+      const demoState = {
+        currentStep: 1,
+        isp,
+        speedDown: 1000,
+        speedUp: 500,
+        gateway: 'ucg-max',
+        floors: demoFloors,
+        currentFloorId: 'f-1',
+        selectedRoomId: null,
+        selectedSwitch: null,
+        switchPorts: [],
+        features: { vlan: true, ids: true, vpn: false, cameras: true, talk: false, contentFilter: false },
+        vlans: applyIsolationDefaults(presetVlans),
+        view: { heatmap: false },
+        backup: normalizeBackupState({ enabled: false }),
+        bomOverrides: { removedKeys: [], customRows: [], quantityOverrides: {} },
+        poeAssignments: {},
+        racks: [],
+        cabling: { connections: [], defaultCategory: 'cat6a', defaultLengthPerFloorM: 15 },
+        rackView: { faqCollapsed: false, activeRackId: 'r-main', customPalette: [] },
+        rackViewOpen: false,
+        energy: { tariff: 0.32, upsRuntimeMin: 15 },
+        coverage: { profile: 'general' },
+        recording: { retentionDays: 14, fpsProfile: 'standard' }
+      };
+      Object.assign(state, demoState);
+      saveState();
+      render();
+      showPlannerToast('Beispielprojekt geladen — 2 Etagen, 3 APs, 1 Kamera, Haus-VLAN-Preset.');
     };
 
     const getGatewayRecommended = () => {
@@ -2217,6 +2325,7 @@
          window.closeFloorMenus();
          if(!wasOpen) {
             menu.classList.add('open');
+            menu.setAttribute('role', 'menu');
             // Position berechnen (unterhalb des Buttons, an Viewport-Kanten anpassen)
             const r = btn.getBoundingClientRect();
             const mw = menu.offsetWidth || 180;
@@ -2239,9 +2348,13 @@
             const onChange = () => window.closeFloorMenus();
             window.addEventListener('scroll', onChange, true);
             window.addEventListener('resize', onChange);
+            // Fokus-Trap aktivieren — Tastatur-Nutzer bleiben im Menü, bis es
+            // geschlossen wird; Fokus kehrt anschließend zum ⋯-Button zurück.
+            const releaseTrap = trapFocus(menu);
             menu._cleanup = () => {
                window.removeEventListener('scroll', onChange, true);
                window.removeEventListener('resize', onChange);
+               try { releaseTrap(); } catch(_) {}
             };
          }
       };
@@ -2745,18 +2858,22 @@
                <button id="bg-remove" class="flex-1 text-xs px-2 py-1 rounded border border-red-300 text-red-600 bg-red-50 hover:bg-red-100">Entfernen</button>
             </div>
          `;
+         popup.setAttribute('role', 'dialog');
+         popup.setAttribute('aria-label', 'Hintergrundbild-Einstellungen');
          planner.appendChild(popup);
          lucide.createIcons({ attrs: { 'aria-hidden': 'true' } });
          popup.addEventListener('pointerdown', (e) => e.stopPropagation());
+         const releaseTrap = trapFocus(popup);
+         const closePopup = () => { try { releaseTrap(); } catch(_) {} popup.remove(); };
          popup.querySelector('#bg-opacity').addEventListener('input', (e) => window.setFloorBackgroundOpacity(e.target.value));
          popup.querySelector('#bg-scale').addEventListener('change', (e) => window.setFloorBackgroundScale(e.target.value));
-         popup.querySelector('#bg-replace').addEventListener('click', () => { popup.remove(); window.uploadFloorBackground(); });
-         popup.querySelector('#bg-remove').addEventListener('click', () => { popup.remove(); window.removeFloorBackground(); });
-         popup.querySelector('#bg-calibrate').addEventListener('click', () => { popup.remove(); startBgCalibration(); });
+         popup.querySelector('#bg-replace').addEventListener('click', () => { closePopup(); window.uploadFloorBackground(); });
+         popup.querySelector('#bg-remove').addEventListener('click', () => { closePopup(); window.removeFloorBackground(); });
+         popup.querySelector('#bg-calibrate').addEventListener('click', () => { closePopup(); startBgCalibration(); });
          setTimeout(() => {
             const onDoc = (ev) => {
                if(!popup.contains(ev.target)) {
-                  popup.remove();
+                  closePopup();
                   document.removeEventListener('pointerdown', onDoc, true);
                }
             };
