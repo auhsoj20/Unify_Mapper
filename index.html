@@ -873,6 +873,25 @@
     ];
     const coverageFactor = () => (COVERAGE_PROFILES.find(p => p.id === state?.coverage?.profile)?.factor) || 1.0;
 
+    // RF-Bänder (Iter. 15, P1 #9): Reichweite hängt vom Band ab. 2,4 GHz hat
+    // bessere Wand-Penetration (~ +20 %), 6 GHz höhere Pfaddämpfung (~ −30 %).
+    // 6 GHz benötigt WiFi-6E- oder WiFi-7-APs (Tag „feature:wifi-6-ghz" in
+    // unifi-products.js). Bands ohne Support liefern Faktor 0 und werden in
+    // der Heatmap dieses Bandes nicht gerechnet.
+    const RF_BANDS = [
+      { id: '2.4', label: '2,4 GHz', factor: 1.20, requires: null,                  hint: 'Bessere Wand-Penetration, aber niedrige Datenrate. Nur 1/6/11 sind überlappungsfrei.' },
+      { id: '5',   label: '5 GHz',   factor: 1.00, requires: null,                  hint: 'Standard-Band. Hohe Datenrate, mittlere Reichweite.' },
+      { id: '6',   label: '6 GHz',   factor: 0.70, requires: 'feature:wifi-6-ghz',  hint: 'WiFi 6E/7 — höchste Datenrate, kürzeste Reichweite. Nur 6-GHz-fähige APs werden gezeigt.' }
+    ];
+    const DEFAULT_RF_BAND = '5';
+    const bandFactor = () => (RF_BANDS.find(b => b.id === state?.view?.band)?.factor) || 1.0;
+    const apHasBand = (spec, bandId) => {
+      if(!spec) return false;
+      const b = RF_BANDS.find(x => x.id === bandId);
+      if(!b || !b.requires) return true;
+      return Array.isArray(spec.tags) && spec.tags.includes(b.requires);
+    };
+
     // --- Wand-Material pro Etage --- //
     // Vereinfachtes Modell: jede Etage hat eine pauschale Material-Klasse, die
     // den effektiven Reichweiten-Radius der APs reduziert. Keine echte
@@ -1315,7 +1334,7 @@
       switchPorts: [],
       features: { vlan: false, ids: true, vpn: false, cameras: false, talk: false, contentFilter: false },
       vlans: [],
-      view: { heatmap: false },
+      view: { heatmap: false, band: DEFAULT_RF_BAND },
       backup: {
         enabled: false,
         type: null,              // 'cellular' | 'isp2' | 'starlink'
@@ -1641,7 +1660,8 @@
             merged.rooms = (merged.rooms || []).map(r => ({ apertures: [], ...r }));
             return merged;
           });
-          if(!parsed.view) parsed.view = { heatmap: false };
+          if(!parsed.view) parsed.view = { heatmap: false, band: DEFAULT_RF_BAND };
+          if(!parsed.view.band || !RF_BANDS.some(b => b.id === parsed.view.band)) parsed.view.band = DEFAULT_RF_BAND;
           if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
           // Alte VLANs ohne wpaMode/isolation/clientIsolation auf Defaults heben.
           parsed.vlans = applyIsolationDefaults(parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
@@ -1737,7 +1757,7 @@
         switchPorts: [],
         features: { vlan: true, ids: true, vpn: false, cameras: true, talk: false, contentFilter: false },
         vlans: applyIsolationDefaults(presetVlans),
-        view: { heatmap: false },
+        view: { heatmap: false, band: DEFAULT_RF_BAND },
         backup: normalizeBackupState({ enabled: false }),
         bomOverrides: { removedKeys: [], customRows: [], quantityOverrides: {} },
         poeAssignments: {},
@@ -2074,7 +2094,7 @@
       const apItems = productCache.wifi.map(p => {
         const spec = productCache.specs[p.slug];
         if(!spec) return '';
-        const radiusMeters = Math.round(Math.sqrt(spec.coverageM2 || 140) * coverageFactor());
+        const radiusMeters = Math.round(Math.sqrt(spec.coverageM2 || 140) * coverageFactor() * bandFactor());
         const ant = getAntennaInfo(spec);
         const antTitle = ant ? `${spec.name} — ${ant.summary}` : spec.name;
         const thumb = spec.image
@@ -2224,6 +2244,9 @@
                </button>
                <select onchange="window.setCoverageProfile(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Coverage-Profil (Min-RSSI)" aria-label="Coverage-Profil">
                   ${COVERAGE_PROFILES.map(p => `<option value="${p.id}" ${state.coverage?.profile === p.id ? 'selected' : ''}>${p.label} (${p.rssi} dBm)</option>`).join('')}
+               </select>
+               <select onchange="window.setRfBand(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="WLAN-Band für Heatmap-Berechnung" aria-label="WLAN-Band">
+                  ${RF_BANDS.map(b => `<option value="${b.id}" ${(state.view?.band || DEFAULT_RF_BAND) === b.id ? 'selected' : ''} title="${b.hint}">${b.label}</option>`).join('')}
                </select>
                <select onchange="window.setFloorMaterial(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Wandmaterial dieser Etage" aria-label="Wandmaterial">
                   ${WALL_MATERIALS.map(m => `<option value="${m.id}" ${(currentFloor.wallMaterial || DEFAULT_FLOOR_MATERIAL) === m.id ? 'selected' : ''} title="${m.hint}">${m.label}</option>`).join('')}
@@ -3621,7 +3644,9 @@
 
         const aps = currentFloor.aps.map(ap => {
           const spec = productCache.specs[ap.slug] || { coverageM2: 140 };
-          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor)) * CELL_SIZE };
+          const bandOk = apHasBand(spec, state.view?.band || DEFAULT_RF_BAND);
+          if(!bandOk) return { x: ap.x, y: ap.y, r: 0 };
+          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor) * bandFactor()) * CELL_SIZE };
         });
 
         const crosses = (ax, ay, bx, by, cx, cy, dx, dy) => {
@@ -3692,7 +3717,10 @@
         // APs (einfacher Coverage-Kreis, nur wenn Heatmap aus)
         currentFloor.aps.forEach(apState => {
           const spec = productCache.specs[apState.slug] || { name: 'Unknown', coverageM2: 140 };
-          const pxRadius = Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor)) * CELL_SIZE;
+          const bandActive = apHasBand(spec, state.view?.band || DEFAULT_RF_BAND);
+          const pxRadius = bandActive
+            ? Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor) * bandFactor()) * CELL_SIZE
+            : 0;
 
           if(!heatmapOn) {
             const cov = document.createElement('div');
@@ -4670,6 +4698,12 @@
       cf.wallMaterial = id;
       render();
     };
+    window.setRfBand = (id) => {
+      if(!RF_BANDS.some(b => b.id === id)) return;
+      if(!state.view) state.view = { heatmap: false, band: DEFAULT_RF_BAND };
+      state.view.band = id;
+      render();
+    };
     window.setAperturesMode = (mode) => {
       // null | 'door' | 'window' — toggle: nochmal denselben drücken schaltet ab.
       if(mode != null && !APERTURE_TYPES[mode]) mode = null;
@@ -5600,7 +5634,8 @@
           merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
           return merged;
         });
-        if(!parsed.view) parsed.view = { heatmap: false };
+        if(!parsed.view) parsed.view = { heatmap: false, band: DEFAULT_RF_BAND };
+        if(!parsed.view.band || !RF_BANDS.some(b => b.id === parsed.view.band)) parsed.view.band = DEFAULT_RF_BAND;
         if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
         parsed.vlans = applyIsolationDefaults(parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
         parsed.backup = normalizeBackupState(parsed.backup);
@@ -5674,7 +5709,8 @@
               merged.rooms = (merged.rooms || []).map(r => ({ apertures: [], ...r }));
               return merged;
             });
-            if(!loaded.view) loaded.view = { heatmap: false };
+            if(!loaded.view) loaded.view = { heatmap: false, band: DEFAULT_RF_BAND };
+            if(!loaded.view.band || !RF_BANDS.some(b => b.id === loaded.view.band)) loaded.view.band = DEFAULT_RF_BAND;
             if(!Array.isArray(loaded.vlans)) loaded.vlans = [];
             loaded.vlans = applyIsolationDefaults(loaded.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
             loaded.backup = normalizeBackupState(loaded.backup);
