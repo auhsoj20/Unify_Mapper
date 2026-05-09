@@ -897,6 +897,87 @@
     const CH5_LIST = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161];
     const CH5_DFS = new Set([52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144]);
 
+    // Heatmap-WebWorker (Iter. 19, P3 #41) — verlagert die Pixel-Schleife
+    // (3D-Iteration über alle Heatmap-Pixel × APs × Wand-Tests) in einen
+    // separaten Thread, damit der Main-Thread bei großen Etagen oder vielen
+    // APs nicht blockiert. Der Worker wird lazy via Blob-URL erzeugt; wenn
+    // das in der Umgebung nicht klappt (z. B. blockiertes file://), fällt
+    // drawHeatmap auf den synchronen Inline-Pfad zurück.
+    const HEATMAP_WORKER_SOURCE = `
+      self.onmessage = (e) => {
+        const { jobId, w, h, walls, aps, step, atten } = e.data;
+        const data = new Uint8ClampedArray(w * h * 4);
+        const crosses = (ax,ay,bx,by,cx,cy,dx,dy) => {
+          const d1x = bx-ax, d1y = by-ay;
+          const d2x = dx-cx, d2y = dy-cy;
+          const denom = d1x*d2y - d1y*d2x;
+          if(Math.abs(denom) < 1e-9) return false;
+          const s = ((cx-ax)*d2y - (cy-ay)*d2x) / denom;
+          const t = ((cx-ax)*d1y - (cy-ay)*d1x) / denom;
+          return s > 0.002 && s < 0.998 && t > 0.002 && t < 0.998;
+        };
+        const colorAt = (v) => {
+          if(v >= 0.66) {
+            const tt = (v - 0.66) / 0.34;
+            return [Math.round(234 + tt*(1-234)), Math.round(179 + tt*(105-179)), Math.round(8 + tt*(111-8))];
+          } else if(v >= 0.33) {
+            const tt = (v - 0.33) / 0.33;
+            return [Math.round(239 + tt*(234-239)), Math.round(68 + tt*(179-68)), Math.round(68 + tt*(8-68))];
+          }
+          return [239, Math.round(68 * (v/0.33)), 68];
+        };
+        for(let py = 0; py < h; py += step) {
+          for(let px = 0; px < w; px += step) {
+            let best = 0;
+            for(const ap of aps) {
+              if(ap.r <= 0) continue;
+              const ddx = px - ap.x, ddy = py - ap.y;
+              const dist = Math.sqrt(ddx*ddx + ddy*ddy);
+              if(dist > ap.r * 1.4) continue;
+              let raw = Math.max(0, 1 - dist / ap.r);
+              if(raw <= 0.02) continue;
+              let wc = 0;
+              for(const wall of walls) {
+                if(crosses(ap.x, ap.y, px, py, wall.x1, wall.y1, wall.x2, wall.y2)) {
+                  wc++;
+                  if(wc >= 4) break;
+                }
+              }
+              const v = raw * Math.pow(atten, wc);
+              if(v > best) best = v;
+            }
+            if(best <= 0.03) continue;
+            const [rr, gg, bb] = colorAt(best);
+            const alpha = Math.round(180 * Math.min(1, best * 1.2));
+            for(let yy = py; yy < py + step && yy < h; yy++) {
+              const rowStart = yy * w;
+              for(let xx = px; xx < px + step && xx < w; xx++) {
+                const idx = (rowStart + xx) * 4;
+                data[idx] = rr; data[idx+1] = gg; data[idx+2] = bb; data[idx+3] = alpha;
+              }
+            }
+          }
+        }
+        self.postMessage({ jobId, buffer: data.buffer, w, h }, [data.buffer]);
+      };
+    `;
+    let _heatmapWorker = null;        // null = noch nicht versucht, false = nicht verfügbar, sonst Worker-Instanz
+    let _heatmapWorkerUrl = null;
+    let _heatmapWorkerJobId = 0;
+    let _heatmapWorkerLastJob = 0;
+    function getHeatmapWorker() {
+      if(_heatmapWorker !== null) return _heatmapWorker || null;
+      try {
+        const blob = new Blob([HEATMAP_WORKER_SOURCE], { type: 'application/javascript' });
+        _heatmapWorkerUrl = URL.createObjectURL(blob);
+        _heatmapWorker = new Worker(_heatmapWorkerUrl);
+      } catch(_) {
+        _heatmapWorker = false;
+        return null;
+      }
+      return _heatmapWorker;
+    }
+
     // --- CIDR-Helfer für VLAN-Subnetz-Validierung --- //
     function parseCIDR(s) {
       if(typeof s !== 'string') return null;
@@ -3600,6 +3681,69 @@
       apLayer.className = 'absolute inset-0 w-full h-full pointer-events-none z-20';
       world.appendChild(apLayer);
 
+      const HEATMAP_STEP = 6;
+      const HEATMAP_ATTEN = 0.45;
+
+      // Synchroner Fallback (alte Implementierung), wenn der WebWorker nicht
+      // verfügbar ist (z. B. file://-Modus mit blockierten Workers oder bei
+      // einem Worker-Fehler). Identische Logik wie der Worker-Code.
+      const drawHeatmapSync = (ctx, w, h, walls, aps) => {
+        const crosses = (ax, ay, bx, by, cx, cy, dx, dy) => {
+          const d1x = bx-ax, d1y = by-ay;
+          const d2x = dx-cx, d2y = dy-cy;
+          const denom = d1x*d2y - d1y*d2x;
+          if(Math.abs(denom) < 1e-9) return false;
+          const s = ((cx-ax)*d2y - (cy-ay)*d2x) / denom;
+          const t = ((cx-ax)*d1y - (cy-ay)*d1x) / denom;
+          return s > 0.002 && s < 0.998 && t > 0.002 && t < 0.998;
+        };
+        const colorAt = (v) => {
+          if(v >= 0.66) {
+            const t = (v - 0.66) / 0.34;
+            return [Math.round(234 + t*(1-234)), Math.round(179 + t*(105-179)), Math.round(8 + t*(111-8))];
+          } else if(v >= 0.33) {
+            const t = (v - 0.33) / 0.33;
+            return [Math.round(239 + t*(234-239)), Math.round(68 + t*(179-68)), Math.round(68 + t*(8-68))];
+          }
+          return [239, Math.round(68 * (v/0.33)), 68];
+        };
+        const imgData = ctx.createImageData(w, h);
+        const data = imgData.data;
+        for(let py = 0; py < h; py += HEATMAP_STEP) {
+          for(let px = 0; px < w; px += HEATMAP_STEP) {
+            let best = 0;
+            for(const ap of aps) {
+              if(ap.r <= 0) continue;
+              const ddx = px - ap.x, ddy = py - ap.y;
+              const dist = Math.sqrt(ddx*ddx + ddy*ddy);
+              if(dist > ap.r * 1.4) continue;
+              let raw = Math.max(0, 1 - dist / ap.r);
+              if(raw <= 0.02) continue;
+              let wc = 0;
+              for(const wall of walls) {
+                if(crosses(ap.x, ap.y, px, py, wall.x1, wall.y1, wall.x2, wall.y2)) {
+                  wc++;
+                  if(wc >= 4) break;
+                }
+              }
+              const v = raw * Math.pow(HEATMAP_ATTEN, wc);
+              if(v > best) best = v;
+            }
+            if(best <= 0.03) continue;
+            const [rr, gg, bb] = colorAt(best);
+            const alpha = Math.round(180 * Math.min(1, best * 1.2));
+            for(let yy = py; yy < py + HEATMAP_STEP && yy < h; yy++) {
+              const rowStart = yy * w;
+              for(let xx = px; xx < px + HEATMAP_STEP && xx < w; xx++) {
+                const idx = (rowStart + xx) * 4;
+                data[idx] = rr; data[idx+1] = gg; data[idx+2] = bb; data[idx+3] = alpha;
+              }
+            }
+          }
+        }
+        ctx.putImageData(imgData, 0, 0);
+      };
+
       const drawHeatmap = () => {
         const w = planner.clientWidth, h = planner.clientHeight;
         if(w === 0 || h === 0) return;
@@ -3630,65 +3774,31 @@
           return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor) * bandFactor()) * CELL_SIZE };
         });
 
-        const crosses = (ax, ay, bx, by, cx, cy, dx, dy) => {
-          const d1x = bx-ax, d1y = by-ay;
-          const d2x = dx-cx, d2y = dy-cy;
-          const denom = d1x*d2y - d1y*d2x;
-          if(Math.abs(denom) < 1e-9) return false;
-          const s = ((cx-ax)*d2y - (cy-ay)*d2x) / denom;
-          const t = ((cx-ax)*d1y - (cy-ay)*d1x) / denom;
-          return s > 0.002 && s < 0.998 && t > 0.002 && t < 0.998;
-        };
-
-        const colorAt = (v) => {
-          if(v >= 0.66) {
-            const t = (v - 0.66) / 0.34;
-            return [Math.round(234 + t*(1-234)), Math.round(179 + t*(105-179)), Math.round(8 + t*(111-8))];
-          } else if(v >= 0.33) {
-            const t = (v - 0.33) / 0.33;
-            return [Math.round(239 + t*(234-239)), Math.round(68 + t*(179-68)), Math.round(68 + t*(8-68))];
-          } else {
-            return [239, Math.round(68 * (v/0.33)), 68];
-          }
-        };
-
-        const STEP = 6;
-        const ATTEN = 0.45;
-        const imgData = ctx.createImageData(w, h);
-        const data = imgData.data;
-
-        for(let py = 0; py < h; py += STEP) {
-          for(let px = 0; px < w; px += STEP) {
-            let best = 0;
-            for(const ap of aps) {
-              const ddx = px - ap.x, ddy = py - ap.y;
-              const dist = Math.sqrt(ddx*ddx + ddy*ddy);
-              if(dist > ap.r * 1.4) continue;
-              let raw = Math.max(0, 1 - dist / ap.r);
-              if(raw <= 0.02) continue;
-              let wc = 0;
-              for(const wall of walls) {
-                if(crosses(ap.x, ap.y, px, py, wall.x1, wall.y1, wall.x2, wall.y2)) {
-                  wc++;
-                  if(wc >= 4) break;
-                }
-              }
-              const v = raw * Math.pow(ATTEN, wc);
-              if(v > best) best = v;
-            }
-            if(best <= 0.03) continue;
-            const [rr, gg, bb] = colorAt(best);
-            const alpha = Math.round(180 * Math.min(1, best * 1.2));
-            for(let yy = py; yy < py + STEP && yy < h; yy++) {
-              const rowStart = yy * w;
-              for(let xx = px; xx < px + STEP && xx < w; xx++) {
-                const idx = (rowStart + xx) * 4;
-                data[idx] = rr; data[idx+1] = gg; data[idx+2] = bb; data[idx+3] = alpha;
-              }
-            }
-          }
+        const worker = getHeatmapWorker();
+        if(!worker) {
+          drawHeatmapSync(ctx, w, h, walls, aps);
+          return;
         }
-        ctx.putImageData(imgData, 0, 0);
+        // Worker-Pfad: Job-ID schützt gegen verspätete Antworten nach
+        // schnellem Heatmap-Wechsel (Etage, Toggle, Zoom).
+        const jobId = ++_heatmapWorkerJobId;
+        worker.onmessage = (e) => {
+          if(!e.data || e.data.jobId !== _heatmapWorkerJobId) return; // veralteter Job
+          // Canvas-Größe könnte sich zwischenzeitlich geändert haben — nur
+          // zeichnen, wenn die zurückgelieferten Dimensionen noch passen.
+          if(heatmapCanvas.width !== e.data.w || heatmapCanvas.height !== e.data.h) return;
+          const arr = new Uint8ClampedArray(e.data.buffer);
+          ctx.putImageData(new ImageData(arr, e.data.w, e.data.h), 0, 0);
+        };
+        worker.onerror = () => {
+          _heatmapWorker = false; // einmaliger Fehler → künftig synchron
+          drawHeatmapSync(ctx, w, h, walls, aps);
+        };
+        try {
+          worker.postMessage({ jobId, w, h, walls, aps, step: HEATMAP_STEP, atten: HEATMAP_ATTEN });
+        } catch(_) {
+          drawHeatmapSync(ctx, w, h, walls, aps);
+        }
       };
 
       const drawAps = () => {
