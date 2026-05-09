@@ -770,6 +770,31 @@
     const fmtEur0 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
     const fmtEur2 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+    // Long-Press-Handler für Touch (Iter. 10): nach `ms` ohne Bewegung wird
+    // `cb(originalEvent)` aufgerufen — typisch für Kontextmenüs auf Mobile.
+    // Mehr als 8 px Bewegung gilt als Drag und bricht ab.
+    function attachLongPress(el, cb, ms = 500) {
+      let timer = null;
+      let startX = 0, startY = 0;
+      const cancel = () => { if(timer) { clearTimeout(timer); timer = null; } };
+      el.addEventListener('pointerdown', (e) => {
+        if(e.pointerType === 'mouse') return;  // Mouse hat eigene UX (Hover-Buttons)
+        startX = e.clientX; startY = e.clientY;
+        cancel();
+        timer = setTimeout(() => {
+          timer = null;
+          if(navigator.vibrate) try { navigator.vibrate(40); } catch(_) {}
+          cb(e);
+        }, ms);
+      });
+      el.addEventListener('pointerup', cancel);
+      el.addEventListener('pointercancel', cancel);
+      el.addEventListener('pointerleave', cancel);
+      el.addEventListener('pointermove', (e) => {
+        if(Math.hypot(e.clientX - startX, e.clientY - startY) > 8) cancel();
+      });
+    }
+
     // Komprimiert eine Image-DataURL via Canvas, wenn sie zu groß ist. Das
     // verhindert, dass mehrere MB Base64 in localStorage landen und die
     // 5–10 MB Browser-Quota sprengen. Kleine Bilder werden unverändert
@@ -2383,6 +2408,60 @@
       const planner = document.getElementById('planner-area');
       const CELL_SIZE = 20;
 
+      // Drag&Drop für Hintergrundbilder (Iter. 10) — der User kann eine
+      // Bilddatei direkt auf den Planner ziehen und sie wird als Grundriss
+      // gesetzt (mit der gleichen Kompression wie der Datei-Upload).
+      if(!planner._dndAttached) {
+        planner._dndAttached = true;
+        let dndOverlay = null;
+        const showOverlay = () => {
+          if(dndOverlay) return;
+          dndOverlay = document.createElement('div');
+          dndOverlay.style.cssText = 'position:absolute;inset:0;background:rgba(1,105,111,0.10);border:3px dashed var(--color-primary);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--color-primary);pointer-events:none;z-index:60;';
+          dndOverlay.textContent = 'Bild zum Setzen des Grundrisses ablegen…';
+          planner.appendChild(dndOverlay);
+        };
+        const hideOverlay = () => { if(dndOverlay) { dndOverlay.remove(); dndOverlay = null; } };
+        planner.addEventListener('dragover', (e) => {
+          if(!e.dataTransfer) return;
+          const hasFile = Array.from(e.dataTransfer.items || []).some(it => it.kind === 'file');
+          if(!hasFile) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          showOverlay();
+        });
+        planner.addEventListener('dragleave', (e) => {
+          if(e.target === planner || e.target === dndOverlay) hideOverlay();
+        });
+        planner.addEventListener('drop', (e) => {
+          hideOverlay();
+          const file = Array.from(e.dataTransfer?.files || []).find(f => f.type.startsWith('image/'));
+          if(!file) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cf = state.floors.find(f => f.id === state.currentFloorId);
+          if(!cf) return;
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const compressed = await compressImageDataUrl(reader.result);
+            pushPlannerHistory();
+            cf.backgroundImage = {
+              dataUrl: compressed,
+              opacity: cf.backgroundImage?.opacity ?? 0.55,
+              visible: true,
+              scale: cf.backgroundImage?.scale ?? 1,
+              offsetX: cf.backgroundImage?.offsetX ?? 0,
+              offsetY: cf.backgroundImage?.offsetY ?? 0
+            };
+            saveState();
+            render();
+            const sizeKB = Math.round(compressed.length * 0.75 / 1024);
+            showPlannerToast(`Grundriss per Drag&Drop geladen (${sizeKB} kB).`);
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+
       // View state (pan + zoom) – persisted per floor
       if(!currentFloor.view) currentFloor.view = { panX: 0, panY: 0, zoom: 1 };
       const view = currentFloor.view;
@@ -2892,6 +2971,19 @@
             activePointerId = e.pointerId;
             activePointerEl = poly;
             if(!isSel) { state.selectedRoomId = room.id; render(); }
+         });
+         attachLongPress(poly, () => {
+            if(currentFloor.rooms.length <= 1) {
+               showPlannerToast('Mindestens ein Raum muss bestehen bleiben.', 'warn');
+               return;
+            }
+            if(confirm(`Raum „${room.name}" entfernen?`)) {
+               pushPlannerHistory();
+               currentFloor.rooms = currentFloor.rooms.filter(r => r.id !== room.id);
+               if(state.selectedRoomId === room.id) state.selectedRoomId = null;
+               saveState();
+               render();
+            }
          });
          svg.appendChild(poly);
 
@@ -3496,6 +3588,16 @@
              drawAps();
              saveState();
           });
+          // Long-Press (Touch): Kontext-Aktion „Löschen?"
+          attachLongPress(dotContainer, () => {
+             if(confirm(`AP „${spec.name}" entfernen?`)) {
+                pushPlannerHistory();
+                currentFloor.aps = currentFloor.aps.filter(a => a.id !== apState.id);
+                if(dragMode==='ap') dragMode = null;
+                saveState();
+                render();
+             }
+          });
 
           apLayer.appendChild(dotContainer);
         });
@@ -3532,6 +3634,15 @@
              if(dragMode==='cam') {dragMode=null;}
              drawAps();
              saveState();
+          });
+          attachLongPress(dotContainer, () => {
+             if(confirm(`Kamera „${spec.name}" entfernen?`)) {
+                pushPlannerHistory();
+                currentFloor.cameras = currentFloor.cameras.filter(c => c.id !== camState.id);
+                if(dragMode==='cam') dragMode = null;
+                saveState();
+                render();
+             }
           });
           apLayer.appendChild(dotContainer);
         });
