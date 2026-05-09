@@ -840,6 +840,15 @@
     // 2,4 GHz: nur 3 nicht-überlappende Kanäle (1/6/11) sind brauchbar.
     // 5 GHz: UNII-1 (36–48) + UNII-2 + UNII-2 extended (DFS, 52–144) +
     // UNII-3 (149–161). DFS-Bereich kann durch Wetterradar gestört werden.
+    // Aperturen (Türen/Fenster) im Raumplaner — dämpfen die Heatmap nicht
+    // explizit, sondern dienen als Notiz/Doku auf dem Grundriss. Für eine
+    // RF-Simulation müssen die Wand-Polygone durchbrochen werden — das
+    // sprengt diesen einfachen Mapper.
+    const APERTURE_TYPES = {
+      door:   { label: 'Tür',     color: '#f97316', defaultLengthM: 0.9 },
+      window: { label: 'Fenster', color: '#0ea5e9', defaultLengthM: 1.2 }
+    };
+
     const CH24_NONOVERLAP = [1, 6, 11];
     const CH5_LIST = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161];
     const CH5_DFS = new Set([52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144]);
@@ -1543,10 +1552,11 @@
         const parsed = JSON.parse(raw);
         if(parsed && typeof parsed === 'object' && Array.isArray(parsed.floors)) {
           // Migration: alte Floors ohne cameras[] / wallMaterial,
-          // alte APs ohne meshUplink-Flag.
+          // alte APs ohne meshUplink-Flag, alte Räume ohne apertures[].
           parsed.floors = parsed.floors.map(f => {
             const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
             merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+            merged.rooms = (merged.rooms || []).map(r => ({ apertures: [], ...r }));
             return merged;
           });
           if(!parsed.view) parsed.view = { heatmap: false };
@@ -2054,6 +2064,12 @@
                </select>
                <button onclick="window.autoAssignChannels()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Kanäle automatisch verteilen (2,4 + 5 GHz)" aria-label="Kanäle automatisch verteilen">
                   <i data-lucide="radio-tower" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Kanäle auto</span>
+               </button>
+               <button onclick="window.setAperturesMode('door')" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state._aperturesMode === 'door' ? 'bg-orange-500 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Tür-Modus: Wand-Kante anklicken, um eine Tür einzufügen" aria-label="Tür-Modus umschalten" aria-pressed="${state._aperturesMode === 'door' ? 'true' : 'false'}">
+                  <i data-lucide="door-open" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Tür</span>
+               </button>
+               <button onclick="window.setAperturesMode('window')" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state._aperturesMode === 'window' ? 'bg-sky-500 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Fenster-Modus: Wand-Kante anklicken, um ein Fenster einzufügen" aria-label="Fenster-Modus umschalten" aria-pressed="${state._aperturesMode === 'window' ? 'true' : 'false'}">
+                  <i data-lucide="square" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Fenster</span>
                </button>
                <button onclick="window.toggleFullscreen()" id="planner-fs-btn" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Vollbild umschalten" aria-label="Vollbild umschalten">
                   <i data-lucide="maximize-2" class="w-3.5 h-3.5" aria-hidden="true"></i>
@@ -2926,23 +2942,78 @@
 
          labelsLayer.appendChild(lbl);
 
+         // Aperturen (Türen/Fenster) — immer sichtbar, auch bei
+         // nicht-ausgewählten Räumen. Klick entfernt sie.
+         (room.apertures || []).forEach((ap, apIdx) => {
+            const a = room.points[ap.edgeIndex];
+            const b = room.points[(ap.edgeIndex + 1) % room.points.length];
+            if(!a || !b) return;
+            const ex = b.x - a.x, ey = b.y - a.y;
+            const edgeLen = Math.hypot(ex, ey);
+            if(edgeLen <= 0.01) return;
+            const dx = ex / edgeLen, dy = ey / edgeLen;
+            const halfLen = Math.min(ap.length || 0.9, edgeLen) / 2;
+            const cx = a.x + ex * (ap.t ?? 0.5);
+            const cy = a.y + ey * (ap.t ?? 0.5);
+            const meta = APERTURE_TYPES[ap.type] || APERTURE_TYPES.door;
+            const apLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            apLine.setAttribute('x1', (cx - dx * halfLen) * CELL_SIZE);
+            apLine.setAttribute('y1', (cy - dy * halfLen) * CELL_SIZE);
+            apLine.setAttribute('x2', (cx + dx * halfLen) * CELL_SIZE);
+            apLine.setAttribute('y2', (cy + dy * halfLen) * CELL_SIZE);
+            apLine.setAttribute('stroke', meta.color);
+            apLine.setAttribute('stroke-width', '6');
+            apLine.setAttribute('stroke-linecap', 'round');
+            apLine.setAttribute('class', 'pointer-events-auto cursor-pointer');
+            apLine.setAttribute('title', `${meta.label} — klicken zum Entfernen`);
+            apLine.setAttribute('aria-label', `${meta.label} an Wand ${ap.edgeIndex + 1}`);
+            apLine.addEventListener('pointerdown', (e) => {
+               if(e.pointerType === 'mouse' && e.button !== 0) return;
+               e.stopPropagation();
+               e.preventDefault();
+               pushPlannerHistory();
+               room.apertures.splice(apIdx, 1);
+               saveState();
+               render();
+            });
+            svg.appendChild(apLine);
+         });
+
          // Vertex Handlers and Edge Labels
          if(isSel) {
             room.points.forEach((pt, i) => {
                let nxt = room.points[(i+1)%room.points.length];
 
-               // Invisible Edge Hitbox for Adding new Points
+               // Invisible Edge Hitbox for Adding new Points (oder Aperturen, wenn Modus aktiv)
                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
                line.setAttribute('x1', pt.x * CELL_SIZE);
                line.setAttribute('y1', pt.y * CELL_SIZE);
                line.setAttribute('x2', nxt.x * CELL_SIZE);
                line.setAttribute('y2', nxt.y * CELL_SIZE);
-               line.setAttribute('class', 'stroke-transparent stroke-[12px] pointer-events-auto cursor-crosshair hover:stroke-nexus-primary/30 edge-hitbox transition-colors');
-               
+               const apActive = !!state._aperturesMode;
+               line.setAttribute('class', `stroke-transparent stroke-[12px] pointer-events-auto ${apActive ? 'cursor-cell' : 'cursor-crosshair'} hover:stroke-nexus-primary/30 edge-hitbox transition-colors`);
+
                line.addEventListener('pointerdown', (e) => {
                   if(e.pointerType === 'mouse' && e.button !== 0) return;
                   e.stopPropagation();
                   e.preventDefault();
+                  if(state._aperturesMode) {
+                     // Apertur an der Click-Position einfügen
+                     pushPlannerHistory();
+                     const wpt = clientToWorld(e.clientX, e.clientY);
+                     const ax = pt.x * CELL_SIZE, ay = pt.y * CELL_SIZE;
+                     const bx = nxt.x * CELL_SIZE, by = nxt.y * CELL_SIZE;
+                     const eX = bx - ax, eY = by - ay;
+                     const len2 = eX * eX + eY * eY;
+                     if(len2 < 0.01) return;
+                     const t = Math.max(0.05, Math.min(0.95, ((wpt.x - ax) * eX + (wpt.y - ay) * eY) / len2));
+                     const meta = APERTURE_TYPES[state._aperturesMode];
+                     if(!Array.isArray(room.apertures)) room.apertures = [];
+                     room.apertures.push({ edgeIndex: i, t, length: meta.defaultLengthM, type: state._aperturesMode });
+                     saveState();
+                     render();
+                     return;
+                  }
                   pushPlannerHistory();
                   const w = clientToWorld(e.clientX, e.clientY);
                   let nx = Math.round(w.x / CELL_SIZE);
@@ -4274,6 +4345,13 @@
       cf.wallMaterial = id;
       render();
     };
+    window.setAperturesMode = (mode) => {
+      // null | 'door' | 'window' — toggle: nochmal denselben drücken schaltet ab.
+      if(mode != null && !APERTURE_TYPES[mode]) mode = null;
+      if(state._aperturesMode === mode) state._aperturesMode = null;
+      else state._aperturesMode = mode;
+      render();
+    };
 
     // Greedy-Heuristik: weist jedem AP einen 2,4- und 5-GHz-Kanal zu, der
     // bestmöglich von schon belegten APs in der Nähe entkoppelt ist.
@@ -5246,6 +5324,7 @@
             loaded.floors = loaded.floors.map(f => {
               const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
               merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+              merged.rooms = (merged.rooms || []).map(r => ({ apertures: [], ...r }));
               return merged;
             });
             if(!loaded.view) loaded.view = { heatmap: false };
