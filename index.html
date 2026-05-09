@@ -1292,7 +1292,10 @@
         isp2: null,              // voller ispList-Eintrag bei type === 'isp2'
         speedDown2: 100,
         speedUp2: 40,
-        mode: 'failover'         // 'failover' | 'loadbalance'
+        mode: 'failover',        // 'failover' | 'loadbalance'
+        healthCheckSec: 10,      // Sek.: wie oft prüft das Gateway den Primär-WAN?
+        failoverDelaySec: 30,    // Sek.: Ausfall-Hysterese vor Umschalten
+        restoreDelaySec: 60      // Sek.: stabile Phase vor Zurückschalten
       },
       bomOverrides: {
         removedKeys: [],         // ['auto:Zubehör:acc-rack-6u', ...]
@@ -1314,8 +1317,20 @@
     };
 
     // Backup-State Defaults + Migration alter Schema-Versionen.
+    // failover-Parameter (Iter. 11):
+    //   healthCheckSec   — Intervall, in dem das Gateway die Primärleitung prüft
+    //   failoverDelaySec — wie viele Sek. Ausfall müssen vergehen, bevor auf
+    //                      Backup geschaltet wird (Hysterese gegen Flapping)
+    //   restoreDelaySec  — wie viele Sek. die Primärleitung wieder stabil sein
+    //                      muss, bevor zurückgeschaltet wird
     function normalizeBackupState(bu) {
-      const def = { enabled: false, type: null, cellularModel: null, starlinkAntenna: null, starlinkPlan: null, isp2: null, speedDown2: 100, speedUp2: 40, mode: 'failover' };
+      const def = {
+        enabled: false, type: null, cellularModel: null,
+        starlinkAntenna: null, starlinkPlan: null, isp2: null,
+        speedDown2: 100, speedUp2: 40,
+        mode: 'failover',
+        healthCheckSec: 10, failoverDelaySec: 30, restoreDelaySec: 60
+      };
       if(!bu || typeof bu !== 'object') return def;
       // Migration: alte Variante `type: 'udr5g'` → Mobilfunk + cellularModel: 'udr-5g-max'
       if(bu.type === 'udr5g') {
@@ -4390,6 +4405,16 @@
       state.backup.mode = mode;
       saveState();
     };
+    // Iter. 11 — Failover-Parameter (Hysterese-Sekunden) editierbar.
+    window.setBackupTimingParam = (field, val) => {
+      const n = parseInt(val);
+      if(!Number.isFinite(n) || n < 0) return;
+      const limits = { healthCheckSec: [1, 300], failoverDelaySec: [0, 600], restoreDelaySec: [0, 1800] };
+      const lim = limits[field];
+      if(!lim) return;
+      state.backup[field] = Math.max(lim[0], Math.min(lim[1], n));
+      render();
+    };
 
     // Setter für Stromtarif, USV-Autonomie und Coverage-Profil (Iter. 2)
     window.setEnergyTariff = (val) => {
@@ -4979,7 +5004,29 @@
                 <label class="text-xs font-bold uppercase tracking-wide text-nexus-muted block mb-2">Empfehlung</label>
                 ${recoHtml || '<p class="text-xs text-nexus-muted">Wähle einen Backup-Typ.</p>'}
               </div>
-            </div>` : ''}
+            </div>
+            ${bu.mode === 'failover' ? `
+              <div class="card p-4 bg-nexus-surface bg-opacity-40 mt-3">
+                <label class="text-xs font-bold uppercase tracking-wide text-nexus-muted block mb-3">Failover-Timing</label>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <span class="text-[11px] text-nexus-muted block mb-1">Health-Check (Sek.)</span>
+                    <input type="number" min="1" max="300" step="1" value="${bu.healthCheckSec ?? 10}" onchange="window.setBackupTimingParam('healthCheckSec', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-sm" aria-label="Health-Check-Intervall in Sekunden" />
+                    <p class="text-[10px] text-nexus-muted mt-1">Wie oft das Gateway die Primärleitung pingt. UniFi-Default: 10 s.</p>
+                  </div>
+                  <div>
+                    <span class="text-[11px] text-nexus-muted block mb-1">Failover nach (Sek.)</span>
+                    <input type="number" min="0" max="600" step="5" value="${bu.failoverDelaySec ?? 30}" onchange="window.setBackupTimingParam('failoverDelaySec', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-sm" aria-label="Failover-Verzögerung in Sekunden" />
+                    <p class="text-[10px] text-nexus-muted mt-1">Wie lange Ausfall anhalten muss, bevor auf Backup umgeschaltet wird (Hysterese gegen Flapping).</p>
+                  </div>
+                  <div>
+                    <span class="text-[11px] text-nexus-muted block mb-1">Rückfall nach (Sek.)</span>
+                    <input type="number" min="0" max="1800" step="10" value="${bu.restoreDelaySec ?? 60}" onchange="window.setBackupTimingParam('restoreDelaySec', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-sm" aria-label="Rückfall-Verzögerung in Sekunden" />
+                    <p class="text-[10px] text-nexus-muted mt-1">Wie lange die Primärleitung wieder stabil sein muss, bevor zurückgeschaltet wird.</p>
+                  </div>
+                </div>
+                <p class="text-[11px] text-nexus-muted mt-3"><i data-lucide="info" class="w-3 h-3 inline align-text-bottom" aria-hidden="true"></i> Diese Werte sind als Vorgabe für die UniFi-Controller-Konfiguration gedacht. Im UniFi-Network-UI unter <code>Settings → Internet → Failover</code> einstellen.</p>
+              </div>` : ''}` : ''}
         </div>
 
         ${dualWanWarn}
