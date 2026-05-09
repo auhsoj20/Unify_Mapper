@@ -657,9 +657,84 @@
       h2, h3 { page-break-after: avoid; }
       a { color: inherit; text-decoration: none; }
     }
+
+    /* --- Disclaimer Modal --- */
+    #disclaimer-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    #disclaimer-modal.is-open { display: flex; }
+    #disclaimer-modal .disclaimer-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(4px);
+    }
+    #disclaimer-modal .disclaimer-card {
+      position: relative;
+      z-index: 1;
+      max-width: 32rem;
+      width: 100%;
+      padding: 1.75rem;
+      max-height: calc(100vh - 2rem);
+      overflow-y: auto;
+    }
+    #disclaimer-modal h2 {
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--color-primary);
+    }
+    #disclaimer-modal p {
+      margin-bottom: 0.85rem;
+      line-height: 1.6;
+      color: var(--color-text);
+    }
+    #disclaimer-modal p:last-of-type { margin-bottom: 1.5rem; }
+    #disclaimer-modal .disclaimer-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+    #disclaimer-modal #disclaimer-accept {
+      width: 100%;
+      justify-content: center;
+    }
   </style>
 </head>
 <body class="min-h-screen text-nexus-base">
+
+  <div id="disclaimer-modal" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title" aria-describedby="disclaimer-body" class="no-print">
+    <div class="disclaimer-backdrop"></div>
+    <div class="disclaimer-card card">
+      <h2 id="disclaimer-title">
+        <i data-lucide="info" class="w-6 h-6"></i>
+        Hinweis
+      </h2>
+      <div id="disclaimer-body">
+        <p>
+          Diese Seite ist eine <strong>private, nicht-kommerzielle Webseite</strong> und wird
+          <strong>nicht zu geschäftlichen Zwecken</strong> betrieben.
+        </p>
+        <p>
+          Alle Inhalte sind ohne Gewähr — es wird keine Haftung für Richtigkeit, Vollständigkeit
+          oder Schäden, die aus der Nutzung entstehen, übernommen. Marken- und Produktnamen
+          (UniFi, Ubiquiti sowie weitere genannte Hersteller) sind Eigentum der jeweiligen Inhaber.
+        </p>
+      </div>
+      <div class="disclaimer-actions">
+        <button type="button" id="disclaimer-accept" class="btn-primary">
+          <i data-lucide="check" class="w-4 h-4"></i>
+          Verstanden &amp; akzeptieren
+        </button>
+      </div>
+    </div>
+  </div>
 
   <header id="header" class="sticky top-0 z-40 bg-nexus-surfaceCard border-b border-nexus-border backdrop-blur-md bg-opacity-80">
     <div class="max-w-6xl mx-auto px-4 md:px-8 py-4 flex flex-wrap items-center justify-between gap-4">
@@ -7598,9 +7673,35 @@
         }
     });
 
+    // Disclaimer-Popup beim Seitenstart anzeigen, bis es einmal bestätigt
+    // wurde. Akzeptanz wird in localStorage gemerkt, damit Bestandsnutzer
+    // nicht bei jedem Reload erneut bestätigen müssen.
+    function showDisclaimerIfNeeded() {
+      const STORAGE_KEY = 'unifyMapper.disclaimerAccepted.v1';
+      let accepted = false;
+      try { accepted = localStorage.getItem(STORAGE_KEY) === '1'; } catch(_) {}
+      const modal = document.getElementById('disclaimer-modal');
+      if(!modal) return;
+      if(accepted) { modal.remove(); return; }
+      modal.classList.add('is-open');
+      const releaseTrap = trapFocus(modal);
+      const acceptBtn = modal.querySelector('#disclaimer-accept');
+      const accept = () => {
+        try { localStorage.setItem(STORAGE_KEY, '1'); } catch(_) {}
+        try { releaseTrap(); } catch(_) {}
+        modal.classList.remove('is-open');
+        modal.remove();
+      };
+      acceptBtn?.addEventListener('click', accept);
+      // Fokus auf den Bestätigen-Button, damit Tastatur-Nutzer direkt mit
+      // Enter/Space bestätigen können.
+      requestAnimationFrame(() => acceptBtn?.focus());
+    }
+
     // BOOTSTRAP
     lucide.createIcons();
-    initializeApp(); 
+    showDisclaimerIfNeeded();
+    initializeApp();
 
   </script>
 </body>
