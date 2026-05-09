@@ -874,6 +874,33 @@
     ];
     const DEFAULT_WPA_MODE = 'wpa3-personal';
 
+    // Inter-VLAN-Firewall-Stufen (Iter. 7). Vereinfachtes Modell: keine
+    // beliebigen Allow-Listen, sondern vier vordefinierte Stufen, die zu
+    // > 90 % aller Heim-/SMB-Setups passen. Wer mehr Granularität braucht,
+    // konfiguriert sie direkt im UniFi-Controller.
+    const VLAN_ISOLATION = [
+      { id: 'none',      label: 'Keine',            hint: 'VLAN kann mit allen anderen Segmenten kommunizieren.' },
+      { id: 'mgmt-only', label: 'Nur Mgmt',         hint: 'Nur Verwaltungs-VLAN erreichbar — typisch für IoT/Kameras (Updates, NVR).' },
+      { id: 'main-only', label: 'Nur Mgmt+Haupt',   hint: 'Mgmt + Haupt-Segment erreichbar — typisch für VoIP/Drucker.' },
+      { id: 'strict',    label: 'Strikt (nur WAN)', hint: 'Kein Inter-VLAN-Routing — typisch für Gast-WLAN.' }
+    ];
+    // Empfohlene Default-Isolation pro VLAN-Zweck.
+    const VLAN_ISOLATION_DEFAULTS = {
+      mgmt:   'none',
+      main:   'none',
+      guest:  'strict',
+      iot:    'mgmt-only',
+      camera: 'mgmt-only',
+      voip:   'main-only',
+      server: 'none',
+      custom: 'none'
+    };
+    // Empfohlene Client-Isolation (SSID-Layer „No P2P traffic between clients").
+    const VLAN_CLIENT_ISO_DEFAULTS = {
+      guest: true,
+      iot:   true
+    };
+
     // Default-Subnetze pro VLAN-Zweck (Vorschlag beim Anlegen / Wechsel von „custom").
     const VLAN_DEFAULT_SUBNETS = {
       mgmt:   '10.0.10.0/24',
@@ -1101,7 +1128,10 @@
 
     async function initializeApp() {
       initDataFromDB();
-      loadState();
+      // Wenn die URL einen #share=…-Hash hat, daraus laden — sonst aus
+      // localStorage. Hash gewinnt, weil es eine explizite Empfangs-Aktion ist.
+      const loadedFromHash = (typeof tryLoadFromHash === 'function') ? tryLoadFromHash() : false;
+      if(!loadedFromHash) loadState();
 
       const overlay = document.getElementById('loader-overlay');
 
@@ -1521,8 +1551,8 @@
           });
           if(!parsed.view) parsed.view = { heatmap: false };
           if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
-          // Alte VLANs ohne wpaMode auf den Default heben.
-          parsed.vlans = parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v }));
+          // Alte VLANs ohne wpaMode/isolation/clientIsolation auf Defaults heben.
+          parsed.vlans = applyIsolationDefaults(parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
           parsed.backup = normalizeBackupState(parsed.backup);
           parsed.bomOverrides = normalizeBomOverrides(parsed.bomOverrides);
           if(!parsed.poeAssignments || typeof parsed.poeAssignments !== 'object') parsed.poeAssignments = {};
@@ -4286,9 +4316,19 @@
       ]
     };
 
+    // Wendet die per-Purpose-Isolation-Defaults an, wenn das VLAN noch keinen
+    // expliziten Wert hat. Wird bei Preset-Apply, Import und Migration genutzt.
+    function applyIsolationDefaults(vlans) {
+      return (vlans || []).map(v => ({
+        isolation:       VLAN_ISOLATION_DEFAULTS[v.purpose] || 'none',
+        clientIsolation: VLAN_CLIENT_ISO_DEFAULTS[v.purpose] || false,
+        ...v
+      }));
+    }
+
     window.applyVlanPreset = (key) => {
       if(!VLAN_PRESETS[key]) return;
-      state.vlans = JSON.parse(JSON.stringify(VLAN_PRESETS[key]));
+      state.vlans = applyIsolationDefaults(JSON.parse(JSON.stringify(VLAN_PRESETS[key])));
       render();
     };
     // Liefert ein freies /24-Subnetz im 10.0.x.0-Bereich, das zu den bereits
@@ -4308,7 +4348,16 @@
     window.addVlan = () => {
       const existing = new Set(state.vlans.map(v => v.id));
       let nextId = 50; while(existing.has(nextId) && nextId < 4095) nextId += 10;
-      state.vlans.push({ id: nextId, name: 'Neues VLAN', subnet: suggestFreeSubnet(`10.0.${nextId}.0/24`), purpose: 'custom', ssid: null, wpaMode: DEFAULT_WPA_MODE });
+      state.vlans.push({
+        id: nextId,
+        name: 'Neues VLAN',
+        subnet: suggestFreeSubnet(`10.0.${nextId}.0/24`),
+        purpose: 'custom',
+        ssid: null,
+        wpaMode: DEFAULT_WPA_MODE,
+        isolation: VLAN_ISOLATION_DEFAULTS.custom,
+        clientIsolation: false
+      });
       render();
     };
     window.removeVlan = (idx) => { state.vlans.splice(idx, 1); render(); };
@@ -4318,6 +4367,18 @@
       if(field === 'id') value = Math.max(1, Math.min(4094, parseInt(value) || 1));
       if(field === 'ssid' && value === '') value = null;
       if(field === 'wpaMode' && !WPA_MODES.some(w => w.id === value)) value = DEFAULT_WPA_MODE;
+      if(field === 'isolation' && !VLAN_ISOLATION.some(i => i.id === value)) value = 'none';
+      if(field === 'clientIsolation') value = !!value;
+      // Beim Zweckwechsel: wenn Isolation/clientIso noch der bisherige Default
+      // war, auf den Default für den neuen Zweck springen.
+      if(field === 'purpose') {
+        const oldDefault = VLAN_ISOLATION_DEFAULTS[v.purpose] || 'none';
+        const newDefault = VLAN_ISOLATION_DEFAULTS[value] || 'none';
+        if(v.isolation === oldDefault) v.isolation = newDefault;
+        const oldCi = VLAN_CLIENT_ISO_DEFAULTS[v.purpose] || false;
+        const newCi = VLAN_CLIENT_ISO_DEFAULTS[value] || false;
+        if(!!v.clientIsolation === !!oldCi) v.clientIsolation = newCi;
+      }
       // Beim Wechsel des Zwecks: wenn das aktuelle Subnetz noch das ursprüngliche
       // Default ist (also noch nicht vom User editiert), automatisch auf den
       // Standard-Bereich für den neuen Zweck springen.
@@ -4347,6 +4408,7 @@
       const purposes = ['mgmt','main','guest','iot','camera','voip','server','custom'];
       const purposeOpts = (cur) => purposes.map(p => `<option value="${p}" ${p===cur?'selected':''}>${p}</option>`).join('');
       const wpaOpts = (cur) => WPA_MODES.map(w => `<option value="${w.id}" ${w.id===(cur||DEFAULT_WPA_MODE)?'selected':''} title="${w.hint}">${w.short}</option>`).join('');
+      const isoOpts = (cur) => VLAN_ISOLATION.map(i => `<option value="${i.id}" ${i.id===(cur||'none')?'selected':''} title="${i.hint}">${i.label}</option>`).join('');
 
       // Validierung
       const warnings = [];
@@ -4398,6 +4460,8 @@
                 <th class="px-4 py-3 text-left">Zweck</th>
                 <th class="px-4 py-3 text-left">SSID</th>
                 <th class="px-4 py-3 text-left">WLAN-Sicherheit</th>
+                <th class="px-4 py-3 text-left" title="Inter-VLAN-Routing-Stufe">Isolation</th>
+                <th class="px-4 py-3 text-center" title="SSID-Layer: Clients untereinander blockieren">Client-Iso</th>
                 <th class="px-2 py-3"></th>
               </tr>
             </thead>
@@ -4410,6 +4474,8 @@
                   <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'purpose',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${purposeOpts(v.purpose)}</select></td>
                   <td class="px-4 py-2"><input type="text" value="${v.ssid || ''}" placeholder="—" onchange="window.updateVlan(${i},'ssid',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"></td>
                   <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'wpaMode',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs" ${v.ssid ? '' : 'disabled title="Nur relevant, wenn das VLAN eine SSID ausstrahlt"'}>${wpaOpts(v.wpaMode)}</select></td>
+                  <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'isolation',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${isoOpts(v.isolation)}</select></td>
+                  <td class="px-4 py-2 text-center"><input type="checkbox" ${v.clientIsolation ? 'checked' : ''} onchange="window.updateVlan(${i},'clientIsolation',this.checked)" class="cursor-pointer" ${v.ssid ? '' : 'disabled title="Nur sinnvoll bei aktiver SSID"'} aria-label="Client-Isolation für VLAN ${v.id}"></td>
                   <td class="px-2 py-2 text-right"><button onclick="window.removeVlan(${i})" class="text-red-500 hover:text-red-700" title="Entfernen" aria-label="VLAN ${v.id} entfernen"><i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i></button></td>
                 </tr>`).join('')}
             </tbody>
@@ -4975,6 +5041,108 @@
       return { gatewayIdle, switchIdle, nvrIdle, deliveredPoe, poeWallDraw, totalWatts, kwhYear, yearlyCost, tariff, upsVA, upsWh, upsRuntimeMin: runtimeMin };
     }
 
+    // --- Share-Link (Iter. 7) --- //
+    // Encoded den State als URL-sicheres Base64 in den Hash. Hintergrundbilder
+    // werden ausgeschlossen (zu groß für URLs), die übrigen Daten reichen für
+    // Kollaboration und Hand-off.
+    function buildShareablePayload() {
+      const clone = JSON.parse(JSON.stringify(state));
+      let strippedImages = 0;
+      (clone.floors || []).forEach(f => {
+        if(f.backgroundImage?.dataUrl) {
+          delete f.backgroundImage.dataUrl;
+          f.backgroundImage._stripped = true;
+          strippedImages++;
+        }
+      });
+      delete clone.rackViewOpen;
+      delete clone.selectedRoomId;
+      return { payload: clone, strippedImages };
+    }
+    function encodeShareData(obj) {
+      const json = JSON.stringify(obj);
+      const bytes = new TextEncoder().encode(json);
+      let binary = '';
+      for(let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+    function decodeShareData(s) {
+      let b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+      while(b64.length % 4) b64 += '=';
+      const binary = atob(b64);
+      const bytes = new Uint8Array(binary.length);
+      for(let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const json = new TextDecoder().decode(bytes);
+      return JSON.parse(json);
+    }
+    // Wird vor loadState() aufgerufen. Liefert true, wenn aus dem Hash
+    // erfolgreich geladen wurde — dann überspringt initializeApp() den
+    // localStorage-Load.
+    function tryLoadFromHash() {
+      const HASH_PREFIX = '#share=';
+      if(typeof location === 'undefined' || !location.hash || !location.hash.startsWith(HASH_PREFIX)) return false;
+      const data = location.hash.slice(HASH_PREFIX.length);
+      const stripHash = () => {
+        try { history.replaceState(null, '', location.pathname + location.search); } catch(_) {}
+      };
+      try {
+        const parsed = decodeShareData(data);
+        if(!parsed || !Array.isArray(parsed.floors)) throw new Error('Ungültiges Share-Format');
+        if(!confirm('Geteiltes Projekt aus URL laden? Dein aktuelles Projekt wird ersetzt (du kannst es vor dem Übernehmen exportieren).')) {
+          stripHash();
+          return false;
+        }
+        // Migration aus Loader nachziehen
+        parsed.floors = parsed.floors.map(f => {
+          const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
+          merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+          return merged;
+        });
+        if(!parsed.view) parsed.view = { heatmap: false };
+        if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
+        parsed.vlans = applyIsolationDefaults(parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
+        parsed.backup = normalizeBackupState(parsed.backup);
+        parsed.bomOverrides = normalizeBomOverrides(parsed.bomOverrides);
+        if(!parsed.poeAssignments || typeof parsed.poeAssignments !== 'object') parsed.poeAssignments = {};
+        parsed.racks = normalizeRacksState(parsed.racks);
+        parsed.cabling = normalizeCablingState(parsed.cabling);
+        parsed.rackView = normalizeRackView(parsed.rackView, parsed.racks);
+        parsed.rackViewOpen = false;
+        parsed.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(parsed.energy || {}) };
+        parsed.coverage = { profile: 'general', ...(parsed.coverage || {}) };
+        parsed.recording = { retentionDays: 14, fpsProfile: 'standard', ...(parsed.recording || {}) };
+        Object.assign(state, parsed);
+        const slugIssues = validateSlugRefs(state);
+        if(slugIssues.length > 0) _loadStateError = slugIssues.join(' ');
+        stripHash();
+        return true;
+      } catch(err) {
+        _loadStateError = 'Share-Link konnte nicht entschlüsselt werden: ' + (err.message || 'unbekannter Fehler');
+        stripHash();
+        return false;
+      }
+    }
+
+    window.copyShareLink = async () => {
+      const { payload, strippedImages } = buildShareablePayload();
+      const encoded = encodeShareData(payload);
+      const url = location.origin + location.pathname + '#share=' + encoded;
+      if(url.length > 16384) {
+        if(!confirm(`Der Link ist sehr lang (${(url.length/1024).toFixed(1)} KB). Einige Server/Browser schneiden lange URLs ab. Trotzdem kopieren?`)) return;
+      }
+      const note = strippedImages > 0
+        ? ` Hinweis: ${strippedImages} Hintergrundbild${strippedImages === 1 ? '' : 'er'} nicht im Link — separat als JSON teilen.`
+        : '';
+      try {
+        await navigator.clipboard.writeText(url);
+        showPlannerToast('Share-Link in Zwischenablage kopiert.' + note);
+      } catch(_) {
+        // Clipboard-API verweigert → Fallback Prompt
+        const ok = prompt('Share-Link manuell kopieren (Zwischenablage-API blockiert):', url);
+        if(ok != null) showPlannerToast('Link bereit.' + note);
+      }
+    };
+
     window.exportProjectJson = () => {
       const payload = { _meta: { app: 'unifi-setup-planner', version: 1, exportedAt: new Date().toISOString() }, state };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -5005,7 +5173,7 @@
             });
             if(!loaded.view) loaded.view = { heatmap: false };
             if(!Array.isArray(loaded.vlans)) loaded.vlans = [];
-            loaded.vlans = loaded.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v }));
+            loaded.vlans = applyIsolationDefaults(loaded.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
             loaded.backup = normalizeBackupState(loaded.backup);
             loaded.bomOverrides = normalizeBomOverrides(loaded.bomOverrides);
             loaded.racks = normalizeRacksState(loaded.racks);
@@ -5348,16 +5516,53 @@
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50"><h3 class="font-bold">Netzwerk-Segmentierung (VLANs)</h3></div>
              <table class="w-full text-sm text-left">
                <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
-                 <tr><th class="px-6 py-3">ID</th><th class="px-6 py-3">Name</th><th class="px-6 py-3">Subnetz</th><th class="px-6 py-3">Zweck</th><th class="px-6 py-3">SSID</th><th class="px-6 py-3">WLAN-Sicherheit</th></tr>
+                 <tr><th class="px-6 py-3">ID</th><th class="px-6 py-3">Name</th><th class="px-6 py-3">Subnetz</th><th class="px-6 py-3">Zweck</th><th class="px-6 py-3">SSID</th><th class="px-6 py-3">WLAN-Sicherheit</th><th class="px-6 py-3">Isolation</th></tr>
                </thead>
                <tbody>
                  ${state.vlans.map(v => {
                    const wpa = WPA_MODES.find(w => w.id === (v.wpaMode || DEFAULT_WPA_MODE)) || WPA_MODES[0];
-                   return `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono">${v.id}</td><td class="px-6 py-3 font-medium">${v.name}</td><td class="px-6 py-3 font-mono text-xs">${v.subnet}</td><td class="px-6 py-3">${v.purpose}</td><td class="px-6 py-3">${v.ssid || '—'}</td><td class="px-6 py-3 text-xs">${v.ssid ? wpa.label : '—'}</td></tr>`;
+                   const iso = VLAN_ISOLATION.find(i => i.id === (v.isolation || 'none')) || VLAN_ISOLATION[0];
+                   const ciBadge = v.clientIsolation ? ' · <span class="text-[10px] uppercase tracking-wide bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded">Client-Iso</span>' : '';
+                   return `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono">${v.id}</td><td class="px-6 py-3 font-medium">${v.name}</td><td class="px-6 py-3 font-mono text-xs">${v.subnet}</td><td class="px-6 py-3">${v.purpose}</td><td class="px-6 py-3">${v.ssid || '—'}</td><td class="px-6 py-3 text-xs">${v.ssid ? wpa.label : '—'}</td><td class="px-6 py-3 text-xs">${iso.label}${ciBadge}</td></tr>`;
                  }).join('')}
                </tbody>
              </table>
           </div>` : '';
+
+      // Firewall-Matrix: Welche VLANs dürfen welche erreichen?
+      const fwCard = (state.vlans && state.vlans.length >= 2) ? (() => {
+         const mgmtVlan = state.vlans.find(v => v.purpose === 'mgmt');
+         const mainVlan = state.vlans.find(v => v.purpose === 'main');
+         const allows = (v) => {
+           const iso = v.isolation || 'none';
+           if(iso === 'strict')    return ['WAN'];
+           if(iso === 'mgmt-only') return ['WAN', mgmtVlan ? `Mgmt (#${mgmtVlan.id})` : 'Mgmt'];
+           if(iso === 'main-only') return ['WAN', mgmtVlan ? `Mgmt (#${mgmtVlan.id})` : 'Mgmt', mainVlan ? `Haupt (#${mainVlan.id})` : 'Haupt'];
+           return ['WAN', 'Alle anderen VLANs'];
+         };
+         return `
+          <div class="card p-0 overflow-hidden">
+            <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50">
+              <h3 class="font-bold">Firewall-Matrix (Inter-VLAN-Routing)</h3>
+              <p class="text-xs text-nexus-muted mt-1">Welche Ziele erreichen die VLAN-Clients laut der gewählten Isolation. Im UniFi-Controller als Firewall-Regeln im Tab „Internet/LAN In" abbilden.</p>
+            </div>
+            <table class="w-full text-sm text-left">
+              <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
+                <tr><th class="px-6 py-3">Quelle</th><th class="px-6 py-3">Stufe</th><th class="px-6 py-3">Erreichbare Ziele</th></tr>
+              </thead>
+              <tbody>
+                ${state.vlans.map(v => {
+                  const iso = VLAN_ISOLATION.find(i => i.id === (v.isolation || 'none')) || VLAN_ISOLATION[0];
+                  return `<tr class="border-b border-nexus-border">
+                    <td class="px-6 py-3 font-medium">#${v.id} ${v.name}</td>
+                    <td class="px-6 py-3 text-xs">${iso.label}</td>
+                    <td class="px-6 py-3 text-xs">${allows(v).join(' · ')}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>`;
+      })() : '';
 
       // Kanal-Kollisionswarnung — 2,4 GHz (1/6/11) und 5 GHz (Δ ≤ 4),
       // plus DFS-Hinweis falls Kanäle aus dem Wetterradar-Bereich genutzt werden.
@@ -5412,6 +5617,7 @@
           <div class="flex flex-wrap gap-2 no-print">
             <button onclick="window.exportProjectJson()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="save" class="w-3 h-3"></i> Projekt speichern (.json)</button>
             <button onclick="window.importProjectJson()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="folder-open" class="w-3 h-3"></i> Projekt laden</button>
+            <button onclick="window.copyShareLink()" class="btn-secondary text-xs flex items-center gap-1" title="Komprimierten Projektstand als URL in die Zwischenablage kopieren (ohne Hintergrundbilder)"><i data-lucide="link" class="w-3 h-3"></i> Share-Link kopieren</button>
             <button onclick="window.exportBomCsv()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="file-spreadsheet" class="w-3 h-3"></i> BOM als CSV</button>
           </div>
         </div>
@@ -5466,6 +5672,8 @@
           ${dsgvoCard}
 
           ${vlanCard}
+
+          ${fwCard}
 
           <div class="card p-0 overflow-hidden">
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
