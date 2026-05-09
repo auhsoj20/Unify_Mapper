@@ -4979,6 +4979,59 @@
         </div>
       `;
 
+      // VPN-Empfehlungen (P1 #23) — wird gezeigt, wenn der VPN-Toggle an
+      // ist. Listet die in UniFi verfügbaren VPN-Optionen mit konkretem
+      // Use-Case und Konfigurations-Hinweis.
+      const vpnRecoCard = state.features.vpn ? `
+        <div class="card p-5 mt-2">
+          <h3 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="key-round" class="w-4 h-4 text-nexus-primary" aria-hidden="true"></i> VPN-Empfehlungen</h3>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">UniFi Site Magic</div>
+              <p class="text-xs text-nexus-muted">Site-to-Site-VPN zwischen zwei UniFi-Standorten via WireGuard. Setup mit ein paar Klicks im UniFi-Identity-Dashboard, hohe Bandbreite.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Voraussetzung: aktive UniFi-Site auf beiden Seiten und Cloud-Adoption (UID).</p>
+            </div>
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">UniFi Teleport</div>
+              <p class="text-xs text-nexus-muted">Remote-Client-VPN in der WiFiman-/UniFi-App. Vorgefertigt, ohne Server-Setup, Zero-Trust-Login via UID.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Geeignet für Mitarbeiter-Zugriff aufs Büro-Netz, kein klassisches OpenVPN-Profil nötig.</p>
+            </div>
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">WireGuard / OpenVPN / L2TP</div>
+              <p class="text-xs text-nexus-muted">Klassische VPN-Server direkt im Gateway. Für Site-to-Site oder Legacy-Clients ohne UniFi-Account.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">UCG Max / UDM Pro / EFG unterstützen alle drei. Settings → VPN im Network-Controller.</p>
+            </div>
+          </div>
+          <p class="text-[11px] text-nexus-muted mt-3"><i data-lucide="info" class="w-3 h-3 inline align-text-bottom" aria-hidden="true"></i> Für reine Remote-Wartung reicht meist Teleport. Site Magic ist die einfachste Lösung für Multi-Standort-Setups.</p>
+        </div>` : '';
+
+      // RADIUS-Empfehlung (P1 #23) — wird gezeigt, sobald irgendein VLAN
+      // WPA3-Enterprise nutzt (Iter. 4a setzt hasEnterprise). Drei
+      // pragmatische Server-Optionen.
+      const radiusRecoCard = hasEnterprise ? `
+        <div class="card p-5 mt-2">
+          <h3 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="server" class="w-4 h-4 text-nexus-primary" aria-hidden="true"></i> RADIUS-Server für WPA3 Enterprise</h3>
+          <p class="text-sm text-nexus-muted mb-3">Mindestens eine SSID nutzt WPA3 Enterprise — ein RADIUS/802.1X-Server ist erforderlich. Drei pragmatische Optionen:</p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">UniFi Identity Endpoint</div>
+              <p class="text-xs text-nexus-muted">Cloud-basierte Identity-Lösung von Ubiquiti. Pro-Benutzer-Profile, MFA, ohne eigenen Server. Lizenzkosten pro Benutzer/Monat.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Beste Wahl für SMB-Setups, die schon UID nutzen.</p>
+            </div>
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">FreeRADIUS</div>
+              <p class="text-xs text-nexus-muted">Open-Source-RADIUS, läuft auf einem Linux-Container/-VM. Hohe Flexibilität, kostenlos, dafür Pflege selbst.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Sinnvoll bei vorhandenem Linux-Knowhow oder existierender LDAP-/AD-Backend-Anbindung.</p>
+            </div>
+            <div class="p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30">
+              <div class="font-bold mb-1">Windows Server NPS</div>
+              <p class="text-xs text-nexus-muted">Network Policy Server als Windows-Server-Rolle. Direkte AD-Integration, gut für Domain-gebundene Geräte.</p>
+              <p class="text-[11px] text-nexus-muted mt-2">Standard im Windows-Umfeld; benötigt eine Windows-Server-Lizenz.</p>
+            </div>
+          </div>
+          <p class="text-[11px] text-nexus-muted mt-3"><i data-lucide="info" class="w-3 h-3 inline align-text-bottom" aria-hidden="true"></i> Im UniFi-Controller den RADIUS-Server unter <code>Settings → Profiles → RADIUS</code> hinterlegen, dann pro WPA3-Enterprise-SSID auswählen.</p>
+        </div>` : '';
+
       container.innerHTML = `
         <h2 class="mb-2">4. Erweiterte Funktionen</h2>
 
@@ -5005,6 +5058,8 @@
           ${tc('contentFilter', 'Content-Filter', 'DNS-basierter Schutz (Kategorien)',          'filter',           state.features.contentFilter)}
           ${tc('talk',          'UniFi Talk',     'VoIP-Telefonanlage im Gateway',             'phone',            state.features.talk)}
         </div>
+        ${vpnRecoCard}
+        ${radiusRecoCard}
       `;
       contentDiv.appendChild(container);
     }
