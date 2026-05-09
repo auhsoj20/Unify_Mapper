@@ -1396,10 +1396,49 @@
       patchpanel: {u:1}, pdu:{u:1}, ups:{u:2},
       cableTray:  {u:1}, shelf:{u:1}, blank:{u:1}, custom:{u:1}
     };
+    // Default-Preise + BOM-Metadaten für generische (non-Hardware) Rack-Items.
+    // Hardware-Items (slug ∈ productCache.specs) ziehen Preis/Name aus dem Katalog.
+    const RACK_KIND_DEFAULTS = {
+      patchpanel: { price: 59,  label: 'Patchpanel 24-Port Cat6a', slugStem: 'acc-patch-24',     category: 'Zubehör'   },
+      pdu:        { price: 45,  label: 'PDU 1U (8-Port)',          slugStem: 'acc-pdu-1u',       category: 'Zubehör'   },
+      ups:        { price: 199, label: 'USV 2U (1500 VA)',         slugStem: 'acc-ups-2u',       category: 'Zubehör'   },
+      cableTray:  { price: 12,  label: 'Kabelführung 1U',          slugStem: 'acc-cable-tray-1u',category: 'Zubehör'   },
+      shelf:      { price: 25,  label: 'Fachboden 1U',             slugStem: 'acc-shelf-1u',     category: 'Zubehör'   },
+      blank:      { price: 4,   label: 'Blindblende 1U',           slugStem: 'acc-blank-1u',     category: 'Zubehör'   },
+      custom:     { price: 0,   label: 'Eigenes Item',             slugStem: 'acc-custom',       category: 'Sonstiges' }
+    };
     function getRackUnits(slug, kind) {
       if(slug && RACK_UNITS_BY_SLUG[slug]) return RACK_UNITS_BY_SLUG[slug];
       if(kind && RACK_DEFAULTS_BY_KIND[kind]) return RACK_DEFAULTS_BY_KIND[kind];
       return { u: 1 };
+    }
+    function bomCategoryForKind(kind) {
+      return ({ gateway:'Gateway', switch:'Switch', nvr:'NVR' })[kind]
+        || RACK_KIND_DEFAULTS[kind]?.category
+        || 'Sonstiges';
+    }
+    // Liefert Default-Werte für ein Rack-Item: Preis, Label, Slug-Stem, Kategorie.
+    // Hardware-Slugs ziehen Preis/Name aus productCache (mit getLivePrice-Fallback).
+    function getRackItemDefaults(slug, kind) {
+      if(slug && productCache.specs && productCache.specs[slug]) {
+        const p = productCache.specs[slug];
+        const live = (typeof getLivePrice === 'function') ? getLivePrice(slug) : null;
+        return {
+          price: live != null ? live : (p.price || 0),
+          label: p.name || slug,
+          slugStem: slug,
+          category: bomCategoryForKind(kind)
+        };
+      }
+      // Patchpanel: Slug-Stem ports-spezifisch, damit 12P/24P/48P getrennt aggregieren
+      if(kind === 'patchpanel') {
+        const def = RACK_KIND_DEFAULTS.patchpanel;
+        return { price: def.price, label: def.label, slugStem: def.slugStem, category: def.category };
+      }
+      const def = RACK_KIND_DEFAULTS[kind];
+      if(def) return { price: def.price, label: def.label, slugStem: def.slugStem, category: def.category };
+      // Fallback: unbekanntes kind
+      return { price: 0, label: kind || 'Item', slugStem: 'acc-' + (kind || 'unknown'), category: 'Sonstiges' };
     }
 
     // FAQ-Einträge für das Rack-Hilfe-Panel.
@@ -1731,7 +1770,9 @@
           uStart: parseInt(it.uStart),
           uSize: parseInt(it.uSize),
           label: it.label || null,
-          ports: Number.isFinite(parseInt(it.ports)) ? parseInt(it.ports) : null
+          ports: Number.isFinite(parseInt(it.ports)) ? parseInt(it.ports) : null,
+          // null = Default-Preis aus RACK_KIND_DEFAULTS bzw. productCache greift
+          price: Number.isFinite(parseFloat(it.price)) ? parseFloat(it.price) : null
         })) : [];
         return {
           id: r.id || ('r-' + Math.random().toString(36).slice(2,7)),
@@ -1767,7 +1808,12 @@
       const customPalette = Array.isArray(rv.customPalette)
         ? rv.customPalette
             .filter(c => c && typeof c.name === 'string' && Number.isFinite(c.u) && c.u > 0)
-            .map(c => ({ id: String(c.id || ('cp-' + Math.random().toString(36).slice(2,8))), name: c.name, u: Math.max(1, Math.min(48, parseInt(c.u))) }))
+            .map(c => ({
+              id: String(c.id || ('cp-' + Math.random().toString(36).slice(2,8))),
+              name: c.name,
+              u: Math.max(1, Math.min(48, parseInt(c.u))),
+              price: Number.isFinite(parseFloat(c.price)) && parseFloat(c.price) >= 0 ? parseFloat(c.price) : 0
+            }))
         : [];
       return {
         faqCollapsed: !!rv.faqCollapsed,
@@ -5831,6 +5877,75 @@
       return patched;
     }
 
+    // Aggregiert alle Items aus allen Racks zu BOM-Zeilen. Items mit gleichem
+    // Slug (per bomKey) werden zu qty: N zusammengeführt — der Preis des
+    // ersten Items gewinnt (User kann pro Item via Preis-Badge im Rack
+    // overriden, oder via BOM-Zeile entfernen + Custom-Row).
+    function computeRackItemBom() {
+      const allRackItems = (state.racks || []).flatMap(r => r.items || []);
+      if(allRackItems.length === 0) return [];
+      const acc = new Map();
+      for(const it of allRackItems) {
+        const d = getRackItemDefaults(it.slug, it.kind);
+        const fallbackLabel = d.label || (it.kind ? it.kind[0].toUpperCase() + it.kind.slice(1) : 'Item');
+        let slug, name, price, category;
+        if(it.slug && productCache.specs && productCache.specs[it.slug]) {
+          // Hardware: aus productCache
+          slug = it.slug;
+          name = d.label;
+          price = it.price != null ? it.price : d.price;
+          category = d.category;
+        } else if(it.kind === 'patchpanel') {
+          // Ports-spezifischer Slug, damit 12P/24P/48P getrennt aggregieren
+          const ports = Number.isFinite(parseInt(it.ports)) ? parseInt(it.ports) : 24;
+          slug = 'acc-patch-' + ports;
+          name = `Patchpanel ${ports}-Port Cat6a`;
+          price = it.price != null ? it.price : (RACK_KIND_DEFAULTS.patchpanel?.price || 59);
+          category = 'Zubehör';
+        } else if(it.kind === 'custom') {
+          // Custom: Aggregation per Label
+          const labelStr = (it.label || fallbackLabel).trim();
+          const slugSafe = labelStr.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'item';
+          slug = 'acc-custom-' + slugSafe;
+          name = labelStr || 'Eigenes Item';
+          price = it.price != null ? it.price : 0;
+          category = 'Sonstiges';
+        } else {
+          // Generische Items (pdu, ups, cableTray, shelf, blank): ein Slug pro Kind
+          slug = d.slugStem;
+          name = it.label || d.label || fallbackLabel;
+          price = it.price != null ? it.price : d.price;
+          category = d.category;
+        }
+        const key = bomKey(category, slug, name);
+        if(acc.has(key)) {
+          acc.get(key).qty += 1;
+        } else {
+          acc.set(key, { category, name, slug, qty: 1, price });
+        }
+      }
+      return [...acc.values()];
+    }
+
+    // Dedup-Pass für autoBom: Einträge mit gleichem bomKey werden auf eine
+    // Zeile addiert. Schützt vor Doppelzählung gleicher Slugs aus mehreren
+    // Quellen (z. B. acc-blank-1u aus computeRackBomAddons + computeRackItemBom).
+    function dedupBom(rows) {
+      const m = new Map();
+      for(const r of rows) {
+        const k = bomKey(r.category, r.slug, r.name);
+        if(m.has(k)) {
+          const e = m.get(k);
+          e.qty += r.qty;
+          // Bessere Preis-Quelle bevorzugen (0 → echter Preis)
+          if((!e.price || e.price === 0) && r.price > 0) e.price = r.price;
+        } else {
+          m.set(k, { ...r });
+        }
+      }
+      return [...m.values()];
+    }
+
     function buildBom() {
       const gw = getGatewayRecommended();
       const { allAps: enrichedAps, allCameras: enrichedCams, allDevices } = collectPoeDevices();
@@ -5867,8 +5982,18 @@
       if(!recSwitch) recSwitch = { name: 'Generic PoE Switch', budget: 150, price: 199, ports: 8, slug: '' };
       const activeSwitch = (state.selectedSwitch && switches.find(s => s.slug === state.selectedSwitch)) || recSwitch;
 
+      // Rack-Items aus allen Racks: Source-of-Truth für Hardware, die im
+      // Rack steht. Wenn ein Rack einen Switch/Gateway/NVR enthält, wird die
+      // Wizard-Empfehlung NICHT zusätzlich gepusht (Doppelzählungs-Schutz).
+      const allRackItems = (state.racks || []).flatMap(r => r.items || []);
+      const rackHasGateway    = allRackItems.some(it => it.kind === 'gateway');
+      const rackHasSwitch     = allRackItems.some(it => it.kind === 'switch');
+      const rackHasNvr        = allRackItems.some(it => it.kind === 'nvr');
+      const rackHasPatchpanel = allRackItems.some(it => it.kind === 'patchpanel');
+      const rackHasAnyItem    = allRackItems.length > 0;
+
       const autoBom = [];
-      autoBom.push({ category: 'Gateway', name: gw.name, slug: gw.slug || '', qty: 1, price: gw.price || 150 });
+      if(!rackHasGateway) autoBom.push({ category: 'Gateway', name: gw.name, slug: gw.slug || '', qty: 1, price: gw.price || 150 });
       if(state.isp?.modemPrice > 0) autoBom.push({ category: 'Modem', name: state.isp.modemRec, slug: '', qty: 1, price: state.isp.modemPrice });
 
       // Backup-Internet-Hardware
@@ -5888,21 +6013,25 @@
         }
       }
 
-      autoBom.push({ category: 'Switch', name: activeSwitch.name, slug: activeSwitch.slug || '', qty: 1, price: activeSwitch.price || 199 });
-      // Wenn ein einzelner Switch die Last nicht decken kann, fügen wir
-      // weitere Switches als Stack-Mitglieder hinzu. Slug wird mit "-stack-N"
-      // suffigiert, damit die BOM-Override-Map den Eintrag nicht mit dem
-      // Master-Switch verwechselt.
-      const stackExtras = Math.max(0, switchStack.length - 1);
-      if(stackExtras > 0) {
-        const stackMaster = switchStack[0].switch;
-        autoBom.push({
-          category: 'Switch (Stack)',
-          name: stackMaster.name,
-          slug: (stackMaster.slug || 'switch') + '-stack',
-          qty: stackExtras,
-          price: stackMaster.price || 199
-        });
+      if(!rackHasSwitch) {
+        autoBom.push({ category: 'Switch', name: activeSwitch.name, slug: activeSwitch.slug || '', qty: 1, price: activeSwitch.price || 199 });
+        // Wenn ein einzelner Switch die Last nicht decken kann, fügen wir
+        // weitere Switches als Stack-Mitglieder hinzu. Slug wird mit "-stack-N"
+        // suffigiert, damit die BOM-Override-Map den Eintrag nicht mit dem
+        // Master-Switch verwechselt.
+        // Stack-Logik wird übersprungen, wenn das Rack bereits Switches als
+        // Source-of-Truth liefert (Mehr-Switch-Setups werden dort gezählt).
+        const stackExtras = Math.max(0, switchStack.length - 1);
+        if(stackExtras > 0) {
+          const stackMaster = switchStack[0].switch;
+          autoBom.push({
+            category: 'Switch (Stack)',
+            name: stackMaster.name,
+            slug: (stackMaster.slug || 'switch') + '-stack',
+            qty: stackExtras,
+            price: stackMaster.price || 199
+          });
+        }
       }
 
       const apCounts = {};
@@ -5919,8 +6048,8 @@
         autoBom.push({ category: 'Kamera', name: p?.name || slug, slug, qty: camCounts[slug], price: p?.price || 199 });
       });
 
-      // NVR-Empfehlung
-      if(allCameras.length > 0) {
+      // NVR-Empfehlung — übersprungen, wenn das Rack bereits einen NVR enthält
+      if(allCameras.length > 0 && !rackHasNvr) {
         const nvrSlug = allCameras.length > 10 ? 'unvr-pro' : 'unvr';
         const nvr = productCache.specs[nvrSlug] || { name: allCameras.length > 10 ? 'UniFi NVR Pro' : 'UniFi NVR', price: allCameras.length > 10 ? 799 : 399 };
         autoBom.push({ category: 'NVR', name: nvr.name, slug: nvrSlug, qty: 1, price: nvr.price });
@@ -5960,14 +6089,15 @@
       const rackViewUsed = rackAddons.length > 0;
 
       if(totalDevices >= 3) {
-        // Nur Fallback, wenn Rack-View kein dynamisches Rack liefert
-        if(!rackViewUsed || !Array.from(rackAddonSlugs).some(s => s.startsWith('acc-rack-'))) {
+        // Wand-Rack-Fallback nur, wenn weder rack-Items noch dynamisches
+        // Rack aus computeRackBomAddons existieren.
+        if(!rackHasAnyItem && (!rackViewUsed || !Array.from(rackAddonSlugs).some(s => s.startsWith('acc-rack-')))) {
           autoBom.push({ category: 'Zubehör', name: '19" Wand-Rack 6HE', slug: 'acc-rack-6u', qty: 1, price: 149 });
         }
-        // Patchpanel-Fallback: falls Rack-View nicht genutzt oder kein Patchpanel im Rack.
+        // Patchpanel-Fallback: nur wenn KEIN Rack ein Patchpanel hat
+        // (sonst wird es durch computeRackItemBom abgedeckt).
         // Anzahl skaliert mit Endgeräten (1× 24-Port pro 24 APs+Kameras).
-        const hasRackPatchpanel = (state.racks || []).some(r => (r.items || []).some(it => it.kind === 'patchpanel'));
-        if(!rackViewUsed || !hasRackPatchpanel) {
+        if(!rackHasPatchpanel) {
           const ppQty = Math.max(1, Math.ceil(endpointCount / 24));
           autoBom.push({ category: 'Zubehör', name: 'Patchpanel 24-Port Cat6a', slug: 'acc-patch-24', qty: ppQty, price: 59 });
         }
@@ -5990,7 +6120,12 @@
       // Rack-Addons anhängen (Kabel/Patch/Blindblenden + ggf. dynamisches Rack)
       rackAddons.forEach(a => autoBom.push(a));
 
-      const bom = applyBomOverrides(autoBom);
+      // Rack-Items selbst (USV/PDU/Patchpanel/Custom/Hardware) als BOM-Zeilen
+      // anhängen — aggregiert über alle Racks.
+      computeRackItemBom().forEach(r => autoBom.push(r));
+
+      // Dedup: gleicher bomKey aus mehreren Quellen → qty addieren
+      const bom = applyBomOverrides(dedupBom(autoBom));
 
       const switchHasPoe = !!activeSwitch && activeSwitch.poe !== false && (activeSwitch.budget || 0) > 0;
       const poeAllocation = computePoeAllocation(allDevices, switchHasPoe, gatewayHasPoe);
@@ -7119,10 +7254,13 @@
     }
 
     // Rack-BOM-Zubehör: Kabelmeter, Patchkabel, Blindblenden, Wand-Rack
+    // Iteriert über ALLE Racks (Multi-Rack-Setup), nicht nur das aktive.
     function computeRackBomAddons() {
-      const rack = getActiveRack();
+      const racks = state.racks || [];
       const out = [];
-      if(!rack || !state.cabling) return out;
+      if(racks.length === 0 || !state.cabling) return out;
+
+      // Verlegekabel-Meter: aus Connections (global)
       const conns = state.cabling.connections || [];
       const totalM = conns.reduce((s, cn) => s + (parseFloat(cn.cableLengthM) || 0), 0);
       const metersRounded = Math.ceil(totalM / 5) * 5;
@@ -7130,15 +7268,29 @@
         const cat = state.cabling.defaultCategory || 'cat6a';
         out.push({ category: 'Zubehör', name: `${cat.toUpperCase()} Verlegekabel (Meter)`, slug: 'acc-cable-' + cat, qty: metersRounded, price: 1 });
       }
-      const hasPatchpanel = (rack.items || []).some(it => it.kind === 'patchpanel');
-      const patchMultiplier = hasPatchpanel ? 2 : 1;
+
+      // Patchkabel-Multiplier ×2: wenn IRGENDEIN Rack ein Patchpanel hat
+      const hasPatchpanelAnywhere = racks.some(r => (r.items || []).some(it => it.kind === 'patchpanel'));
+      const patchMultiplier = hasPatchpanelAnywhere ? 2 : 1;
       if(conns.length > 0) {
         out.push({ category: 'Zubehör', name: 'Cat6a Patchkabel 0,5 m', slug: 'acc-patch-cable', qty: conns.length * patchMultiplier, price: 3 });
       }
-      const usedU = (rack.items || []).reduce((s, it) => s + (it.uSize || 0), 0);
-      const emptyU = Math.max(0, rack.heightU - usedU);
-      if(emptyU > 0) out.push({ category: 'Zubehör', name: 'Blindblende 1U', slug: 'acc-blank-1u', qty: emptyU, price: 4 });
-      out.push({ category: 'Zubehör', name: `19" Wand-Rack ${rack.heightU}HE`, slug: 'acc-rack-' + rack.heightU + 'u', qty: 1, price: rack.heightU * 15 + 50 });
+
+      // Blindblenden: Σ leere HE über alle Racks
+      let totalEmptyU = 0;
+      for(const r of racks) {
+        const usedU = (r.items || []).reduce((s, it) => s + (it.uSize || 0), 0);
+        totalEmptyU += Math.max(0, r.heightU - usedU);
+      }
+      if(totalEmptyU > 0) out.push({ category: 'Zubehör', name: 'Blindblende 1U', slug: 'acc-blank-1u', qty: totalEmptyU, price: 4 });
+
+      // Wand-Rack-Gehäuse: pro Rack-Höhe ein Eintrag, gleiche Höhen aggregiert
+      const heightCounts = {};
+      for(const r of racks) heightCounts[r.heightU] = (heightCounts[r.heightU] || 0) + 1;
+      Object.entries(heightCounts).forEach(([h, qty]) => {
+        const heightU = parseInt(h);
+        out.push({ category: 'Zubehör', name: `19" Wand-Rack ${heightU}HE`, slug: 'acc-rack-' + heightU + 'u', qty, price: heightU * 15 + 50 });
+      });
       return out;
     }
 
@@ -7216,12 +7368,20 @@
           : (it.kind === 'patchpanel' && it.ports
               ? `<span class="ri-badge ri-badge-clickable" onclick="event.stopPropagation(); window.rackSetPatchpanelPorts('${it.id}')" title="Port-Anzahl ändern" style="cursor:pointer;">${it.ports}P</span>`
               : '');
+        // Preis-Badge nur für non-Hardware-Items (Hardware zieht Preis aus Katalog).
+        const isHardware = it.slug && productCache.specs && productCache.specs[it.slug];
+        let priceBadge = '';
+        if(!isHardware) {
+          const d = getRackItemDefaults(it.slug, it.kind);
+          const effPrice = it.price != null ? it.price : d.price;
+          priceBadge = `<span class="ri-badge ri-badge-clickable" onclick="event.stopPropagation(); window.rackSetItemPrice('${it.id}')" title="Preis ändern (Default: ${d.price} €)" style="cursor:pointer;">${effPrice} €</span>`;
+        }
         const topPx = (rack.heightU - it.uStart - it.uSize + 1) * 26;
         const hPx = it.uSize * 26 - 2;
         const label = it.label || productCache.specs[it.slug]?.name || (it.kind[0].toUpperCase() + it.kind.slice(1));
         return `<div class="rack-item" data-kind="${it.kind}" data-item-id="${it.id}" style="top:${topPx}px; height:${hPx}px; touch-action: none;" title="${escapeHtml(label)} · ${it.uSize}U · ziehen zum Verschieben">
           <span class="ri-name">${escapeHtml(label)}</span>
-          ${portsBadge}${widthBadge}
+          ${portsBadge}${priceBadge}${widthBadge}
           <span class="ri-remove" onclick="event.stopPropagation(); window.rackRemoveItem('${it.id}')" title="Aus Rack entfernen">✕</span>
         </div>`;
       }).join('');
@@ -7264,7 +7424,7 @@
         const disabled = meta.u === 0;
         return `<div class="rack-palette-card${disabled?' disabled':''}"
             ${disabled ? '' : `draggable="true" data-palette-slug="${c.slug || ''}" data-palette-kind="${c.kind}" data-palette-name="${escapeHtml(c.name)}"`}
-            ${disabled ? `title="${meta.note || 'nicht rackfähig'}"` : `onclick="window.rackPlaceItem('${c.slug || ''}','${c.kind}','${escapeHtml(c.name)}')"`}
+            ${disabled ? `title="${meta.note || 'nicht rackfähig'}"` : `onclick="window.rackPromptAndPlaceItem('${c.slug || ''}','${c.kind}','${escapeHtml(c.name)}')"`}
           >
           <span class="pc-u">${meta.u === 0 ? '—' : meta.u + 'U'}</span>
           <span class="pc-name">${escapeHtml(c.name)}</span>
@@ -7276,7 +7436,7 @@
       const customItems = state.rackView.customPalette || [];
       const customCards = customItems.map(c => `
         <div class="rack-palette-card"
-            draggable="true" data-palette-slug="" data-palette-kind="custom" data-palette-name="${escapeHtml(c.name)}" data-palette-u="${c.u}"
+            draggable="true" data-palette-slug="" data-palette-kind="custom" data-palette-name="${escapeHtml(c.name)}" data-palette-u="${c.u}" data-palette-price="${c.price ?? 0}"
             onclick="window.rackPlaceCustomPaletteItem('${c.id}')">
           <span class="pc-u">${c.u}U</span>
           <span class="pc-name">${escapeHtml(c.name)}</span>
@@ -7429,12 +7589,14 @@
       document.querySelectorAll('#rack-col-middle [data-palette-kind]').forEach(el => {
         el.addEventListener('dragstart', e => {
           const uAttr = el.getAttribute('data-palette-u');
+          const priceAttr = el.getAttribute('data-palette-price');
           rackDnD = {
             source: 'palette',
             slug: el.getAttribute('data-palette-slug') || null,
             kind: el.getAttribute('data-palette-kind'),
             name: el.getAttribute('data-palette-name'),
-            u: uAttr ? parseInt(uAttr) : null
+            u: uAttr ? parseInt(uAttr) : null,
+            price: priceAttr != null && priceAttr !== '' ? parseFloat(priceAttr) : null
           };
           e.dataTransfer.effectAllowed = 'copy';
           try { e.dataTransfer.setData('text/plain', rackDnD.kind); } catch(_) {}
@@ -7516,7 +7678,7 @@
           : ((rack.items.find(it => it.id === rackDnD.itemId)?.uSize) || 1);
         const u = uFromClientY(e.clientY, size);
         if(rackDnD.source === 'palette') {
-          window.rackPlaceItemAt(rackDnD.slug, rackDnD.kind, rackDnD.name, u, rackDnD.u);
+          window.rackPlaceItemAt(rackDnD.slug, rackDnD.kind, rackDnD.name, u, rackDnD.u, rackDnD.price);
         } else if(rackDnD.source === 'rack') {
           window.rackMoveItem(rackDnD.itemId, u);
         }
@@ -7615,7 +7777,23 @@
       if(!Number.isFinite(p) || p <= 0) { rackToast('Ungültige Port-Anzahl'); return; }
       target.ports = p;
       target.label = `Patchpanel ${p}-Port`;
-      saveState(); renderRackOverlay();
+      saveState(); renderRackOverlay(); render();
+    };
+    window.rackSetItemPrice = (itemId) => {
+      let target = null;
+      for(const rack of state.racks) {
+        const it = (rack.items || []).find(x => x.id === itemId);
+        if(it) { target = it; break; }
+      }
+      if(!target) return;
+      const d = getRackItemDefaults(target.slug, target.kind);
+      const cur = target.price != null ? target.price : d.price;
+      const val = prompt(`Preis in € (Default: ${d.price} €):`, String(cur));
+      if(val == null) return;
+      const p = parseFloat(val);
+      if(!Number.isFinite(p) || p < 0) { rackToast('Ungültiger Preis'); return; }
+      target.price = p;
+      saveState(); renderRackOverlay(); render();
     };
     window.rackSetHeight = (val) => {
       const newH = parseInt(val);
@@ -7634,7 +7812,39 @@
       rack.heightU = newH;
       saveState(); renderRackOverlay();
     };
-    window.rackPlaceItem = (slug, kind, name, uOverride) => {
+    // Hardware-Items (slug in productCache.specs) ziehen Preis aus dem Katalog
+    // → priceOverride wird ignoriert. Generische/Custom-Items speichern den
+    // priceOverride als it.price; null = Default aus RACK_KIND_DEFAULTS greift.
+    function _rackPriceForNewItem(slug, priceOverride) {
+      if(slug && productCache.specs && productCache.specs[slug]) return null;
+      if(priceOverride == null) return null;
+      const p = parseFloat(priceOverride);
+      return Number.isFinite(p) && p >= 0 ? p : null;
+    }
+    // Klick-Handler für Palette-Cards: Hardware-Items werden direkt platziert
+    // (Preis aus Katalog). Generische Items zeigen einen Preis-Prompt mit
+    // Default-Wert vorbelegt — Cancel = Default greift, OK mit Wert = Override.
+    window.rackPromptAndPlaceItem = (slug, kind, name) => {
+      if(slug && productCache.specs && productCache.specs[slug]) {
+        window.rackPlaceItem(slug, kind, name);
+        return;
+      }
+      const d = getRackItemDefaults(slug || null, kind);
+      const val = prompt(`Preis für "${name}" in € (Default: ${d.price} €):`, String(d.price));
+      if(val == null) {
+        // Cancel: trotzdem mit Default platzieren, kein Override speichern
+        window.rackPlaceItem(slug, kind, name);
+        return;
+      }
+      const p = parseFloat(val);
+      if(!Number.isFinite(p) || p < 0) {
+        rackToast('Ungültiger Preis — Default verwendet');
+        window.rackPlaceItem(slug, kind, name);
+        return;
+      }
+      window.rackPlaceItem(slug, kind, name, undefined, p);
+    };
+    window.rackPlaceItem = (slug, kind, name, uOverride, priceOverride) => {
       const rack = getActiveRack();
       if(!rack) return;
       const meta = getRackUnits(slug || null, kind);
@@ -7642,10 +7852,15 @@
       if(uSize === 0) { rackToast(meta.note || 'Nicht rackfähig'); return; }
       const uStart = findFreeSlot(rack, uSize, true);
       if(uStart == null) { rackToast('Kein Platz im Rack — Höhe erhöhen oder Items entfernen.'); return; }
-      rack.items.push({ id: rackGenId('ri'), slug: slug || null, kind, uStart, uSize, label: name || null, ports: kind === 'patchpanel' ? 24 : null });
-      saveState(); renderRackOverlay();
+      rack.items.push({
+        id: rackGenId('ri'), slug: slug || null, kind, uStart, uSize,
+        label: name || null,
+        ports: kind === 'patchpanel' ? 24 : null,
+        price: _rackPriceForNewItem(slug, priceOverride)
+      });
+      saveState(); renderRackOverlay(); render();
     };
-    window.rackPlaceItemAt = (slug, kind, name, uStart, uOverride) => {
+    window.rackPlaceItemAt = (slug, kind, name, uStart, uOverride, priceOverride) => {
       const rack = getActiveRack();
       if(!rack) return;
       const meta = getRackUnits(slug || null, kind);
@@ -7662,8 +7877,13 @@
       for(let u = uStart; u < uStart + uSize; u++) {
         if(occupied[u]) { rackToast('Kollision mit bestehendem Item'); return; }
       }
-      rack.items.push({ id: rackGenId('ri'), slug: slug || null, kind, uStart, uSize, label: name || null, ports: kind === 'patchpanel' ? 24 : null });
-      saveState(); renderRackOverlay();
+      rack.items.push({
+        id: rackGenId('ri'), slug: slug || null, kind, uStart, uSize,
+        label: name || null,
+        ports: kind === 'patchpanel' ? 24 : null,
+        price: _rackPriceForNewItem(slug, priceOverride)
+      });
+      saveState(); renderRackOverlay(); render();
     };
     window.rackAddCustomPaletteItem = () => {
       const name = prompt('Name für eigenes Palette-Item:');
@@ -7674,8 +7894,12 @@
       if(uStr == null) return;
       const u = parseInt(uStr);
       if(!Number.isFinite(u) || u < 1 || u > 10) { rackToast('Ungültige Höhe (1–10 HE)'); return; }
+      const priceStr = prompt('Preis in € (optional, leer = 0):', '0');
+      if(priceStr == null) return;
+      const priceParsed = parseFloat(priceStr);
+      const price = Number.isFinite(priceParsed) && priceParsed >= 0 ? priceParsed : 0;
       if(!state.rackView.customPalette) state.rackView.customPalette = [];
-      state.rackView.customPalette.push({ id: 'cp-' + Date.now().toString(36) + Math.random().toString(36).slice(2,5), name: trimmed, u });
+      state.rackView.customPalette.push({ id: 'cp-' + Date.now().toString(36) + Math.random().toString(36).slice(2,5), name: trimmed, u, price });
       saveState(); renderRackOverlay();
     };
     window.rackRemoveCustomPaletteItem = (id) => {
@@ -7686,7 +7910,7 @@
     window.rackPlaceCustomPaletteItem = (id) => {
       const c = (state.rackView.customPalette || []).find(x => x.id === id);
       if(!c) return;
-      window.rackPlaceItem('', 'custom', c.name, c.u);
+      window.rackPlaceItem('', 'custom', c.name, c.u, c.price);
     };
     window.rackMoveItem = (itemId, uStart) => {
       const rack = getActiveRack();
@@ -7735,7 +7959,7 @@
       rack.items = rack.items.filter(it => it.id !== itemId);
       // Connections auf dieses Item verwaisen — werden beim nächsten render geprunt
       state.cabling.connections = state.cabling.connections.filter(cn => cn.rackItemId !== itemId);
-      saveState(); renderRackOverlay();
+      saveState(); renderRackOverlay(); render();
     };
     window.rackSwapSwitchItem = (oldItemId, newSlug, newName) => {
       const rack = getActiveRack();
