@@ -356,7 +356,7 @@
     }
 
     @media (max-width: 768px) {
-      #ap-toolbar, #cam-toolbar {
+      #ap-toolbar, #cam-toolbar, #doorbell-toolbar {
         flex-wrap: nowrap !important;
         overflow-x: auto;
         scroll-snap-type: x mandatory;
@@ -364,7 +364,8 @@
         padding-bottom: 4px;
       }
       #ap-toolbar > [data-slug],
-      #cam-toolbar > [data-slug] {
+      #cam-toolbar > [data-slug],
+      #doorbell-toolbar > [data-slug] {
         min-width: 220px;
         scroll-snap-align: start;
         flex-shrink: 0;
@@ -2299,7 +2300,7 @@
         <div class="flex items-center gap-2 mt-3">
           <span class="text-xs font-bold uppercase tracking-wide text-nexus-muted">Türsprechanlagen</span>
         </div>
-        <div class="flex flex-wrap gap-4">
+        <div class="flex flex-wrap gap-4" id="doorbell-toolbar">
           ${doorbellItems.join('')}
         </div>
       ` : '';
@@ -3751,6 +3752,7 @@
 
       attachToolbarPointerDnD(document.getElementById('ap-toolbar'));
       attachToolbarPointerDnD(document.getElementById('cam-toolbar'));
+      attachToolbarPointerDnD(document.getElementById('doorbell-toolbar'));
 
       const apLayer = document.createElement('div');
       apLayer.className = 'absolute inset-0 w-full h-full pointer-events-none z-20';
