@@ -1147,6 +1147,8 @@
       switching: [],
       gateways: [],
       protect: [],
+      talk: [],            // UniFi Talk Telefonanlage (Iter. 18)
+      power: [],           // UniFi SmartPower (USV/PDU/RPS) (Iter. 18)
       accessories: [],
       cellular: [],
       specs: {},
@@ -1164,11 +1166,13 @@
       productCache.switching = window.UNIFI_DATA.categories.switching;
       productCache.gateways = window.UNIFI_DATA.categories['cloud-gateways'];
       productCache.protect = window.UNIFI_DATA.categories.protect || [];
+      productCache.talk = window.UNIFI_DATA.categories.talk || [];
+      productCache.power = window.UNIFI_DATA.categories.power || [];
       productCache.accessories = window.UNIFI_DATA.categories.accessories || [];
       productCache.cellular = window.UNIFI_DATA.categories.cellular || [];
       productCache.prices = window.UNIFI_DATA.prices || {};
 
-      const allP = [...productCache.wifi, ...productCache.switching, ...productCache.gateways, ...productCache.protect, ...productCache.accessories, ...productCache.cellular];
+      const allP = [...productCache.wifi, ...productCache.switching, ...productCache.gateways, ...productCache.protect, ...productCache.talk, ...productCache.power, ...productCache.accessories, ...productCache.cellular];
       allP.forEach(p => { productCache.specs[p.slug] = p; });
 
       // UDR 5G Max ist ein Cloud-Gateway mit 5G-Modem — in der Mobilfunk-Auswahl als
@@ -1336,7 +1340,9 @@
       rackViewOpen: false,       // ephemer; beim Boot immer false
       energy: { tariff: 0.32, upsRuntimeMin: 15 },  // €/kWh, USV-Autonomie in Min
       coverage: { profile: 'general' },             // siehe COVERAGE_PROFILES
-      recording: { retentionDays: 14, fpsProfile: 'standard' }  // NVR-Speicher (Iter. 5)
+      recording: { retentionDays: 14, fpsProfile: 'standard' },  // NVR-Speicher (Iter. 5)
+      talk: { devices: {} },                        // { slug → qty } für Iter. 18 UniFi Talk
+      power: { selected: 'auto' }                   // 'auto' | slug aus productCache.power
     };
 
     // Backup-State Defaults + Migration alter Schema-Versionen.
@@ -1647,6 +1653,8 @@
           parsed.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(parsed.energy || {}) };
           parsed.coverage = { profile: 'general', ...(parsed.coverage || {}) };
           parsed.recording = { retentionDays: 14, fpsProfile: 'standard', ...(parsed.recording || {}) };
+          parsed.talk = { devices: {}, ...(parsed.talk || {}) };
+          parsed.power = { selected: 'auto', ...(parsed.power || {}) };
           // Vollbild-Modus beim Reload nicht persistieren
           if(parsed.view && typeof parsed.view === 'object') parsed.view.plannerFullscreen = false;
           // ISP-Objekte frisch aus aktueller ispList auflösen, damit neue Felder
@@ -1738,7 +1746,9 @@
         rackViewOpen: false,
         energy: { tariff: 0.32, upsRuntimeMin: 15 },
         coverage: { profile: 'general' },
-        recording: { retentionDays: 14, fpsProfile: 'standard' }
+        recording: { retentionDays: 14, fpsProfile: 'standard' },
+        talk: { devices: {} },
+        power: { selected: 'auto' }
       };
       Object.assign(state, demoState);
       saveState();
@@ -4675,6 +4685,21 @@
       state.view.band = id;
       render();
     };
+    window.setTalkDeviceQty = (slug, qty) => {
+      if(!productCache.specs[slug] || productCache.specs[slug].category !== 'talk') return;
+      if(!state.talk) state.talk = { devices: {} };
+      const n = Math.max(0, Math.min(99, parseInt(qty) || 0));
+      if(n === 0) delete state.talk.devices[slug];
+      else state.talk.devices[slug] = n;
+      render();
+    };
+    window.setPowerSelection = (slug) => {
+      if(!state.power) state.power = { selected: 'auto' };
+      if(slug === 'auto' || (productCache.specs[slug] && productCache.specs[slug].category === 'power')) {
+        state.power.selected = slug;
+        render();
+      }
+    };
     window.setAperturesMode = (mode) => {
       // null | 'door' | 'window' — toggle: nochmal denselben drücken schaltet ab.
       if(mode != null && !APERTURE_TYPES[mode]) mode = null;
@@ -4979,6 +5004,27 @@
       // RADIUS-Empfehlung (P1 #23) — wird gezeigt, sobald irgendein VLAN
       // WPA3-Enterprise nutzt (Iter. 4a setzt hasEnterprise). Drei
       // pragmatische Server-Optionen.
+      // UniFi Talk-Auswahl (Iter. 18b, P3 #44) — wird gezeigt, wenn der
+      // Talk-Toggle aktiv ist. Pro Modell ein Mengen-Input; landet
+      // automatisch in der BOM (siehe buildBom).
+      const talkSelectCard = state.features.talk && (productCache.talk || []).length > 0 ? `
+        <div class="card p-5 mt-2">
+          <h3 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="phone" class="w-4 h-4 text-nexus-primary" aria-hidden="true"></i> UniFi Talk — Endgeräte</h3>
+          <p class="text-sm text-nexus-muted mb-3">Anzahl pro Modell wählen. Telefone nutzen den Talk-Service auf dem Gateway (UCG Max / UDM Pro / EFG); SIP-Trunk wird separat gebucht.</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+            ${(productCache.talk || []).map(p => {
+              const qty = (state.talk?.devices || {})[p.slug] || 0;
+              return `<label class="flex items-center justify-between p-3 rounded border border-nexus-border bg-nexus-surface bg-opacity-30 gap-3">
+                <div class="min-w-0">
+                  <div class="font-bold text-sm">${p.name}</div>
+                  <div class="text-xs text-nexus-muted mt-0.5">${p.type === 'handset' ? 'DECT-Handset · kein PoE' : `${p.displayInch || '—'}″ Touch · ${p.poeWatts || 0} W PoE`} · ${p.price} €</div>
+                </div>
+                <input type="number" min="0" max="99" value="${qty}" onchange="window.setTalkDeviceQty('${p.slug}', this.value)" class="w-16 bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-sm text-center" aria-label="Anzahl ${p.name}" />
+              </label>`;
+            }).join('')}
+          </div>
+        </div>` : '';
+
       const radiusRecoCard = hasEnterprise ? `
         <div class="card p-5 mt-2">
           <h3 class="font-bold mb-3 flex items-center gap-2"><i data-lucide="server" class="w-4 h-4 text-nexus-primary" aria-hidden="true"></i> RADIUS-Server für WPA3 Enterprise</h3>
@@ -5029,6 +5075,7 @@
           ${tc('contentFilter', 'Content-Filter', 'DNS-basierter Schutz (Kategorien)',          'filter',           state.features.contentFilter)}
           ${tc('talk',          'UniFi Talk',     'VoIP-Telefonanlage im Gateway',             'phone',            state.features.talk)}
         </div>
+        ${talkSelectCard}
         ${vpnRecoCard}
         ${radiusRecoCard}
       `;
@@ -5506,6 +5553,26 @@
         autoBom.push({ category: 'NVR', name: nvr.name, slug: nvrSlug, qty: 1, price: nvr.price });
       }
 
+      // UniFi Talk-Geräte (Iter. 18b)
+      if(state.features?.talk && state.talk?.devices) {
+        Object.entries(state.talk.devices).forEach(([slug, qty]) => {
+          if(!qty || qty <= 0) return;
+          const p = productCache.specs[slug];
+          if(!p) return;
+          autoBom.push({ category: 'UniFi Talk', name: p.name, slug, qty, price: p.price || 0 });
+        });
+      }
+
+      // SmartPower / USV (Iter. 18b) — wenn der User explizit ein Modell
+      // gewählt hat, kommt es hier als Hardware-Zeile. „auto" = Empfehlung
+      // bleibt rein als Hinweis in der USV-Karte (Step 6) ohne BOM-Eintrag,
+      // damit die bisherige USV-Annahme nichts überschreibt.
+      const powerSel = state.power?.selected;
+      if(powerSel && powerSel !== 'auto') {
+        const p = productCache.specs[powerSel];
+        if(p) autoBom.push({ category: 'SmartPower', name: p.name, slug: powerSel, qty: 1, price: p.price || 0 });
+      }
+
       // Zubehör-Empfehlungen
       const mountPrice = 25;
       if(allAps.length > 0) autoBom.push({ category: 'Zubehör', name: 'AP-Deckenmount (Standard)', slug: 'acc-mount-ceiling', qty: allAps.length, price: mountPrice });
@@ -5674,6 +5741,8 @@
         parsed.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(parsed.energy || {}) };
         parsed.coverage = { profile: 'general', ...(parsed.coverage || {}) };
         parsed.recording = { retentionDays: 14, fpsProfile: 'standard', ...(parsed.recording || {}) };
+        parsed.talk = { devices: {}, ...(parsed.talk || {}) };
+        parsed.power = { selected: 'auto', ...(parsed.power || {}) };
         Object.assign(state, parsed);
         const slugIssues = validateSlugRefs(state);
         if(slugIssues.length > 0) _loadStateError = slugIssues.join(' ');
@@ -5748,6 +5817,8 @@
             loaded.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(loaded.energy || {}) };
             loaded.coverage = { profile: 'general', ...(loaded.coverage || {}) };
             loaded.recording = { retentionDays: 14, fpsProfile: 'standard', ...(loaded.recording || {}) };
+            loaded.talk = { devices: {}, ...(loaded.talk || {}) };
+            loaded.power = { selected: 'auto', ...(loaded.power || {}) };
             Object.assign(state, loaded);
             const slugIssues = validateSlugRefs(state);
             render();
@@ -6309,6 +6380,17 @@
                 </select>
                 <span>Min Autonomie</span>
               </div>
+              ${(productCache.power || []).length > 0 ? `
+                <div class="mt-2 text-xs text-nexus-muted">
+                  <label class="block mb-1">SmartPower-Modell:</label>
+                  <select onchange="window.setPowerSelection(this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs no-print" aria-label="SmartPower-Modell wählen">
+                    <option value="auto" ${(state.power?.selected || 'auto') === 'auto' ? 'selected' : ''}>Empfehlung (kein BOM-Eintrag)</option>
+                    ${(productCache.power || []).map(pp => {
+                      const fits = pp.vaCapacity ? pp.vaCapacity >= p.upsVA : true;
+                      return `<option value="${pp.slug}" ${state.power?.selected === pp.slug ? 'selected' : ''}>${pp.name}${pp.vaCapacity ? ` · ${pp.vaCapacity} VA${fits ? '' : ' (zu klein)'}` : ` · ${pp.outputs || '?'} Slots`} · ${pp.price} €</option>`;
+                    }).join('')}
+                  </select>
+                </div>` : ''}
             </div>
           </div>
 
