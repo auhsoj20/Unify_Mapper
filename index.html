@@ -3656,6 +3656,50 @@
     // PoE-Last, der Anzahl PoE-pflichtiger Geräte, der höchsten benötigten
     // Port-Klasse und der Anzahl benötigter Gesamt-Ports (inkl. Uplink).
     // Wenn das Gateway alle PoE-Geräte versorgen kann, reicht ein Non-PoE-Switch.
+    // Multi-Switch-Stacking (Iter. 8): liefert ein Array {switch, devices,
+    // poeDevices, watts, qty} — wenn ein einzelner Switch den Bedarf nicht
+    // deckt, wird der größte verfügbare Switch mehrfach gestapelt. Der erste
+    // Eintrag ist der „Master" und wird auch als Auswahl in Step 3 angezeigt.
+    function recommendSwitchStack(switches, totalPoe, totalDevices, gatewayCanCoverAll, opts = {}) {
+      const poeDevices = opts.poeDevices ?? totalDevices;
+      const maxDeviceWatts = opts.maxDeviceWatts ?? 0;
+      const single = recommendSwitch(switches, totalPoe, totalDevices, gatewayCanCoverAll, opts);
+      const portsNeeded = totalDevices + SWITCH_UPLINK_PORTS;
+      const fitsAll = (s) => (s.ports || 0) >= portsNeeded
+        && getPoePortCount(s) >= poeDevices
+        && getPoeMaxPerPort(s) >= maxDeviceWatts
+        && (s.budget || 0) >= totalPoe * POE_HEADROOM;
+      if(fitsAll(single) || totalDevices === 0) {
+        return [{ switch: single, devices: totalDevices, poeDevices, watts: totalPoe, qty: 1 }];
+      }
+      // Stack-Strategie: der größte Switch deckt so viele Geräte wie möglich,
+      // weitere identische Switches absorbieren den Rest. Begrenzt auf 6
+      // Stack-Mitglieder, damit kein endloser Loop bei winzigen Switches.
+      const sortedDesc = [...switches].sort((a, b) =>
+        (getPoePortCount(b) - getPoePortCount(a)) ||
+        ((b.budget || 0) - (a.budget || 0)) ||
+        ((b.ports || 0) - (a.ports || 0))
+      );
+      const master = sortedDesc.find(s => getPoeMaxPerPort(s) >= maxDeviceWatts) || sortedDesc[0] || single;
+      const swPorts = Math.max(1, (master.ports || 1) - SWITCH_UPLINK_PORTS);
+      const swPoePorts = Math.max(0, getPoePortCount(master));
+      const swBudget = Math.max(0, (master.budget || 0) / POE_HEADROOM);
+      let remDevices = totalDevices, remWatts = totalPoe, remPoeDev = poeDevices;
+      const entries = [];
+      for(let i = 0; i < 6 && (remDevices > 0 || remPoeDev > 0); i++) {
+        const takeDevices = Math.min(swPorts, remDevices);
+        const takePoe    = Math.min(swPoePorts, remPoeDev);
+        const takeWatts  = Math.min(swBudget, remWatts);
+        if(takeDevices === 0 && takePoe === 0) break;
+        entries.push({ switch: master, devices: takeDevices, poeDevices: takePoe, watts: takeWatts, qty: 1 });
+        remDevices -= takeDevices;
+        remWatts -= takeWatts;
+        remPoeDev -= takePoe;
+      }
+      // Falls keine Entries entstanden (z. B. master ohne PoE und alle Devices PoE): single zurückgeben.
+      return entries.length > 0 ? entries : [{ switch: single, devices: totalDevices, poeDevices, watts: totalPoe, qty: 1 }];
+    }
+
     function recommendSwitch(switches, switchPoe, switchDevices, gatewayCanCoverAll, opts = {}) {
       const poeDevices = opts.poeDevices ?? switchDevices;        // wieviele brauchen PoE?
       const maxDeviceWatts = opts.maxDeviceWatts ?? 0;             // max. Einzelgerät-Watt
@@ -3714,9 +3758,12 @@
       const initialSwitchPoe = gatewayCanCoverAll ? 0 : totalPoe;
       const initialSwitchDevices = gatewayCanCoverAll ? 0 : allDevices.length;
       const initialPoeDevices = gatewayCanCoverAll ? 0 : poeDeviceCount;
+      const stackOpts3 = { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts };
       const recSwitch = recommendSwitch(
-        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll,
-        { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts }
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll, stackOpts3
+      );
+      const recStack = recommendSwitchStack(
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll, stackOpts3
       );
 
       // Gespeicherte Auswahl wiederherstellen, sonst die Empfehlung übernehmen.
@@ -4036,6 +4083,18 @@
           </select>
           <p class="text-xs text-nexus-muted mt-2">Empfehlung: ${recSwitch.name || '—'} (${recSwitch.ports || 0} Ports${(recSwitch.budget || 0) > 0 ? `, ${recSwitch.budget} W PoE` : ', ohne PoE'}).
             ${state.selectedSwitch !== recSwitch.slug ? `<button type="button" id="btn-use-rec" class="text-nexus-primary underline ml-1">Empfehlung übernehmen</button>` : ''}</p>
+          ${recStack.length > 1 ? `
+            <div class="mt-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-xs flex gap-2 items-start">
+              <i data-lucide="layers" class="w-4 h-4 mt-0.5 flex-shrink-0" aria-hidden="true"></i>
+              <div>
+                <strong>Stack empfohlen: ${recStack.length} × ${recStack[0].switch.name}</strong> —
+                Ein einzelner Switch deckt die ${initialSwitchDevices} Endgeräte
+                (${fmt0(initialSwitchPoe)} W PoE) nicht ab. Stapel ${recStack.length} identische Switches
+                über das integrierte UniFi-Stacking (Aggregation-Uplink) oder lege sie als parallele
+                Distribution-Switches an. Die zusätzlichen ${recStack.length - 1} Switches stehen
+                automatisch in der BOM.
+              </div>
+            </div>` : ''}
         </div>
         ${renderAssignmentCard()}
         <div id="switch-card-container">${renderSwitchCard(activeSwitch)}</div>
@@ -4893,9 +4952,12 @@
       const initialSwitchPoe = gatewayCanCoverAll ? 0 : totalPoe;
       const initialSwitchDevices = gatewayCanCoverAll ? 0 : allDevices.length;
       const initialPoeDevices = gatewayCanCoverAll ? 0 : poeDeviceCount;
+      const stackOpts = { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts };
       let recSwitch = recommendSwitch(
-        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll,
-        { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts }
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll, stackOpts
+      );
+      const switchStack = recommendSwitchStack(
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll, stackOpts
       );
       if(!recSwitch) recSwitch = { name: 'Generic PoE Switch', budget: 150, price: 199, ports: 8, slug: '' };
       const activeSwitch = (state.selectedSwitch && switches.find(s => s.slug === state.selectedSwitch)) || recSwitch;
@@ -4922,6 +4984,21 @@
       }
 
       autoBom.push({ category: 'Switch', name: activeSwitch.name, slug: activeSwitch.slug || '', qty: 1, price: activeSwitch.price || 199 });
+      // Wenn ein einzelner Switch die Last nicht decken kann, fügen wir
+      // weitere Switches als Stack-Mitglieder hinzu. Slug wird mit "-stack-N"
+      // suffigiert, damit die BOM-Override-Map den Eintrag nicht mit dem
+      // Master-Switch verwechselt.
+      const stackExtras = Math.max(0, switchStack.length - 1);
+      if(stackExtras > 0) {
+        const stackMaster = switchStack[0].switch;
+        autoBom.push({
+          category: 'Switch (Stack)',
+          name: stackMaster.name,
+          slug: (stackMaster.slug || 'switch') + '-stack',
+          qty: stackExtras,
+          price: stackMaster.price || 199
+        });
+      }
 
       const apCounts = {};
       allAps.forEach(ap => apCounts[ap.slug] = (apCounts[ap.slug] || 0) + 1);
@@ -4993,7 +5070,7 @@
       const switchHasPoe = !!activeSwitch && activeSwitch.poe !== false && (activeSwitch.budget || 0) > 0;
       const poeAllocation = computePoeAllocation(allDevices, switchHasPoe, gatewayHasPoe);
 
-      return { gw, gwSpec, gatewayBudget, gatewayHasPoe, switchHasPoe, poeAllocation, allAps, allCameras, totalApPoe, totalCamPoe, totalPoe, recSwitch, activeSwitch, bom, autoBom, apCounts, camCounts };
+      return { gw, gwSpec, gatewayBudget, gatewayHasPoe, switchHasPoe, poeAllocation, allAps, allCameras, totalApPoe, totalCamPoe, totalPoe, recSwitch, activeSwitch, switchStack, bom, autoBom, apCounts, camCounts };
     }
 
     // Realistische Idle-Wattage-Schätzung für Gateways (ohne PoE-Last).
