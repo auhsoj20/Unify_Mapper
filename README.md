@@ -54,10 +54,26 @@ Projekte können zusätzlich als `.json`-Datei exportiert und wieder importiert 
 
 | Datei | Zweck |
 |---|---|
-| [index.html](index.html) | Komplettes Frontend (HTML/Tailwind/JS) |
+| [index.html](index.html) | Komplettes Frontend (HTML + Inline-JS) |
 | [unifi-products.js](unifi-products.js) | Produkt- und Preisdatenbank (`window.UNIFI_DATA`) |
+| [src/tailwind.css](src/tailwind.css) | Tailwind-Source (nur `@tailwind`-Direktiven) |
+| [tailwind.config.js](tailwind.config.js) | Tailwind-Konfiguration (Theme, Safelist) |
+| [dist/tailwind.css](dist/tailwind.css) | Gebaute CSS — wird von index.html geladen |
 | [.nojekyll](.nojekyll) | Verhindert Jekyll-Verarbeitung durch GitHub Pages |
+
+## CSS bauen (lokal)
+
+Tailwind wird nicht mehr per CDN geladen, sondern lokal gebaut — kein FOUC, ~35 % kleinere CSS-Datei und keine externe Abhängigkeit zur Laufzeit.
+
+```bash
+npm install        # einmalig
+npm run build:css  # baut dist/tailwind.css minifiziert
+npm run watch:css  # rebuildet automatisch bei Änderungen
+```
+
+Wer `index.html`, `tailwind.config.js` oder `src/tailwind.css` ändert, muss anschließend `npm run build:css` aufrufen und die aktualisierte `dist/tailwind.css` mitcommiten. Ein GitHub-Actions-Workflow ([.github/workflows/build-css.yml](.github/workflows/build-css.yml)) prüft bei jedem Pull Request, dass die committete CSS zum Source passt.
 
 ## Voraussetzungen
 
 - Aktueller Browser (Chrome, Edge, Firefox).
+- Für CSS-Änderungen: Node.js 22+ und npm.

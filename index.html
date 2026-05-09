@@ -9,36 +9,7 @@
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=cabinet-grotesk@400,500,700,800&display=swap" rel="stylesheet">
   
   <!-- Tailwind V3 -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'media',
-      theme: {
-        extend: {
-          colors: {
-            nexus: {
-              surface: 'var(--color-surface)',
-              surfaceCard: 'var(--color-surface-card)',
-              primary: 'var(--color-primary)',
-              primaryHover: 'var(--color-primary-hover)',
-              base: 'var(--color-text)',
-              muted: 'var(--color-text-muted)',
-              border: 'var(--color-border)',
-            }
-          },
-          fontFamily: {
-            sans: ['Satoshi', 'sans-serif'],
-            display: ['Cabinet Grotesk', 'sans-serif'],
-          },
-          boxShadow: {
-            'nexus-card': '0 4px 12px 0 rgba(0, 0, 0, 0.05)',
-            'nexus-float': '0 8px 30px rgba(0, 0, 0, 0.12)'
-          }
-        }
-      }
-    }
-  </script>
-
+  <link rel="stylesheet" href="dist/tailwind.css">
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="unifi-products.js"></script>

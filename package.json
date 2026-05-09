@@ -1,0 +1,13 @@
+{
+  "name": "unify-mapper",
+  "version": "1.0.0",
+  "description": "UniFi Setup Planner — Tailwind-CSS-Build-Setup",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i src/tailwind.css -o dist/tailwind.css --minify",
+    "watch:css": "tailwindcss -i src/tailwind.css -o dist/tailwind.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.13"
+  }
+}
