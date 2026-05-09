@@ -874,6 +874,33 @@
     ];
     const DEFAULT_WPA_MODE = 'wpa3-personal';
 
+    // Inter-VLAN-Firewall-Stufen (Iter. 7). Vereinfachtes Modell: keine
+    // beliebigen Allow-Listen, sondern vier vordefinierte Stufen, die zu
+    // > 90 % aller Heim-/SMB-Setups passen. Wer mehr Granularität braucht,
+    // konfiguriert sie direkt im UniFi-Controller.
+    const VLAN_ISOLATION = [
+      { id: 'none',      label: 'Keine',            hint: 'VLAN kann mit allen anderen Segmenten kommunizieren.' },
+      { id: 'mgmt-only', label: 'Nur Mgmt',         hint: 'Nur Verwaltungs-VLAN erreichbar — typisch für IoT/Kameras (Updates, NVR).' },
+      { id: 'main-only', label: 'Nur Mgmt+Haupt',   hint: 'Mgmt + Haupt-Segment erreichbar — typisch für VoIP/Drucker.' },
+      { id: 'strict',    label: 'Strikt (nur WAN)', hint: 'Kein Inter-VLAN-Routing — typisch für Gast-WLAN.' }
+    ];
+    // Empfohlene Default-Isolation pro VLAN-Zweck.
+    const VLAN_ISOLATION_DEFAULTS = {
+      mgmt:   'none',
+      main:   'none',
+      guest:  'strict',
+      iot:    'mgmt-only',
+      camera: 'mgmt-only',
+      voip:   'main-only',
+      server: 'none',
+      custom: 'none'
+    };
+    // Empfohlene Client-Isolation (SSID-Layer „No P2P traffic between clients").
+    const VLAN_CLIENT_ISO_DEFAULTS = {
+      guest: true,
+      iot:   true
+    };
+
     // Default-Subnetze pro VLAN-Zweck (Vorschlag beim Anlegen / Wechsel von „custom").
     const VLAN_DEFAULT_SUBNETS = {
       mgmt:   '10.0.10.0/24',
@@ -1521,8 +1548,8 @@
           });
           if(!parsed.view) parsed.view = { heatmap: false };
           if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
-          // Alte VLANs ohne wpaMode auf den Default heben.
-          parsed.vlans = parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v }));
+          // Alte VLANs ohne wpaMode/isolation/clientIsolation auf Defaults heben.
+          parsed.vlans = applyIsolationDefaults(parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
           parsed.backup = normalizeBackupState(parsed.backup);
           parsed.bomOverrides = normalizeBomOverrides(parsed.bomOverrides);
           if(!parsed.poeAssignments || typeof parsed.poeAssignments !== 'object') parsed.poeAssignments = {};
@@ -4286,9 +4313,19 @@
       ]
     };
 
+    // Wendet die per-Purpose-Isolation-Defaults an, wenn das VLAN noch keinen
+    // expliziten Wert hat. Wird bei Preset-Apply, Import und Migration genutzt.
+    function applyIsolationDefaults(vlans) {
+      return (vlans || []).map(v => ({
+        isolation:       VLAN_ISOLATION_DEFAULTS[v.purpose] || 'none',
+        clientIsolation: VLAN_CLIENT_ISO_DEFAULTS[v.purpose] || false,
+        ...v
+      }));
+    }
+
     window.applyVlanPreset = (key) => {
       if(!VLAN_PRESETS[key]) return;
-      state.vlans = JSON.parse(JSON.stringify(VLAN_PRESETS[key]));
+      state.vlans = applyIsolationDefaults(JSON.parse(JSON.stringify(VLAN_PRESETS[key])));
       render();
     };
     // Liefert ein freies /24-Subnetz im 10.0.x.0-Bereich, das zu den bereits
@@ -4308,7 +4345,16 @@
     window.addVlan = () => {
       const existing = new Set(state.vlans.map(v => v.id));
       let nextId = 50; while(existing.has(nextId) && nextId < 4095) nextId += 10;
-      state.vlans.push({ id: nextId, name: 'Neues VLAN', subnet: suggestFreeSubnet(`10.0.${nextId}.0/24`), purpose: 'custom', ssid: null, wpaMode: DEFAULT_WPA_MODE });
+      state.vlans.push({
+        id: nextId,
+        name: 'Neues VLAN',
+        subnet: suggestFreeSubnet(`10.0.${nextId}.0/24`),
+        purpose: 'custom',
+        ssid: null,
+        wpaMode: DEFAULT_WPA_MODE,
+        isolation: VLAN_ISOLATION_DEFAULTS.custom,
+        clientIsolation: false
+      });
       render();
     };
     window.removeVlan = (idx) => { state.vlans.splice(idx, 1); render(); };
@@ -4318,6 +4364,18 @@
       if(field === 'id') value = Math.max(1, Math.min(4094, parseInt(value) || 1));
       if(field === 'ssid' && value === '') value = null;
       if(field === 'wpaMode' && !WPA_MODES.some(w => w.id === value)) value = DEFAULT_WPA_MODE;
+      if(field === 'isolation' && !VLAN_ISOLATION.some(i => i.id === value)) value = 'none';
+      if(field === 'clientIsolation') value = !!value;
+      // Beim Zweckwechsel: wenn Isolation/clientIso noch der bisherige Default
+      // war, auf den Default für den neuen Zweck springen.
+      if(field === 'purpose') {
+        const oldDefault = VLAN_ISOLATION_DEFAULTS[v.purpose] || 'none';
+        const newDefault = VLAN_ISOLATION_DEFAULTS[value] || 'none';
+        if(v.isolation === oldDefault) v.isolation = newDefault;
+        const oldCi = VLAN_CLIENT_ISO_DEFAULTS[v.purpose] || false;
+        const newCi = VLAN_CLIENT_ISO_DEFAULTS[value] || false;
+        if(!!v.clientIsolation === !!oldCi) v.clientIsolation = newCi;
+      }
       // Beim Wechsel des Zwecks: wenn das aktuelle Subnetz noch das ursprüngliche
       // Default ist (also noch nicht vom User editiert), automatisch auf den
       // Standard-Bereich für den neuen Zweck springen.
@@ -4347,6 +4405,7 @@
       const purposes = ['mgmt','main','guest','iot','camera','voip','server','custom'];
       const purposeOpts = (cur) => purposes.map(p => `<option value="${p}" ${p===cur?'selected':''}>${p}</option>`).join('');
       const wpaOpts = (cur) => WPA_MODES.map(w => `<option value="${w.id}" ${w.id===(cur||DEFAULT_WPA_MODE)?'selected':''} title="${w.hint}">${w.short}</option>`).join('');
+      const isoOpts = (cur) => VLAN_ISOLATION.map(i => `<option value="${i.id}" ${i.id===(cur||'none')?'selected':''} title="${i.hint}">${i.label}</option>`).join('');
 
       // Validierung
       const warnings = [];
@@ -4398,6 +4457,8 @@
                 <th class="px-4 py-3 text-left">Zweck</th>
                 <th class="px-4 py-3 text-left">SSID</th>
                 <th class="px-4 py-3 text-left">WLAN-Sicherheit</th>
+                <th class="px-4 py-3 text-left" title="Inter-VLAN-Routing-Stufe">Isolation</th>
+                <th class="px-4 py-3 text-center" title="SSID-Layer: Clients untereinander blockieren">Client-Iso</th>
                 <th class="px-2 py-3"></th>
               </tr>
             </thead>
@@ -4410,6 +4471,8 @@
                   <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'purpose',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${purposeOpts(v.purpose)}</select></td>
                   <td class="px-4 py-2"><input type="text" value="${v.ssid || ''}" placeholder="—" onchange="window.updateVlan(${i},'ssid',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"></td>
                   <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'wpaMode',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs" ${v.ssid ? '' : 'disabled title="Nur relevant, wenn das VLAN eine SSID ausstrahlt"'}>${wpaOpts(v.wpaMode)}</select></td>
+                  <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'isolation',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${isoOpts(v.isolation)}</select></td>
+                  <td class="px-4 py-2 text-center"><input type="checkbox" ${v.clientIsolation ? 'checked' : ''} onchange="window.updateVlan(${i},'clientIsolation',this.checked)" class="cursor-pointer" ${v.ssid ? '' : 'disabled title="Nur sinnvoll bei aktiver SSID"'} aria-label="Client-Isolation für VLAN ${v.id}"></td>
                   <td class="px-2 py-2 text-right"><button onclick="window.removeVlan(${i})" class="text-red-500 hover:text-red-700" title="Entfernen" aria-label="VLAN ${v.id} entfernen"><i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i></button></td>
                 </tr>`).join('')}
             </tbody>
@@ -5005,7 +5068,7 @@
             });
             if(!loaded.view) loaded.view = { heatmap: false };
             if(!Array.isArray(loaded.vlans)) loaded.vlans = [];
-            loaded.vlans = loaded.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v }));
+            loaded.vlans = applyIsolationDefaults(loaded.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v })));
             loaded.backup = normalizeBackupState(loaded.backup);
             loaded.bomOverrides = normalizeBomOverrides(loaded.bomOverrides);
             loaded.racks = normalizeRacksState(loaded.racks);
@@ -5348,16 +5411,53 @@
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50"><h3 class="font-bold">Netzwerk-Segmentierung (VLANs)</h3></div>
              <table class="w-full text-sm text-left">
                <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
-                 <tr><th class="px-6 py-3">ID</th><th class="px-6 py-3">Name</th><th class="px-6 py-3">Subnetz</th><th class="px-6 py-3">Zweck</th><th class="px-6 py-3">SSID</th><th class="px-6 py-3">WLAN-Sicherheit</th></tr>
+                 <tr><th class="px-6 py-3">ID</th><th class="px-6 py-3">Name</th><th class="px-6 py-3">Subnetz</th><th class="px-6 py-3">Zweck</th><th class="px-6 py-3">SSID</th><th class="px-6 py-3">WLAN-Sicherheit</th><th class="px-6 py-3">Isolation</th></tr>
                </thead>
                <tbody>
                  ${state.vlans.map(v => {
                    const wpa = WPA_MODES.find(w => w.id === (v.wpaMode || DEFAULT_WPA_MODE)) || WPA_MODES[0];
-                   return `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono">${v.id}</td><td class="px-6 py-3 font-medium">${v.name}</td><td class="px-6 py-3 font-mono text-xs">${v.subnet}</td><td class="px-6 py-3">${v.purpose}</td><td class="px-6 py-3">${v.ssid || '—'}</td><td class="px-6 py-3 text-xs">${v.ssid ? wpa.label : '—'}</td></tr>`;
+                   const iso = VLAN_ISOLATION.find(i => i.id === (v.isolation || 'none')) || VLAN_ISOLATION[0];
+                   const ciBadge = v.clientIsolation ? ' · <span class="text-[10px] uppercase tracking-wide bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded">Client-Iso</span>' : '';
+                   return `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono">${v.id}</td><td class="px-6 py-3 font-medium">${v.name}</td><td class="px-6 py-3 font-mono text-xs">${v.subnet}</td><td class="px-6 py-3">${v.purpose}</td><td class="px-6 py-3">${v.ssid || '—'}</td><td class="px-6 py-3 text-xs">${v.ssid ? wpa.label : '—'}</td><td class="px-6 py-3 text-xs">${iso.label}${ciBadge}</td></tr>`;
                  }).join('')}
                </tbody>
              </table>
           </div>` : '';
+
+      // Firewall-Matrix: Welche VLANs dürfen welche erreichen?
+      const fwCard = (state.vlans && state.vlans.length >= 2) ? (() => {
+         const mgmtVlan = state.vlans.find(v => v.purpose === 'mgmt');
+         const mainVlan = state.vlans.find(v => v.purpose === 'main');
+         const allows = (v) => {
+           const iso = v.isolation || 'none';
+           if(iso === 'strict')    return ['WAN'];
+           if(iso === 'mgmt-only') return ['WAN', mgmtVlan ? `Mgmt (#${mgmtVlan.id})` : 'Mgmt'];
+           if(iso === 'main-only') return ['WAN', mgmtVlan ? `Mgmt (#${mgmtVlan.id})` : 'Mgmt', mainVlan ? `Haupt (#${mainVlan.id})` : 'Haupt'];
+           return ['WAN', 'Alle anderen VLANs'];
+         };
+         return `
+          <div class="card p-0 overflow-hidden">
+            <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50">
+              <h3 class="font-bold">Firewall-Matrix (Inter-VLAN-Routing)</h3>
+              <p class="text-xs text-nexus-muted mt-1">Welche Ziele erreichen die VLAN-Clients laut der gewählten Isolation. Im UniFi-Controller als Firewall-Regeln im Tab „Internet/LAN In" abbilden.</p>
+            </div>
+            <table class="w-full text-sm text-left">
+              <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
+                <tr><th class="px-6 py-3">Quelle</th><th class="px-6 py-3">Stufe</th><th class="px-6 py-3">Erreichbare Ziele</th></tr>
+              </thead>
+              <tbody>
+                ${state.vlans.map(v => {
+                  const iso = VLAN_ISOLATION.find(i => i.id === (v.isolation || 'none')) || VLAN_ISOLATION[0];
+                  return `<tr class="border-b border-nexus-border">
+                    <td class="px-6 py-3 font-medium">#${v.id} ${v.name}</td>
+                    <td class="px-6 py-3 text-xs">${iso.label}</td>
+                    <td class="px-6 py-3 text-xs">${allows(v).join(' · ')}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>`;
+      })() : '';
 
       // Kanal-Kollisionswarnung — 2,4 GHz (1/6/11) und 5 GHz (Δ ≤ 4),
       // plus DFS-Hinweis falls Kanäle aus dem Wetterradar-Bereich genutzt werden.
@@ -5466,6 +5566,8 @@
           ${dsgvoCard}
 
           ${vlanCard}
+
+          ${fwCard}
 
           <div class="card p-0 overflow-hidden">
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
