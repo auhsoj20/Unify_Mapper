@@ -1,0 +1,43 @@
+name: build-css
+
+# Stellt sicher, dass die committete dist/tailwind.css zum aktuellen
+# Stand von index.html + tailwind.config.js + src/tailwind.css passt.
+# Lokaler Workflow: `npm install && npm run build:css` vor dem Commit.
+on:
+  pull_request:
+    paths:
+      - 'index.html'
+      - 'tailwind.config.js'
+      - 'src/tailwind.css'
+      - 'dist/tailwind.css'
+      - 'package.json'
+      - 'package-lock.json'
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'tailwind.config.js'
+      - 'src/tailwind.css'
+      - 'package.json'
+      - 'package-lock.json'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Build CSS
+        run: npm run build:css
+      - name: Konsistenz-Check (committetes dist/tailwind.css == frischer Build)
+        run: |
+          if ! git diff --quiet dist/tailwind.css; then
+            echo "::error::dist/tailwind.css ist nicht aktuell. Lokal 'npm run build:css' ausführen und committen."
+            git diff --stat dist/tailwind.css
+            exit 1
+          fi
+          echo "dist/tailwind.css ist konsistent."
