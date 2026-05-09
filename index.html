@@ -67,7 +67,7 @@
         --color-primary: #4f98a3; 
         --color-primary-hover: #5ab1bd;
         --color-text: #eaeaea;
-        --color-text-muted: #a1a1a1;
+        --color-text-muted: #bdbdbd;
         --color-border: color-mix(in oklch, white 12%, transparent);
       }
     }
@@ -326,6 +326,14 @@
       box-shadow: 0 4px 16px rgba(0,0,0,0.25); z-index: 200;
       animation: fadeSlideIn 0.2s ease;
       pointer-events: none;
+      max-width: min(92vw, 520px); text-align: center;
+    }
+    .planner-toast.toast-error {
+      background: #b91c1c; color: #fff;
+      border: 1px solid #fca5a5;
+    }
+    .planner-toast.toast-warn {
+      background: #b45309; color: #fff;
     }
     .planner-controls button {
       width: 32px; height: 32px;
@@ -622,6 +630,62 @@
     }
 
     @media print { #rack-overlay { display: none !important; } }
+
+    /* --- A11y, Touch-Targets, Reduced-Motion, erweitertes Print (Iteration 3) --- */
+
+    /* Touch-Targets ≥ 44 px auf Touch-Geräten für die Step-2-Toolbar.
+       Greift nur bei Coarse-Pointer (Mobile/Tablet) — Desktop bleibt kompakt. */
+    @media (pointer: coarse) {
+      #planner-card .flex.items-center > button,
+      #planner-card .flex.items-center > select,
+      #planner-card .floor-tab-wrap > button {
+        min-height: 44px;
+      }
+      .floor-tab-menu-btn {
+        min-width: 44px;
+        min-height: 44px;
+      }
+    }
+
+    /* Reduced Motion: Animationen/Transitions deaktivieren, wenn der User
+       das in seinen System-Einstellungen wünscht. */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    /* Sichtbarer Fokus-Indikator für Tastatur-Nutzer auf allen interaktiven
+       Elementen — die Tailwind-CDN setzt nur sehr dezente Defaults. */
+    button:focus-visible,
+    select:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+
+    /* Erweiterte Print-CSS: BOM / Topologie / Power-Karten druckfreundlich.
+       Dunkle Topologie-Karte wird in S/W ausgegeben, Tabellen brechen nicht
+       mitten in einer Zeile um. */
+    @media print {
+      body { color: #000 !important; }
+      .card { background: white !important; color: #000 !important; page-break-inside: avoid; }
+      .card.bg-\[\#1f2937\], .card[class*="bg-\[\#1f2937\]"] { background: #fff !important; color: #000 !important; border: 1px solid #999 !important; }
+      .card.bg-\[\#1f2937\] *, .card[class*="bg-\[\#1f2937\]"] * { color: #000 !important; }
+      table { page-break-inside: auto; }
+      tr { page-break-inside: avoid; page-break-after: auto; }
+      thead { display: table-header-group; }
+      tfoot { display: table-footer-group; }
+      .toggle-checkbox, .toggle-label { display: none !important; }
+      input[type=number], input[type=text], select { border: 1px solid #999 !important; background: white !important; color: #000 !important; }
+      h2, h3 { page-break-after: avoid; }
+      a { color: inherit; text-decoration: none; }
+    }
   </style>
 </head>
 <body class="min-h-screen text-nexus-base">
@@ -700,6 +764,127 @@
   <div id="rack-overlay" class="rack-overlay hidden no-print"></div>
 
   <script type="module">
+    // --- Locale-Helfer (DE-Formatierung) --- //
+    const fmt0 = (v) => Number(v ?? 0).toLocaleString('de-DE', { maximumFractionDigits: 0 });
+    const fmt1 = (v) => Number(v ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const fmtEur0 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
+    const fmtEur2 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // Komprimiert eine Image-DataURL via Canvas, wenn sie zu groß ist. Das
+    // verhindert, dass mehrere MB Base64 in localStorage landen und die
+    // 5–10 MB Browser-Quota sprengen. Kleine Bilder werden unverändert
+    // zurückgeliefert. Tainted Canvases (CORS) fallen ebenfalls auf das
+    // Original zurück.
+    function compressImageDataUrl(dataUrl, maxDim = 2400, quality = 0.78) {
+      return new Promise((resolve) => {
+        if(typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+          resolve(dataUrl);
+          return;
+        }
+        const img = new Image();
+        img.onload = () => {
+          const w = img.naturalWidth, h = img.naturalHeight;
+          if(w <= maxDim && h <= maxDim && dataUrl.length < 1.5 * 1024 * 1024) {
+            resolve(dataUrl);
+            return;
+          }
+          const scale = Math.min(maxDim / Math.max(w, h), 1);
+          const targetW = Math.round(w * scale);
+          const targetH = Math.round(h * scale);
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+          try {
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          } catch(_) {
+            resolve(dataUrl);
+          }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      });
+    }
+
+    // --- Coverage-Profile (Min-RSSI / Anwendungsprofil) --- //
+    // Der Faktor multipliziert den theoretischen Reichweiten-Radius (sqrt(coverageM2)).
+    // Hintergrund: je strenger die Min-Signalstärke-Anforderung, desto kleiner die
+    // nutzbare Zelle. Werte sind Faustformeln, keine RF-Simulation.
+    const COVERAGE_PROFILES = [
+      { id: 'iot',     label: 'IoT / Smart Home',      rssi: -85, factor: 1.20, hint: 'Sensoren, Lampen, Alarmanlagen — niedrige Datenraten, größere Zellen.' },
+      { id: 'general', label: 'Allgemein',             rssi: -75, factor: 1.00, hint: 'Browsing, Streaming, normale Heim-/Büronutzung.' },
+      { id: 'voip',    label: 'VoIP / Video-Calls',    rssi: -65, factor: 0.80, hint: 'Teams/Zoom — niedrige Latenz, sauberes Roaming.' },
+      { id: 'gaming',  label: 'Gaming / 4K-Streaming', rssi: -60, factor: 0.70, hint: 'Hohe Datenrate, kleine Zellen für stabile Performance.' }
+    ];
+    const coverageFactor = () => (COVERAGE_PROFILES.find(p => p.id === state?.coverage?.profile)?.factor) || 1.0;
+
+    // --- Wand-Material pro Etage --- //
+    // Vereinfachtes Modell: jede Etage hat eine pauschale Material-Klasse, die
+    // den effektiven Reichweiten-Radius der APs reduziert. Keine echte
+    // Geometrie-/Wandschnitt-Berechnung — der Faktor steht stellvertretend für
+    // typische Mehrfachdämpfung in 5-GHz-Innenräumen.
+    const WALL_MATERIALS = [
+      { id: 'light',   label: 'Leicht (Trockenbau, Holz, Glas)', factor: 0.95, dB: 3,  hint: '~3 dB pro Wand bei 5 GHz' },
+      { id: 'medium',  label: 'Mittel (Massivbau, gemischt)',    factor: 0.85, dB: 7,  hint: '~7 dB pro Wand' },
+      { id: 'heavy',   label: 'Schwer (Beton, Stahlbeton)',      factor: 0.70, dB: 12, hint: '~12 dB pro Wand' },
+      { id: 'outdoor', label: 'Außenbereich (freie Sicht)',      factor: 1.10, dB: 0,  hint: 'kaum Hindernisse, leicht erweiterte Reichweite' }
+    ];
+    const DEFAULT_FLOOR_MATERIAL = 'medium';
+    const floorWallFactor = (floor) => {
+      const id = floor?.wallMaterial || DEFAULT_FLOOR_MATERIAL;
+      return (WALL_MATERIALS.find(m => m.id === id)?.factor) || 1.0;
+    };
+
+    // --- Channel-Plan: 2,4/5 GHz, DFS --- //
+    // 2,4 GHz: nur 3 nicht-überlappende Kanäle (1/6/11) sind brauchbar.
+    // 5 GHz: UNII-1 (36–48) + UNII-2 + UNII-2 extended (DFS, 52–144) +
+    // UNII-3 (149–161). DFS-Bereich kann durch Wetterradar gestört werden.
+    const CH24_NONOVERLAP = [1, 6, 11];
+    const CH5_LIST = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161];
+    const CH5_DFS = new Set([52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144]);
+
+    // --- CIDR-Helfer für VLAN-Subnetz-Validierung --- //
+    function parseCIDR(s) {
+      if(typeof s !== 'string') return null;
+      const m = /^\s*(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})\s*$/.exec(s);
+      if(!m) return null;
+      const a = +m[1], b = +m[2], c = +m[3], d = +m[4], bits = +m[5];
+      if([a,b,c,d].some(n => n > 255) || bits > 32) return null;
+      const ip = ((a << 24) | (b << 16) | (c << 8) | d) >>> 0;
+      const mask = bits === 0 ? 0 : (0xFFFFFFFF << (32 - bits)) >>> 0;
+      return { network: (ip & mask) >>> 0, bits };
+    }
+    function cidrsOverlap(p1, p2) {
+      if(!p1 || !p2) return false;
+      const minBits = Math.min(p1.bits, p2.bits);
+      if(minBits === 0) return true;
+      const m = (0xFFFFFFFF << (32 - minBits)) >>> 0;
+      return ((p1.network & m) >>> 0) === ((p2.network & m) >>> 0);
+    }
+
+    // WLAN-Sicherheitsmodi pro SSID/VLAN (Iter. 4). Default WPA3 Personal —
+    // Enterprise erfordert einen RADIUS-Server, der separat eingerichtet wird.
+    const WPA_MODES = [
+      { id: 'wpa3-personal',   label: 'WPA3 Personal',   short: 'WPA3-P',  hint: 'Modern, mit Passwort. Standard für Heim/Büro.' },
+      { id: 'wpa3-enterprise', label: 'WPA3 Enterprise', short: 'WPA3-E',  hint: 'Pro-Benutzer-Authentifizierung via RADIUS/802.1X.' },
+      { id: 'wpa2-wpa3',       label: 'WPA2/WPA3 Mixed',  short: 'Mixed',  hint: 'Übergangsmodus für ältere Clients (z. B. IoT vor 2019).' },
+      { id: 'wpa2-personal',   label: 'WPA2 Personal',   short: 'WPA2-P',  hint: 'Legacy — nur für Geräte ohne WPA3-Support.' },
+      { id: 'open',            label: 'Offen (kein PSK)', short: 'Open',   hint: 'Nicht empfohlen. Höchstens für captive-portal-gestützte Gast-WLANs.' }
+    ];
+    const DEFAULT_WPA_MODE = 'wpa3-personal';
+
+    // Default-Subnetze pro VLAN-Zweck (Vorschlag beim Anlegen / Wechsel von „custom").
+    const VLAN_DEFAULT_SUBNETS = {
+      mgmt:   '10.0.10.0/24',
+      main:   '10.0.20.0/24',
+      iot:    '10.0.50.0/24',
+      camera: '10.0.60.0/24',
+      voip:   '10.0.70.0/24',
+      guest:  '10.0.40.0/24',
+      server: '10.0.80.0/24'
+    };
+
     // --- Data Definitions (ISPs & Fallbacks) --- //
     // Maximalgeschwindigkeiten = realistischer Konsumenten-Topspeed pro Anbieter/
     // Technologie in Deutschland (Stand 2026). Einheit Mbit/s.
@@ -931,6 +1116,12 @@
         updateFreshnessBadge();
         render(); // Trigger full app render
         installPlannerKeyboardShortcuts();
+        // Falls loadState() einen Fehler gemeldet hat (Quota/Parse/Format),
+        // ihn jetzt — nach dem ersten Render — sichtbar machen.
+        if(_loadStateError) {
+          showPlannerToast(_loadStateError, 'error');
+          _loadStateError = null;
+        }
       }, 500);
     }
 
@@ -963,11 +1154,17 @@
             window.deleteRoom?.(state.selectedRoomId);
             return;
          }
-         // Esc: Vollbild verlassen / Auswahl aufheben / Floor-Menü schließen
+         // Esc: Vollbild verlassen / BG-Popup schließen / Auswahl aufheben /
+         // Floor-Menü schließen.
          if(e.key === 'Escape') {
             const card = document.getElementById('planner-card');
             if(card && card.classList.contains('planner-fullscreen')) {
                window.toggleFullscreen?.();
+               return;
+            }
+            const bgPopup = document.getElementById('planner-bg-popup');
+            if(bgPopup) {
+               bgPopup.remove();
                return;
             }
             if(document.querySelector('.floor-tab-actions.open')) {
@@ -1014,7 +1211,7 @@
       speedDown: 250,
       speedUp: 40,
       floors: [
-        { id: 'f-1', name: 'Erdgeschoss', rooms: [{ id: 'room-1', name: 'Wohnzimmer', w: 10, h: 8, x: 2, y: 2 }], aps: [], cameras: [] }
+        { id: 'f-1', name: 'Erdgeschoss', wallMaterial: 'medium', rooms: [{ id: 'room-1', name: 'Wohnzimmer', w: 10, h: 8, x: 2, y: 2 }], aps: [], cameras: [] }
       ],
       currentFloorId: 'f-1',
       selectedRoomId: null,
@@ -1046,7 +1243,10 @@
         defaultLengthPerFloorM: 15
       },
       rackView: { faqCollapsed: false, activeRackId: 'r-main', customPalette: [] },
-      rackViewOpen: false        // ephemer; beim Boot immer false
+      rackViewOpen: false,       // ephemer; beim Boot immer false
+      energy: { tariff: 0.32, upsRuntimeMin: 15 },  // €/kWh, USV-Autonomie in Min
+      coverage: { profile: 'general' },             // siehe COVERAGE_PROFILES
+      recording: { retentionDays: 14, fpsProfile: 'standard' }  // NVR-Speicher (Iter. 5)
     };
 
     // Backup-State Defaults + Migration alter Schema-Versionen.
@@ -1146,6 +1346,33 @@
         customPalette
       };
     }
+    // Stellt sicher, dass referenzierte Produkt-Slugs (Gateway, Switch,
+    // platzierte APs/Kameras) noch im Katalog existieren. Unbekannte
+    // Top-Level-Refs werden auf null zurückgesetzt, damit die Auto-Empfehlung
+    // greift. Floor-Geräte mit unbekanntem Slug werden behalten (Fallback-
+    // Anzeige funktioniert), aber die Anzahl wird gemeldet, damit der User
+    // weiß, dass etwas zu prüfen ist. Liefert die Liste der Hinweise.
+    function validateSlugRefs(s) {
+      const issues = [];
+      if(s.gateway && !productCache.specs[s.gateway]) {
+        issues.push(`Gateway "${s.gateway}" ist nicht mehr im Katalog — Auto-Empfehlung aktiv.`);
+        s.gateway = null;
+      }
+      if(s.selectedSwitch && !productCache.specs[s.selectedSwitch]) {
+        issues.push(`Switch "${s.selectedSwitch}" ist nicht mehr im Katalog — Auto-Empfehlung aktiv.`);
+        s.selectedSwitch = null;
+      }
+      let unknownDevices = 0;
+      (s.floors || []).forEach(f => {
+        (f.aps || []).forEach(ap => { if(ap.slug && !productCache.specs[ap.slug]) unknownDevices++; });
+        (f.cameras || []).forEach(c => { if(c.slug && !productCache.specs[c.slug]) unknownDevices++; });
+      });
+      if(unknownDevices > 0) {
+        issues.push(`${unknownDevices} platzierte${unknownDevices === 1 ? 's' : ''} Gerät${unknownDevices === 1 ? '' : 'e'} verwende${unknownDevices === 1 ? 't' : 'n'} ein Modell, das nicht mehr im Katalog ist. Bitte in Schritt 2 prüfen und ggf. ersetzen.`);
+      }
+      return issues;
+    }
+
     // Entfernt Cabling-Einträge, deren Endgerät (AP/Kamera) oder rack-Item nicht mehr existiert.
     // Gibt die Anzahl der entfernten Einträge zurück.
     function pruneOrphanConnections() {
@@ -1166,8 +1393,24 @@
 
     // --- State Persistence (localStorage) --- //
     const STATE_KEY = 'unifi-planner:state:v1';
+    let _saveQuotaWarned = false;
     function saveState() {
-      try { localStorage.setItem(STATE_KEY, JSON.stringify(state)); } catch(_) {}
+      try {
+        localStorage.setItem(STATE_KEY, JSON.stringify(state));
+      } catch(err) {
+        // Häufigste Ursache: Quota-Exceeded (z. B. großes Hintergrund-Bild als Base64).
+        // Wir warnen nur einmal pro Sitzung, sonst würde jeder Render ein Toast auslösen.
+        const isQuota = err && (err.name === 'QuotaExceededError'
+          || err.code === 22 || err.code === 1014);
+        if(!_saveQuotaWarned) {
+          _saveQuotaWarned = true;
+          const msg = isQuota
+            ? 'Speicher voll: Änderungen werden nicht im Browser gespeichert. Verkleinere Hintergrundbilder oder exportiere als JSON.'
+            : 'Projekt konnte nicht im Browser gespeichert werden: ' + (err?.message || err);
+          if(typeof showPlannerToast === 'function') showPlannerToast(msg, 'error');
+          if(typeof console !== 'undefined') console.warn('[saveState]', err);
+        }
+      }
     }
 
     // --- Undo / Redo (Raumplaner) --- //
@@ -1242,28 +1485,44 @@
     window.plannerRedo = plannerRedo;
 
     let _toastTimer = null;
-    function showPlannerToast(text) {
+    function showPlannerToast(text, variant) {
       const old = document.getElementById('planner-toast');
       if(old) old.remove();
       if(_toastTimer) { clearTimeout(_toastTimer); _toastTimer = null; }
       const t = document.createElement('div');
       t.id = 'planner-toast';
-      t.className = 'planner-toast';
+      t.className = 'planner-toast' + (variant === 'error' ? ' toast-error' : variant === 'warn' ? ' toast-warn' : '');
       t.textContent = text;
+      if(variant === 'error') t.setAttribute('role', 'alert');
       document.body.appendChild(t);
-      _toastTimer = setTimeout(() => { t.remove(); _toastTimer = null; }, 1600);
+      const duration = variant === 'error' ? 3800 : variant === 'warn' ? 2800 : 1600;
+      _toastTimer = setTimeout(() => { t.remove(); _toastTimer = null; }, duration);
     }
     window.showPlannerToast = showPlannerToast;
+    let _loadStateError = null; // wird nach dem Boot vom App-Init als Toast ausgespielt
     function loadState() {
+      let raw;
+      try { raw = localStorage.getItem(STATE_KEY); }
+      catch(err) {
+        _loadStateError = 'Browser-Speicher nicht zugänglich (Privater Modus?). Es wird mit einem leeren Projekt gestartet.';
+        if(typeof console !== 'undefined') console.warn('[loadState] localStorage read failed', err);
+        return;
+      }
+      if(!raw) return;
       try {
-        const raw = localStorage.getItem(STATE_KEY);
-        if(!raw) return;
         const parsed = JSON.parse(raw);
         if(parsed && typeof parsed === 'object' && Array.isArray(parsed.floors)) {
-          // Migration: alte Floors ohne cameras[]
-          parsed.floors = parsed.floors.map(f => ({ cameras: [], ...f }));
+          // Migration: alte Floors ohne cameras[] / wallMaterial,
+          // alte APs ohne meshUplink-Flag.
+          parsed.floors = parsed.floors.map(f => {
+            const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
+            merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+            return merged;
+          });
           if(!parsed.view) parsed.view = { heatmap: false };
           if(!Array.isArray(parsed.vlans)) parsed.vlans = [];
+          // Alte VLANs ohne wpaMode auf den Default heben.
+          parsed.vlans = parsed.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v }));
           parsed.backup = normalizeBackupState(parsed.backup);
           parsed.bomOverrides = normalizeBomOverrides(parsed.bomOverrides);
           if(!parsed.poeAssignments || typeof parsed.poeAssignments !== 'object') parsed.poeAssignments = {};
@@ -1271,6 +1530,10 @@
           parsed.cabling = normalizeCablingState(parsed.cabling);
           parsed.rackView = normalizeRackView(parsed.rackView, parsed.racks);
           parsed.rackViewOpen = false;
+          // Migration: neue Felder aus Iteration 2 mit Defaults auffüllen.
+          parsed.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(parsed.energy || {}) };
+          parsed.coverage = { profile: 'general', ...(parsed.coverage || {}) };
+          parsed.recording = { retentionDays: 14, fpsProfile: 'standard', ...(parsed.recording || {}) };
           // Vollbild-Modus beim Reload nicht persistieren
           if(parsed.view && typeof parsed.view === 'object') parsed.view.plannerFullscreen = false;
           // ISP-Objekte frisch aus aktueller ispList auflösen, damit neue Felder
@@ -1284,8 +1547,19 @@
             if(fresh2) parsed.backup.isp2 = fresh2;
           }
           Object.assign(state, parsed);
+          // Slug-Refs gegen aktuellen Produktkatalog prüfen — wichtig nach
+          // Updates der unifi-products.js, die Modelle entfernen oder umbenennen.
+          const slugIssues = validateSlugRefs(state);
+          if(slugIssues.length > 0 && !_loadStateError) {
+            _loadStateError = slugIssues.join(' ');
+          }
+        } else {
+          _loadStateError = 'Gespeichertes Projekt hat ein unbekanntes Format und wurde verworfen. Du arbeitest mit einem neuen Projekt — dein altes ist nicht überschrieben.';
         }
-      } catch(_) { /* invalid JSON — stille Fallback auf Defaults */ }
+      } catch(err) {
+        _loadStateError = 'Gespeichertes Projekt konnte nicht gelesen werden (' + (err?.message || 'Parse-Fehler') + '). Es wird mit einem leeren Projekt gestartet.';
+        if(typeof console !== 'undefined') console.warn('[loadState]', err);
+      }
     }
     window.resetPlannerState = () => {
       if(!confirm('Aktuelles Projekt wirklich zurücksetzen? Alle Eingaben werden gelöscht.')) return;
@@ -1316,9 +1590,53 @@
     }
 
 
+    // --- Wizard-Validierung pro Schritt --- //
+    // Liefert die erste blockierende Fehlermeldung oder null. Warnungen
+    // (z. B. „kein VLAN für Kameras") werden im jeweiligen Step inline
+    // angezeigt und blockieren den Weiter-Button bewusst nicht.
+    function validateStep(step) {
+      if(step === 1) {
+        if(!state.isp) return 'Bitte einen Internetanbieter wählen.';
+        const dn = parseInt(state.speedDown), up = parseInt(state.speedUp);
+        if(!Number.isFinite(dn) || dn < 1) return 'Download-Geschwindigkeit ist ungültig.';
+        if(!Number.isFinite(up) || up < 1) return 'Upload-Geschwindigkeit ist ungültig.';
+        return null;
+      }
+      if(step === 4) {
+        const ids = new Set();
+        const parsed = [];
+        for(const v of (state.vlans || [])) {
+          if(v.id < 1 || v.id > 4094) return `VLAN-ID ${v.id} ist ungültig (erlaubt: 1–4094).`;
+          if(ids.has(v.id)) return `VLAN-ID ${v.id} ist doppelt vergeben.`;
+          ids.add(v.id);
+          if(v.subnet) {
+            const p = parseCIDR(v.subnet);
+            if(!p) return `Subnetz ${v.subnet} ist ungültig (CIDR-Notation z. B. 10.0.10.0/24).`;
+            for(const o of parsed) {
+              if(cidrsOverlap(o.cidr, p)) {
+                return `Subnetze ${o.label} und ${v.subnet} überlappen sich — bitte anpassen.`;
+              }
+            }
+            parsed.push({ cidr: p, label: v.subnet });
+          }
+        }
+        return null;
+      }
+      if(step === 5) {
+        const bu = state.backup;
+        if(!bu?.enabled) return null;
+        if(!bu.type) return 'Bitte Backup-Typ wählen oder Backup deaktivieren.';
+        if(bu.type === 'cellular' && !bu.cellularModel) return 'Bitte ein Mobilfunk-Modell wählen.';
+        if(bu.type === 'starlink' && !bu.starlinkAntenna) return 'Bitte eine Starlink-Antenne wählen.';
+        if(bu.type === 'isp2' && !bu.isp2) return 'Bitte einen Zweit-Anbieter wählen.';
+        return null;
+      }
+      return null;
+    }
+
     // --- Render Engine --- //
     const contentDiv = document.getElementById('app-content');
-    
+
     function render() {
       document.querySelectorAll('.step-node').forEach(el => el.className = `step-node ${parseInt(el.getAttribute('data-step')) === state.currentStep ? 'active' : parseInt(el.getAttribute('data-step')) < state.currentStep ? 'completed' : ''}`);
       document.querySelectorAll('.step-line').forEach(el => el.className = `step-line ${parseInt(el.id.replace('line-', '')) < state.currentStep ? 'active' : ''}`);
@@ -1330,7 +1648,13 @@
         btnNext.onclick = () => window.print();
       } else {
         btnNext.innerHTML = 'Weiter <i data-lucide="arrow-right" class="w-4 h-4"></i>';
-        btnNext.onclick = () => { if (state.currentStep < 6) { state.currentStep++; render(); } };
+        btnNext.onclick = () => {
+          if(state.currentStep >= 6) return;
+          const err = validateStep(state.currentStep);
+          if(err) { showPlannerToast(err, 'error'); return; }
+          state.currentStep++;
+          render();
+        };
       }
 
       contentDiv.innerHTML = '';
@@ -1562,7 +1886,7 @@
       const apItems = productCache.wifi.map(p => {
         const spec = productCache.specs[p.slug];
         if(!spec) return '';
-        const radiusMeters = Math.round(Math.sqrt(spec.coverageM2 || 140));
+        const radiusMeters = Math.round(Math.sqrt(spec.coverageM2 || 140) * coverageFactor());
         const thumb = spec.image
           ? `<img src="${spec.image}" alt="${spec.name}" loading="lazy" class="w-10 h-10 object-contain shrink-0 bg-white rounded" />`
           : `<div class="w-8 h-8 rounded-full bg-nexus-primary flex items-center justify-center text-white shrink-0"><i data-lucide="wifi" class="w-4 h-4"></i></div>`;
@@ -1632,7 +1956,7 @@
          return `
          <span class="floor-tab-wrap">
            <button id="tab-${f.id}" class="px-3 md:px-4 py-3 border-b-2 font-bold whitespace-nowrap ${isActive ? 'border-nexus-primary text-nexus-primary' : 'border-transparent text-nexus-muted hover:text-nexus-base'}" onclick="window.switchFloor('${f.id}')" ondblclick="window.startFloorRename('${f.id}', this); event.stopPropagation();" title="Doppelklick zum Umbenennen">${escapeHtml(f.name)}</button>
-           <button class="floor-tab-menu-btn" title="Etagen-Optionen" aria-haspopup="true" onclick="event.stopPropagation(); window.toggleFloorMenu('${f.id}', this)">⋯</button>
+           <button class="floor-tab-menu-btn" title="Etagen-Optionen" aria-haspopup="true" aria-label="Optionen für Etage ${escapeHtml(f.name)}" onclick="event.stopPropagation(); window.toggleFloorMenu('${f.id}', this)">⋯</button>
            <div class="floor-tab-actions" id="floor-menu-${f.id}" onclick="event.stopPropagation()">
              <button onclick="window.startFloorRename('${f.id}', document.getElementById('tab-${f.id}')); window.closeFloorMenus();"><i data-lucide="edit-3" class="w-4 h-4"></i> Umbenennen</button>
              <button onclick="window.duplicateFloor('${f.id}'); window.closeFloorMenus();"><i data-lucide="copy" class="w-4 h-4"></i> Duplizieren</button>
@@ -1641,7 +1965,7 @@
              <button class="danger" ${canDelete ? '' : 'disabled'} onclick="window.deleteFloor('${f.id}'); window.closeFloorMenus();"><i data-lucide="trash-2" class="w-4 h-4"></i> Etage löschen</button>
            </div>
          </span>`;
-      }).join('') + `<button class="px-4 py-3 text-nexus-muted hover:text-nexus-primary" onclick="window.addFloor()" title="Etage hinzufügen"><i data-lucide="plus" class="w-4 h-4"></i></button>`;
+      }).join('') + `<button class="px-4 py-3 text-nexus-muted hover:text-nexus-primary" onclick="window.addFloor()" title="Etage hinzufügen" aria-label="Etage hinzufügen"><i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i></button>`;
 
       let inspectorHtml = '';
       if(state.selectedRoomId) {
@@ -1656,7 +1980,7 @@
                   </div>
                   <div class="text-xs text-nexus-muted">
                      <div class="font-bold uppercase tracking-wide mb-1">Fläche</div>
-                     <div class="text-base font-bold text-nexus-base">${area.toFixed(1)} m²</div>
+                     <div class="text-base font-bold text-nexus-base">${fmt1(area)} m²</div>
                   </div>
                   <button onclick="window.duplicateRoom('${sr.id}')" class="px-3 py-2 bg-nexus-surface border border-nexus-border text-nexus-base rounded hover:bg-nexus-border transition-colors font-bold text-sm" title="Raum duplizieren"><i data-lucide="copy" class="w-4 h-4 inline-block mr-1"></i> Duplizieren</button>
                   <button onclick="window.deleteRoom('${sr.id}')" class="px-4 py-2 bg-red-100 text-red-600 rounded hover:bg-red-200 transition-colors font-bold text-sm" title="Raum löschen"><i data-lucide="trash-2" class="w-4 h-4 inline-block mr-1"></i> Löschen</button>
@@ -1683,20 +2007,29 @@
           <div class="flex justify-between items-center border-b border-nexus-border px-2 bg-nexus-surface bg-opacity-50 gap-2 flex-wrap rounded-t-[12px]">
              <div class="flex flex-wrap items-center overflow-x-auto" style="max-width:100%;">${tabsHtml}</div>
              <div class="flex items-center gap-1 md:gap-2 mr-1 md:mr-2 my-2 flex-wrap">
-               <button id="planner-btn-undo" onclick="window.plannerUndo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Rückgängig (Strg+Z)" disabled>
-                  <i data-lucide="undo-2" class="w-3.5 h-3.5"></i><span class="hidden md:inline">Undo</span>
+               <button id="planner-btn-undo" onclick="window.plannerUndo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Rückgängig (Strg+Z)" aria-label="Rückgängig" disabled>
+                  <i data-lucide="undo-2" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline">Undo</span>
                </button>
-               <button id="planner-btn-redo" onclick="window.plannerRedo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Wiederholen (Strg+Umschalt+Z)" disabled>
-                  <i data-lucide="redo-2" class="w-3.5 h-3.5"></i><span class="hidden md:inline">Redo</span>
+               <button id="planner-btn-redo" onclick="window.plannerRedo()" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity disabled:opacity-40" title="Wiederholen (Strg+Umschalt+Z)" aria-label="Wiederholen" disabled>
+                  <i data-lucide="redo-2" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline">Redo</span>
                </button>
-               <button onclick="window.toggleHeatmap()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state.view && state.view.heatmap ? 'bg-emerald-600 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Signal-Heatmap umschalten">
-                  <i data-lucide="thermometer" class="w-3.5 h-3.5"></i><span class="hidden md:inline"> Heatmap ${state.view && state.view.heatmap ? 'an' : 'aus'}</span>
+               <button onclick="window.toggleHeatmap()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state.view && state.view.heatmap ? 'bg-emerald-600 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Signal-Heatmap umschalten" aria-label="Signal-Heatmap umschalten" aria-pressed="${state.view && state.view.heatmap ? 'true' : 'false'}">
+                  <i data-lucide="thermometer" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Heatmap ${state.view && state.view.heatmap ? 'an' : 'aus'}</span>
                </button>
-               <button onclick="window.toggleFullscreen()" id="planner-fs-btn" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Vollbild umschalten">
-                  <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i>
+               <select onchange="window.setCoverageProfile(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Coverage-Profil (Min-RSSI)" aria-label="Coverage-Profil">
+                  ${COVERAGE_PROFILES.map(p => `<option value="${p.id}" ${state.coverage?.profile === p.id ? 'selected' : ''}>${p.label} (${p.rssi} dBm)</option>`).join('')}
+               </select>
+               <select onchange="window.setFloorMaterial(this.value)" class="text-xs font-bold px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base focus:outline-none focus:border-nexus-primary" title="Wandmaterial dieser Etage" aria-label="Wandmaterial">
+                  ${WALL_MATERIALS.map(m => `<option value="${m.id}" ${(currentFloor.wallMaterial || DEFAULT_FLOOR_MATERIAL) === m.id ? 'selected' : ''} title="${m.hint}">${m.label}</option>`).join('')}
+               </select>
+               <button onclick="window.autoAssignChannels()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Kanäle automatisch verteilen (2,4 + 5 GHz)" aria-label="Kanäle automatisch verteilen">
+                  <i data-lucide="radio-tower" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Kanäle auto</span>
                </button>
-               <button class="text-sm font-bold flex items-center gap-1 text-white bg-nexus-primary px-2 md:px-3 py-1.5 rounded hover:opacity-80 transition-opacity" onclick="window.addRoom()" title="Neuen Raum hinzufügen">
-                  <i data-lucide="plus-square" class="w-4 h-4"></i><span class="hidden md:inline"> Neuer Raum</span>
+               <button onclick="window.toggleFullscreen()" id="planner-fs-btn" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Vollbild umschalten" aria-label="Vollbild umschalten">
+                  <i data-lucide="maximize-2" class="w-3.5 h-3.5" aria-hidden="true"></i>
+               </button>
+               <button class="text-sm font-bold flex items-center gap-1 text-white bg-nexus-primary px-2 md:px-3 py-1.5 rounded hover:opacity-80 transition-opacity" onclick="window.addRoom()" title="Neuen Raum hinzufügen" aria-label="Neuen Raum hinzufügen">
+                  <i data-lucide="plus-square" class="w-4 h-4" aria-hidden="true"></i><span class="hidden md:inline"> Neuer Raum</span>
                </button>
              </div>
           </div>
@@ -1892,14 +2225,15 @@
          inp.onchange = (e) => {
             const file = e.target.files?.[0];
             if(!file) return;
-            if(file.size > 5 * 1024 * 1024) {
-               if(!confirm('Bild ist größer als 5 MB. Trotzdem laden? Das kann das Projekt verlangsamen.')) return;
-            }
             const reader = new FileReader();
-            reader.onload = () => {
+            reader.onload = async () => {
+               // Komprimiert große Bilder (> 2400 px Kante) auf JPEG, damit
+               // localStorage durch Base64-Daten nicht voll läuft. Kleine
+               // Bilder bleiben unverändert.
+               const compressed = await compressImageDataUrl(reader.result);
                pushPlannerHistory();
                currentFloor.backgroundImage = {
-                  dataUrl: reader.result,
+                  dataUrl: compressed,
                   opacity: currentFloor.backgroundImage?.opacity ?? 0.55,
                   visible: true,
                   scale: currentFloor.backgroundImage?.scale ?? 1,
@@ -1907,7 +2241,8 @@
                   offsetY: currentFloor.backgroundImage?.offsetY ?? 0
                };
                saveState(); render();
-               showPlannerToast('Grundriss-Bild geladen');
+               const sizeKB = Math.round(compressed.length * 0.75 / 1024);
+               showPlannerToast(`Grundriss geladen (${sizeKB} kB im Speicher)`);
             };
             reader.readAsDataURL(file);
          };
@@ -2091,11 +2426,11 @@
       const hasBg = !!(currentFloor.backgroundImage && currentFloor.backgroundImage.dataUrl);
       const bgVisible = hasBg && currentFloor.backgroundImage.visible !== false;
       tools.innerHTML = `
-         <button type="button" data-act="fit"         title="Auf Räume zoomen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
-         <button type="button" data-act="bg-upload"   title="Grundriss-Bild laden"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
+         <button type="button" data-act="fit"         title="Auf Räume zoomen" aria-label="Auf Räume zoomen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
+         <button type="button" data-act="bg-upload"   title="Grundriss-Bild laden" aria-label="Grundriss-Bild laden"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></button>
          ${hasBg ? `
-         <button type="button" data-act="bg-toggle" class="${bgVisible ? 'active' : ''}" title="Grundriss-Bild ein/aus"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
-         <button type="button" data-act="bg-settings" title="Grundriss-Einstellungen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.36.86 1.16 1.42 2 1.51H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+         <button type="button" data-act="bg-toggle" class="${bgVisible ? 'active' : ''}" title="Grundriss-Bild ein/aus" aria-label="Grundriss-Bild ein- oder ausblenden" aria-pressed="${bgVisible ? 'true' : 'false'}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
+         <button type="button" data-act="bg-settings" title="Grundriss-Einstellungen" aria-label="Grundriss-Einstellungen"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.36.86 1.16 1.42 2 1.51H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
          ` : ''}
       `;
       planner.appendChild(tools);
@@ -2140,6 +2475,94 @@
          showPlannerToast('Auf Räume gezoomt');
       };
 
+      // 2-Punkt-Maßstabskalibrierung: User klickt zwei Punkte mit bekanntem
+      // realem Abstand und gibt die reale Distanz in Metern ein. Die scale
+      // des Hintergrund-Bilds wird anschließend so angepasst, dass der
+      // gemessene Welt-Abstand mit der Eingabe übereinstimmt.
+      const startBgCalibration = () => {
+         if(!currentFloor.backgroundImage) {
+            showPlannerToast('Erst ein Hintergrundbild laden.', 'warn');
+            return;
+         }
+         showPlannerToast('Maßstab kalibrieren: zwei Punkte mit bekannter Distanz anklicken (Esc bricht ab).');
+         let p1 = null, marker1 = null;
+         const r0 = planner.getBoundingClientRect();
+         const makeMarker = (clientX, clientY, label) => {
+            const m = document.createElement('div');
+            m.style.cssText = `position:absolute;width:14px;height:14px;border-radius:50%;background:#f59e0b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);transform:translate(-50%,-50%);z-index:50;pointer-events:none;`;
+            m.setAttribute('aria-hidden', 'true');
+            const r = planner.getBoundingClientRect();
+            m.style.left = (clientX - r.left) + 'px';
+            m.style.top  = (clientY - r.top) + 'px';
+            if(label) {
+               const lbl = document.createElement('div');
+               lbl.style.cssText = `position:absolute;left:14px;top:-2px;background:#1f2937;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;white-space:nowrap;`;
+               lbl.textContent = label;
+               m.appendChild(lbl);
+            }
+            planner.appendChild(m);
+            return m;
+         };
+         const cleanup = () => {
+            planner.removeEventListener('click', onClick, true);
+            planner.removeEventListener('pointerdown', stopOther, true);
+            document.removeEventListener('keydown', onKey, true);
+            if(marker1) marker1.remove();
+            planner.style.cursor = '';
+         };
+         planner.style.cursor = 'crosshair';
+         const stopOther = (e) => { e.stopPropagation(); };
+         const onClick = (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const wpt = clientToWorld(e.clientX, e.clientY);
+            if(!p1) {
+               p1 = wpt;
+               marker1 = makeMarker(e.clientX, e.clientY, 'A');
+               showPlannerToast('Erster Punkt gesetzt — jetzt zweiten Punkt klicken.');
+               return;
+            }
+            const marker2 = makeMarker(e.clientX, e.clientY, 'B');
+            const dx = wpt.x - p1.x, dy = wpt.y - p1.y;
+            const measuredM = Math.hypot(dx, dy);
+            if(measuredM <= 0.01) {
+               showPlannerToast('Punkte zu nah beieinander.', 'warn');
+               marker2.remove();
+               cleanup();
+               return;
+            }
+            const input = prompt(`Welche reale Distanz haben die beiden Punkte? (Meter)\n\nIm aktuellen Maßstab gemessen: ${fmt1(measuredM)} m.`);
+            marker2.remove();
+            if(input == null) { cleanup(); showPlannerToast('Kalibrierung abgebrochen.'); return; }
+            const real = parseFloat(String(input).replace(',', '.'));
+            if(!Number.isFinite(real) || real <= 0) {
+               showPlannerToast('Ungültiger Wert — Kalibrierung abgebrochen.', 'error');
+               cleanup();
+               return;
+            }
+            const factor = real / measuredM;
+            const oldScale = currentFloor.backgroundImage.scale || 1;
+            const newScale = Math.max(0.05, Math.min(20, oldScale * factor));
+            pushPlannerHistory();
+            currentFloor.backgroundImage.scale = newScale;
+            cleanup();
+            saveState();
+            render();
+            showPlannerToast(`Maßstab kalibriert: ${fmt1(real)} m → Skala ${fmt1(newScale)}.`);
+         };
+         const onKey = (e) => {
+            if(e.key === 'Escape') {
+               cleanup();
+               showPlannerToast('Kalibrierung abgebrochen.');
+            }
+         };
+         // capture-phase: Wir wollen vor dem normalen pointerdown-/click-Handler
+         // dran sein, damit kein Raum verschoben oder Auswahl geändert wird.
+         planner.addEventListener('click', onClick, true);
+         planner.addEventListener('pointerdown', stopOther, true);
+         document.addEventListener('keydown', onKey, true);
+      };
+
       // Settings popup für Hintergrund-Grundriss
       const openBgSettings = () => {
          if(!currentFloor.backgroundImage) return;
@@ -2174,17 +2597,22 @@
                <span class="text-[11px] text-nexus-muted">Größe (Skalierung)</span>
                <input id="bg-scale" type="range" min="0.2" max="3" step="0.05" value="${bg.scale ?? 1}" class="w-full">
             </label>
+            <button id="bg-calibrate" class="text-xs px-2 py-1 rounded border border-nexus-primary text-nexus-primary bg-nexus-primary bg-opacity-10 hover:bg-opacity-20 flex items-center justify-center gap-1">
+               <i data-lucide="ruler" class="w-3 h-3" aria-hidden="true"></i> Maßstab kalibrieren (2 Punkte)
+            </button>
             <div class="flex gap-2 mt-1">
                <button id="bg-replace" class="flex-1 text-xs px-2 py-1 rounded border border-nexus-border bg-nexus-surface hover:bg-nexus-border">Ersetzen</button>
                <button id="bg-remove" class="flex-1 text-xs px-2 py-1 rounded border border-red-300 text-red-600 bg-red-50 hover:bg-red-100">Entfernen</button>
             </div>
          `;
          planner.appendChild(popup);
+         lucide.createIcons({ attrs: { 'aria-hidden': 'true' } });
          popup.addEventListener('pointerdown', (e) => e.stopPropagation());
          popup.querySelector('#bg-opacity').addEventListener('input', (e) => window.setFloorBackgroundOpacity(e.target.value));
          popup.querySelector('#bg-scale').addEventListener('change', (e) => window.setFloorBackgroundScale(e.target.value));
          popup.querySelector('#bg-replace').addEventListener('click', () => { popup.remove(); window.uploadFloorBackground(); });
          popup.querySelector('#bg-remove').addEventListener('click', () => { popup.remove(); window.removeFloorBackground(); });
+         popup.querySelector('#bg-calibrate').addEventListener('click', () => { popup.remove(); startBgCalibration(); });
          setTimeout(() => {
             const onDoc = (ev) => {
                if(!popup.contains(ev.target)) {
@@ -2343,7 +2771,7 @@
          inp.type = 'text';
          inp.inputMode = 'decimal';
          inp.className = 'edge-length-input';
-         inp.value = oldLen.toFixed(1);
+         inp.value = fmt1(oldLen);
          inp.style.left = midX + 'px';
          inp.style.top  = midY + 'px';
          labelsLayer.appendChild(inp);
@@ -2446,7 +2874,7 @@
          const areaBadge = document.createElement('div');
          areaBadge.className = 'room-area-badge';
          areaBadge.id = `area-${room.id}`;
-         areaBadge.textContent = areaVal.toFixed(1) + ' m²';
+         areaBadge.textContent = fmt1(areaVal) + ' m²';
          areaBadge.style.left = lX + 'px';
          areaBadge.style.top = lY + 'px';
          labelsLayer.appendChild(areaBadge);
@@ -2573,7 +3001,7 @@
                text.setAttribute('title', 'Doppelklick zum Bearbeiten');
                text.setAttribute('x', midX);
                text.setAttribute('y', midY);
-               text.textContent = dist.toFixed(1) + 'm';
+               text.textContent = fmt1(dist) + 'm';
                text.addEventListener('dblclick', (ev) => {
                   ev.stopPropagation();
                   ev.preventDefault();
@@ -2677,7 +3105,7 @@
                   let midY = (pt.y + nxt.y)/2 * CELL_SIZE - 6;
                   labels[i].setAttribute('x', midX);
                   labels[i].setAttribute('y', midY);
-                  labels[i].textContent = dist.toFixed(1) + 'm';
+                  labels[i].textContent = fmt1(dist) + 'm';
                }
             });
             
@@ -2702,7 +3130,7 @@
                if(areaEl) {
                   areaEl.style.left = lX + 'px';
                   areaEl.style.top = lY + 'px';
-                  areaEl.textContent = computeRoomArea(activeObj).toFixed(1) + ' m²';
+                  areaEl.textContent = fmt1(computeRoomArea(activeObj)) + ' m²';
                }
             }
          }
@@ -2734,7 +3162,10 @@
             currentFloor.cameras.push({ id: 'cam_'+Date.now(), slug, x, y });
          } else {
             const { channel24, channel5 } = allocateApChannels(currentFloor);
-            currentFloor.aps.push({ id: 'ap_'+Date.now(), slug, x, y, channel24, channel5 });
+            // Mesh-/Extender-Modelle senden ihren Uplink kabellos. Standard-APs
+            // brauchen weiterhin Cat6 — der Default ist daher false.
+            const isMeshModel = /(^|-)(mesh|extender)(-|$)/i.test(slug);
+            currentFloor.aps.push({ id: 'ap_'+Date.now(), slug, x, y, channel24, channel5, meshUplink: isMeshModel });
          }
          drawAps();
          saveState();
@@ -2847,7 +3278,7 @@
 
         const aps = currentFloor.aps.map(ap => {
           const spec = productCache.specs[ap.slug] || { coverageM2: 140 };
-          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2)) * CELL_SIZE };
+          return { x: ap.x, y: ap.y, r: Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor)) * CELL_SIZE };
         });
 
         const crosses = (ax, ay, bx, by, cx, cy, dx, dy) => {
@@ -2918,7 +3349,7 @@
         // APs (einfacher Coverage-Kreis, nur wenn Heatmap aus)
         currentFloor.aps.forEach(apState => {
           const spec = productCache.specs[apState.slug] || { name: 'Unknown', coverageM2: 140 };
-          const pxRadius = Math.round(Math.sqrt(spec.coverageM2)) * CELL_SIZE;
+          const pxRadius = Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor)) * CELL_SIZE;
 
           if(!heatmapOn) {
             const cov = document.createElement('div');
@@ -3042,6 +3473,25 @@
       if(w >= 30) return POE_CLASS_LABEL['poe+'];
       if(w > 0)   return POE_CLASS_LABEL['poe'];
       return '';
+    }
+    // Klassifiziert ein Endgerät (AP/Kamera) nach IEEE-PoE-Standard anhand seiner
+    // Watt-Aufnahme. Liefert den Klassen-Key (poe / poe+ / poe++ / poe+++) oder
+    // null, wenn das Gerät nicht PoE-versorgt wird.
+    function classifyDeviceWatts(watts) {
+      if(!Number.isFinite(watts) || watts <= 0) return null;
+      if(watts <= 13)   return 'poe';
+      if(watts <= 25.5) return 'poe+';
+      if(watts <= 60)   return 'poe++';
+      if(watts <= 90)   return 'poe+++';
+      return 'over';
+    }
+    function getPoeStandardLabel(key) {
+      if(key === 'poe')    return 'PoE (802.3af, ≤ 15 W)';
+      if(key === 'poe+')   return 'PoE+ (802.3at, ≤ 30 W)';
+      if(key === 'poe++')  return 'PoE++ Type 3 (802.3bt, ≤ 60 W)';
+      if(key === 'poe+++') return 'PoE++ Type 4 (802.3bt, ≤ 90 W)';
+      if(key === 'over')   return 'Sonderbedarf > 90 W';
+      return '—';
     }
 
     // Watt-Bedarf eines APs/Kamera-Geräts ermitteln. APs nutzen `maxWatts`, Kameras
@@ -3266,17 +3716,17 @@
         const over = allocation.switch.poe - switchBudget;
         warnings.push({ level: 'error', icon: 'alert-triangle',
           title: 'Switch-PoE-Budget überschritten',
-          msg: `Die zugeordneten Geräte ziehen ${allocation.switch.poe.toFixed(1)} W, aber der Switch liefert nur ${switchBudget} W (${over.toFixed(1)} W zu viel). Verlagere Geräte aufs Gateway oder wähle einen größeren Switch.` });
+          msg: `Die zugeordneten Geräte ziehen ${fmt1(allocation.switch.poe)} W, aber der Switch liefert nur ${switchBudget} W (${fmt1(over)} W zu viel). Verlagere Geräte aufs Gateway oder wähle einen größeren Switch.` });
       } else if(switchHasPoe && allocation.switch.poe > switchBudget / POE_HEADROOM) {
         warnings.push({ level: 'warn', icon: 'alert-triangle',
           title: 'Wenig PoE-Reserve',
-          msg: `Auslastung ${allocation.switch.poe.toFixed(1)} / ${switchBudget} W (${Math.round(allocation.switch.poe / switchBudget * 100)} %). Empfohlen sind mindestens ${Math.round((POE_HEADROOM - 1) * 100)} % Puffer für Startlasten und künftige Geräte.` });
+          msg: `Auslastung ${fmt1(allocation.switch.poe)} / ${switchBudget} W (${Math.round(allocation.switch.poe / switchBudget * 100)} %). Empfohlen sind mindestens ${Math.round((POE_HEADROOM - 1) * 100)} % Puffer für Startlasten und künftige Geräte.` });
       }
       if(gatewayHasPoe && allocation.gateway.poe > gatewayBudget) {
         const over = allocation.gateway.poe - gatewayBudget;
         warnings.push({ level: 'error', icon: 'alert-triangle',
           title: 'Gateway-PoE-Budget überschritten',
-          msg: `${allocation.gateway.poe.toFixed(1)} W zugeordnet, aber das Gateway liefert nur ${gatewayBudget} W (${over.toFixed(1)} W zu viel). Verlagere Geräte auf den Switch oder wähle ein anderes Gateway.` });
+          msg: `${fmt1(allocation.gateway.poe)} W zugeordnet, aber das Gateway liefert nur ${gatewayBudget} W (${fmt1(over)} W zu viel). Verlagere Geräte auf den Switch oder wähle ein anderes Gateway.` });
       }
       const switchPortsNeeded = allocation.switch.deviceCount + SWITCH_UPLINK_PORTS;
       if(activeSwitch.ports && switchPortsNeeded > activeSwitch.ports) {
@@ -3413,7 +3863,7 @@
               </div>
               <div class="text-right shrink-0">
                 <div class="text-xs text-nexus-muted uppercase font-bold tracking-wide">Auslastung</div>
-                <div class="font-bold text-xl ${valueClass}">${usedPoe.toFixed(1)}W <span class="text-sm font-normal text-nexus-muted">/ ${budget}W</span></div>
+                <div class="font-bold text-xl ${valueClass}">${fmt1(usedPoe)} W <span class="text-sm font-normal text-nexus-muted">/ ${budget} W</span></div>
                 <div class="text-[11px] text-nexus-muted">${allocation.switch.deviceCount + SWITCH_UPLINK_PORTS}/${sw.ports} Ports belegt</div>
               </div>
             </div>
@@ -3474,7 +3924,7 @@
               </div>
               <div class="text-right shrink-0">
                 <div class="text-xs text-nexus-muted uppercase font-bold tracking-wide">Auslastung</div>
-                <div class="font-bold text-xl ${valueClass}">${usedPoe.toFixed(1)}W <span class="text-sm font-normal text-nexus-muted">/ ${budget}W</span></div>
+                <div class="font-bold text-xl ${valueClass}">${fmt1(usedPoe)} W <span class="text-sm font-normal text-nexus-muted">/ ${budget} W</span></div>
                 <div class="text-[11px] text-nexus-muted">${gwPoeUsed}/${gwPoePorts} PoE-Ports belegt</div>
               </div>
             </div>
@@ -3507,7 +3957,7 @@
           <div class="card p-6" id="poe-assignment-card">
             <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
               <h3 class="text-base font-bold">PoE-Zuordnung</h3>
-              <span class="text-xs text-nexus-muted">Switch: ${allocation.switch.poe.toFixed(1)} W · Gateway: ${allocation.gateway.poe.toFixed(1)} W</span>
+              <span class="text-xs text-nexus-muted">Switch: ${fmt1(allocation.switch.poe)} W · Gateway: ${fmt1(allocation.gateway.poe)} W</span>
             </div>
             <p class="text-xs text-nexus-muted mb-3">Sowohl Switch als auch Gateway liefern PoE — wähle pro Gerät die Quelle.</p>
             <div class="flex items-center gap-3 mb-3 text-nexus-primary">${bulk('switch')} ${bulk('gateway')}</div>
@@ -3670,25 +4120,169 @@
       saveState();
     };
 
+    // Setter für Stromtarif, USV-Autonomie und Coverage-Profil (Iter. 2)
+    window.setEnergyTariff = (val) => {
+      const n = Number((val || '').toString().replace(',', '.'));
+      if(!Number.isFinite(n) || n < 0) return;
+      if(!state.energy) state.energy = { tariff: 0.32, upsRuntimeMin: 15 };
+      state.energy.tariff = Math.min(2, Math.max(0, n));
+      render();
+    };
+    window.setUpsRuntime = (min) => {
+      const n = parseInt(min);
+      if(!Number.isFinite(n) || n <= 0) return;
+      if(!state.energy) state.energy = { tariff: 0.32, upsRuntimeMin: 15 };
+      state.energy.upsRuntimeMin = Math.min(240, Math.max(1, n));
+      render();
+    };
+    window.setCoverageProfile = (id) => {
+      if(!COVERAGE_PROFILES.some(p => p.id === id)) return;
+      if(!state.coverage) state.coverage = { profile: 'general' };
+      state.coverage.profile = id;
+      render();
+    };
+    window.setRecordingRetention = (days) => {
+      const n = parseInt(days);
+      if(!Number.isFinite(n) || n <= 0) return;
+      if(!state.recording) state.recording = { retentionDays: 14, fpsProfile: 'standard' };
+      state.recording.retentionDays = Math.min(365, Math.max(1, n));
+      render();
+    };
+    window.setRecordingFps = (profile) => {
+      if(!['low','standard','high'].includes(profile)) return;
+      if(!state.recording) state.recording = { retentionDays: 14, fpsProfile: 'standard' };
+      state.recording.fpsProfile = profile;
+      render();
+    };
+
+    // NVR-Speicher-Schätzung (H.265, 24/7, Smart Detect aus). Faustformel:
+    // ~2 GB/Tag pro Megapixel bei 15 fps Standard. Profile skalieren mit
+    // Faktoren (low ≈ 8 fps, high ≈ 30 fps + Smart Detect).
+    function camDailyGB(cam, profile) {
+      const spec = productCache.specs[cam.slug] || {};
+      const mp = spec.resolutionMP || 4;
+      const factor = profile === 'high' ? 1.75 : profile === 'low' ? 0.55 : 1.0;
+      return mp * 2 * factor;
+    }
+    function recommendNvr(tbNeeded) {
+      if(tbNeeded < 5)  return { slug: 'unvr',            bays: 4, label: 'Network Video Recorder',            hint: 'Heim-NVR mit 4× 2,5"-Bays (max. ~16 TB roh).' };
+      if(tbNeeded < 30) return { slug: 'unvr-pro',        bays: 7, label: 'Network Video Recorder Pro',        hint: 'Pro-NVR mit 7× 3,5"-Bays (max. ~140 TB roh).' };
+      return                  { slug: 'unvr-enterprise', bays: 8, label: 'Network Video Recorder Enterprise', hint: 'Enterprise-NVR mit 8× 3,5"-Bays + redundanter PSU.' };
+    }
+    // Empfohlene HDD-Größe pro Bay: TB-Bedarf / Bays × 1,3 Reserve, gerundet auf
+    // gängige Größen (2/4/6/8/12/14/16/18/20 TB).
+    function recommendHddSize(tbNeeded, bays) {
+      if(tbNeeded <= 0 || bays <= 0) return 0;
+      const perBay = (tbNeeded * 1.3) / bays;
+      const sizes = [2, 4, 6, 8, 12, 14, 16, 18, 20];
+      for(const s of sizes) if(s >= perBay) return s;
+      return 22;
+    }
+    window.setFloorMaterial = (id) => {
+      if(!WALL_MATERIALS.some(m => m.id === id)) return;
+      const cf = state.floors.find(f => f.id === state.currentFloorId);
+      if(!cf) return;
+      cf.wallMaterial = id;
+      render();
+    };
+
+    // Greedy-Heuristik: weist jedem AP einen 2,4- und 5-GHz-Kanal zu, der
+    // bestmöglich von schon belegten APs in der Nähe entkoppelt ist.
+    // Reine Distanz-Maximierung — kein RF-Modell.
+    function recommendChannels(floor) {
+      const aps = floor?.aps || [];
+      const dist = (a, b) => Math.hypot((a.x ?? 0) - (b.x ?? 0), (a.y ?? 0) - (b.y ?? 0));
+      const result = aps.map(a => ({ id: a.id, channel24: null, channel5: null }));
+      // 2,4 GHz: bevorzuge den Kanal mit dem größten Abstand zum nächsten Konflikt.
+      for(let i = 0; i < aps.length; i++) {
+        const ap = aps[i];
+        const ranked = CH24_NONOVERLAP.map(ch => {
+          const conflicts = aps.filter((_, j) => j !== i && result[j].channel24 === ch);
+          const minD = conflicts.length ? Math.min(...conflicts.map(c => dist(ap, c))) : Infinity;
+          return { ch, minD };
+        }).sort((a, b) => b.minD - a.minD);
+        result[i].channel24 = ranked[0].ch;
+      }
+      // 5 GHz: gleiche Logik, aber Konflikte definieren wir als Kanaldifferenz ≤ 4
+      // (≈ überlappende 80-MHz-Blöcke). DFS-Kanäle leicht abwerten, damit sie
+      // erst genutzt werden, wenn UNII-1/3 voll sind.
+      for(let i = 0; i < aps.length; i++) {
+        const ap = aps[i];
+        const ranked = CH5_LIST.map(ch => {
+          const conflicts = aps.filter((_, j) => j !== i && result[j].channel5 != null && Math.abs(result[j].channel5 - ch) <= 4);
+          const minD = conflicts.length ? Math.min(...conflicts.map(c => dist(ap, c))) : Infinity;
+          const dfsPenalty = CH5_DFS.has(ch) ? 0.95 : 1.0;
+          return { ch, score: minD * dfsPenalty };
+        }).sort((a, b) => b.score - a.score);
+        result[i].channel5 = ranked[0].ch;
+      }
+      return result;
+    }
+
+    window.autoAssignChannels = () => {
+      const floor = state.floors.find(f => f.id === state.currentFloorId);
+      if(!floor || !(floor.aps || []).length) {
+        showPlannerToast('Keine APs auf dieser Etage.', 'warn');
+        return;
+      }
+      const rec = recommendChannels(floor);
+      let changed = 0;
+      rec.forEach(r => {
+        const ap = floor.aps.find(a => a.id === r.id);
+        if(!ap) return;
+        if(ap.channel24 !== r.channel24 || ap.channel5 !== r.channel5) changed++;
+        ap.channel24 = r.channel24;
+        ap.channel5 = r.channel5;
+      });
+      render();
+      showPlannerToast(changed === 0 ? 'Kanäle waren bereits optimal verteilt.' : `Kanäle für ${changed} AP${changed === 1 ? '' : 's'} neu zugewiesen.`);
+    };
+
     const VLAN_PRESETS = {
       haus: [
-        { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',   ssid: null },
-        { id: 10, name: 'Haupt',      subnet: '192.168.10.0/24', purpose: 'main',   ssid: 'HomeNet' },
-        { id: 20, name: 'Gast',       subnet: '192.168.20.0/24', purpose: 'guest',  ssid: 'HomeNet-Guest' },
-        { id: 30, name: 'IoT',        subnet: '192.168.30.0/24', purpose: 'iot',    ssid: 'HomeNet-IoT' },
-        { id: 40, name: 'Kameras',    subnet: '192.168.40.0/24', purpose: 'camera', ssid: null }
+        { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',   ssid: null,              wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Haupt',      subnet: '192.168.10.0/24', purpose: 'main',   ssid: 'HomeNet',         wpaMode: 'wpa3-personal' },
+        { id: 20, name: 'Gast',       subnet: '192.168.20.0/24', purpose: 'guest',  ssid: 'HomeNet-Guest',   wpaMode: 'wpa3-personal' },
+        { id: 30, name: 'IoT',        subnet: '192.168.30.0/24', purpose: 'iot',    ssid: 'HomeNet-IoT',     wpaMode: 'wpa2-wpa3' },
+        { id: 40, name: 'Kameras',    subnet: '192.168.40.0/24', purpose: 'camera', ssid: null,              wpaMode: 'wpa3-personal' }
       ],
       buero: [
-        { id: 1,   name: 'Management', subnet: '10.0.1.0/24',   purpose: 'mgmt',   ssid: null },
-        { id: 10,  name: 'Mitarbeiter',subnet: '10.0.10.0/24',  purpose: 'main',   ssid: 'Office-Staff' },
-        { id: 20,  name: 'Gast',       subnet: '10.0.20.0/24',  purpose: 'guest',  ssid: 'Office-Guest' },
-        { id: 30,  name: 'VoIP',       subnet: '10.0.30.0/24',  purpose: 'voip',   ssid: null },
-        { id: 40,  name: 'Kameras',    subnet: '10.0.40.0/24',  purpose: 'camera', ssid: null },
-        { id: 50,  name: 'Server',     subnet: '10.0.50.0/24',  purpose: 'server', ssid: null }
+        { id: 1,   name: 'Management', subnet: '10.0.1.0/24',   purpose: 'mgmt',   ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 10,  name: 'Mitarbeiter',subnet: '10.0.10.0/24',  purpose: 'main',   ssid: 'Office-Staff',  wpaMode: 'wpa3-enterprise' },
+        { id: 20,  name: 'Gast',       subnet: '10.0.20.0/24',  purpose: 'guest',  ssid: 'Office-Guest',  wpaMode: 'wpa3-personal' },
+        { id: 30,  name: 'VoIP',       subnet: '10.0.30.0/24',  purpose: 'voip',   ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 40,  name: 'Kameras',    subnet: '10.0.40.0/24',  purpose: 'camera', ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 50,  name: 'Server',     subnet: '10.0.50.0/24',  purpose: 'server', ssid: null,            wpaMode: 'wpa3-personal' }
       ],
       ferien: [
-        { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',  ssid: null },
-        { id: 10, name: 'Gäste',      subnet: '192.168.10.0/24', purpose: 'guest', ssid: 'Ferienhaus-WLAN' }
+        { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',  ssid: null,                  wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Gäste',      subnet: '192.168.10.0/24', purpose: 'guest', ssid: 'Ferienhaus-WLAN',     wpaMode: 'wpa3-personal' }
+      ],
+      praxis: [
+        { id: 1,  name: 'Management',     subnet: '10.10.1.0/24',  purpose: 'mgmt',   ssid: null,              wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Verwaltung',     subnet: '10.10.10.0/24', purpose: 'main',   ssid: 'Praxis-Office',   wpaMode: 'wpa3-enterprise' },
+        { id: 20, name: 'Patienten-WLAN', subnet: '10.10.20.0/24', purpose: 'guest',  ssid: 'Praxis-Gast',     wpaMode: 'wpa3-personal' },
+        { id: 30, name: 'Medizingeräte',  subnet: '10.10.30.0/24', purpose: 'iot',    ssid: null,              wpaMode: 'wpa3-personal' },
+        { id: 40, name: 'Kameras',        subnet: '10.10.40.0/24', purpose: 'camera', ssid: null,              wpaMode: 'wpa3-personal' },
+        { id: 50, name: 'VoIP',           subnet: '10.10.50.0/24', purpose: 'voip',   ssid: null,              wpaMode: 'wpa3-personal' }
+      ],
+      schule: [
+        { id: 1,  name: 'Management', subnet: '10.20.1.0/24',  purpose: 'mgmt',   ssid: null,                wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Lehrer',     subnet: '10.20.10.0/24', purpose: 'main',   ssid: 'School-Staff',      wpaMode: 'wpa3-enterprise' },
+        { id: 20, name: 'Schüler',    subnet: '10.20.20.0/24', purpose: 'main',   ssid: 'School-Students',   wpaMode: 'wpa3-enterprise' },
+        { id: 30, name: 'Gast',       subnet: '10.20.30.0/24', purpose: 'guest',  ssid: 'School-Guest',      wpaMode: 'wpa3-personal' },
+        { id: 40, name: 'IoT',        subnet: '10.20.40.0/24', purpose: 'iot',    ssid: null,                wpaMode: 'wpa2-wpa3' },
+        { id: 50, name: 'Kameras',    subnet: '10.20.50.0/24', purpose: 'camera', ssid: null,                wpaMode: 'wpa3-personal' },
+        { id: 60, name: 'Server',     subnet: '10.20.60.0/24', purpose: 'server', ssid: null,                wpaMode: 'wpa3-personal' }
+      ],
+      hotel: [
+        { id: 1,  name: 'Management',  subnet: '10.30.1.0/24',  purpose: 'mgmt',   ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Personal',    subnet: '10.30.10.0/24', purpose: 'main',   ssid: 'Hotel-Staff',   wpaMode: 'wpa3-enterprise' },
+        { id: 20, name: 'Gäste-WLAN',  subnet: '10.30.20.0/24', purpose: 'guest',  ssid: 'Hotel-Guest',   wpaMode: 'wpa3-personal' },
+        { id: 30, name: 'IoT',         subnet: '10.30.30.0/24', purpose: 'iot',    ssid: null,            wpaMode: 'wpa2-wpa3' },
+        { id: 40, name: 'Kameras',     subnet: '10.30.40.0/24', purpose: 'camera', ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 50, name: 'VoIP',        subnet: '10.30.50.0/24', purpose: 'voip',   ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 60, name: 'POS / Zahlung', subnet: '10.30.60.0/24', purpose: 'server', ssid: null,          wpaMode: 'wpa3-personal' }
       ]
     };
 
@@ -3697,18 +4291,43 @@
       state.vlans = JSON.parse(JSON.stringify(VLAN_PRESETS[key]));
       render();
     };
+    // Liefert ein freies /24-Subnetz im 10.0.x.0-Bereich, das zu den bereits
+    // belegten Subnetzen nicht überlappt. Fallback auf das alte 192.168.x-Schema.
+    function suggestFreeSubnet(preferred) {
+      const used = (state.vlans || []).map(v => parseCIDR(v.subnet)).filter(Boolean);
+      const candidates = preferred ? [preferred] : [];
+      for(let x = 10; x <= 250; x += 10) candidates.push(`10.0.${x}.0/24`);
+      for(const c of candidates) {
+        const p = parseCIDR(c);
+        if(!p) continue;
+        if(!used.some(u => cidrsOverlap(u, p))) return c;
+      }
+      return preferred || '10.0.99.0/24';
+    }
+
     window.addVlan = () => {
       const existing = new Set(state.vlans.map(v => v.id));
       let nextId = 50; while(existing.has(nextId) && nextId < 4095) nextId += 10;
-      state.vlans.push({ id: nextId, name: 'Neues VLAN', subnet: `192.168.${nextId}.0/24`, purpose: 'custom', ssid: null });
+      state.vlans.push({ id: nextId, name: 'Neues VLAN', subnet: suggestFreeSubnet(`10.0.${nextId}.0/24`), purpose: 'custom', ssid: null, wpaMode: DEFAULT_WPA_MODE });
       render();
     };
     window.removeVlan = (idx) => { state.vlans.splice(idx, 1); render(); };
     window.updateVlan = (idx, field, value) => {
-      if(!state.vlans[idx]) return;
+      const v = state.vlans[idx];
+      if(!v) return;
       if(field === 'id') value = Math.max(1, Math.min(4094, parseInt(value) || 1));
       if(field === 'ssid' && value === '') value = null;
-      state.vlans[idx][field] = value;
+      if(field === 'wpaMode' && !WPA_MODES.some(w => w.id === value)) value = DEFAULT_WPA_MODE;
+      // Beim Wechsel des Zwecks: wenn das aktuelle Subnetz noch das ursprüngliche
+      // Default ist (also noch nicht vom User editiert), automatisch auf den
+      // Standard-Bereich für den neuen Zweck springen.
+      if(field === 'purpose' && VLAN_DEFAULT_SUBNETS[value]) {
+        const wasDefault = v.subnet === `10.0.${v.id}.0/24` || v.subnet === `192.168.${v.id}.0/24` || Object.values(VLAN_DEFAULT_SUBNETS).includes(v.subnet);
+        if(wasDefault) {
+          v.subnet = suggestFreeSubnet(VLAN_DEFAULT_SUBNETS[value]);
+        }
+      }
+      v[field] = value;
       saveState();
     };
 
@@ -3727,17 +4346,34 @@
 
       const purposes = ['mgmt','main','guest','iot','camera','voip','server','custom'];
       const purposeOpts = (cur) => purposes.map(p => `<option value="${p}" ${p===cur?'selected':''}>${p}</option>`).join('');
+      const wpaOpts = (cur) => WPA_MODES.map(w => `<option value="${w.id}" ${w.id===(cur||DEFAULT_WPA_MODE)?'selected':''} title="${w.hint}">${w.short}</option>`).join('');
 
       // Validierung
       const warnings = [];
-      const ids = new Set(), subs = new Set();
+      const ids = new Set();
+      const parsedSubs = [];
+      let hasEnterprise = false;
       state.vlans.forEach(v => {
         if(v.id < 1 || v.id > 4094) warnings.push(`VLAN-ID ${v.id} ungültig (1–4094).`);
         if(ids.has(v.id)) warnings.push(`VLAN-ID ${v.id} ist doppelt vergeben.`);
         ids.add(v.id);
-        if(subs.has(v.subnet)) warnings.push(`Subnetz ${v.subnet} ist doppelt vergeben.`);
-        subs.add(v.subnet);
+        if(v.subnet) {
+          const p = parseCIDR(v.subnet);
+          if(!p) {
+            warnings.push(`Subnetz ${v.subnet} ist ungültig (CIDR-Notation z. B. 10.0.10.0/24).`);
+          } else {
+            for(const o of parsedSubs) {
+              if(cidrsOverlap(o.cidr, p)) {
+                warnings.push(`Subnetze ${o.label} und ${v.subnet} überlappen sich.`);
+              }
+            }
+            parsedSubs.push({ cidr: p, label: v.subnet });
+          }
+        }
+        if(v.ssid && v.wpaMode === 'wpa3-enterprise') hasEnterprise = true;
+        if(v.ssid && v.wpaMode === 'open') warnings.push(`SSID „${v.ssid}" ist als <strong>Offen</strong> konfiguriert — Captive Portal nutzen oder mind. WPA2 wählen.`);
       });
+      if(hasEnterprise) warnings.push('WPA3 Enterprise gewählt: erfordert einen RADIUS-Server (UniFi Identity Endpoint, FreeRADIUS oder ein NPS auf Windows Server).');
       const hasCameras = state.floors.some(f => (f.cameras || []).length > 0);
       if(hasCameras && !state.vlans.some(v => v.purpose === 'camera')) {
         warnings.push('Kameras sind geplant, aber es existiert kein VLAN mit Zweck „camera". Empfohlen: separates Segment.');
@@ -3761,6 +4397,7 @@
                 <th class="px-4 py-3 text-left">Subnetz (CIDR)</th>
                 <th class="px-4 py-3 text-left">Zweck</th>
                 <th class="px-4 py-3 text-left">SSID</th>
+                <th class="px-4 py-3 text-left">WLAN-Sicherheit</th>
                 <th class="px-2 py-3"></th>
               </tr>
             </thead>
@@ -3772,7 +4409,8 @@
                   <td class="px-4 py-2"><input type="text" value="${v.subnet}" onchange="window.updateVlan(${i},'subnet',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 font-mono text-xs"></td>
                   <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'purpose',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${purposeOpts(v.purpose)}</select></td>
                   <td class="px-4 py-2"><input type="text" value="${v.ssid || ''}" placeholder="—" onchange="window.updateVlan(${i},'ssid',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"></td>
-                  <td class="px-2 py-2 text-right"><button onclick="window.removeVlan(${i})" class="text-red-500 hover:text-red-700" title="Entfernen"><i data-lucide="trash-2" class="w-4 h-4"></i></button></td>
+                  <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'wpaMode',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs" ${v.ssid ? '' : 'disabled title="Nur relevant, wenn das VLAN eine SSID ausstrahlt"'}>${wpaOpts(v.wpaMode)}</select></td>
+                  <td class="px-2 py-2 text-right"><button onclick="window.removeVlan(${i})" class="text-red-500 hover:text-red-700" title="Entfernen" aria-label="VLAN ${v.id} entfernen"><i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i></button></td>
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -3788,6 +4426,9 @@
             <button onclick="window.applyVlanPreset('haus')" class="btn-secondary text-xs">Preset: Einfamilienhaus</button>
             <button onclick="window.applyVlanPreset('buero')" class="btn-secondary text-xs">Preset: KMU-Büro</button>
             <button onclick="window.applyVlanPreset('ferien')" class="btn-secondary text-xs">Preset: Ferienhaus</button>
+            <button onclick="window.applyVlanPreset('praxis')" class="btn-secondary text-xs">Preset: Arztpraxis</button>
+            <button onclick="window.applyVlanPreset('schule')" class="btn-secondary text-xs">Preset: Schule</button>
+            <button onclick="window.applyVlanPreset('hotel')" class="btn-secondary text-xs">Preset: Hotel/Gastronomie</button>
             <button onclick="window.addVlan()" class="btn-primary text-xs flex items-center gap-1"><i data-lucide="plus" class="w-3 h-3"></i> VLAN hinzufügen</button>
           </div>
           ${tableHtml}
@@ -4241,7 +4882,8 @@
       const mountPrice = 25;
       if(allAps.length > 0) autoBom.push({ category: 'Zubehör', name: 'AP-Deckenmount (Standard)', slug: 'acc-mount-ceiling', qty: allAps.length, price: mountPrice });
       if(allCameras.length > 0) autoBom.push({ category: 'Zubehör', name: 'Kamera-Wandmount', slug: 'acc-mount-cam', qty: allCameras.length, price: mountPrice });
-      const totalDevices = 1 + (state.isp?.modemPrice > 0 ? 1 : 0) + 1 + allAps.length + allCameras.length + (allCameras.length > 0 ? 1 : 0);
+      const endpointCount = allAps.length + allCameras.length;
+      const totalDevices = 1 + (state.isp?.modemPrice > 0 ? 1 : 0) + 1 + endpointCount + (allCameras.length > 0 ? 1 : 0);
 
       // Rack-Addons aus Rack-Ansicht (Kabelmeter, Patchkabel, Blindblenden, dynamisches Rack)
       let rackAddons = [];
@@ -4254,11 +4896,27 @@
         if(!rackViewUsed || !Array.from(rackAddonSlugs).some(s => s.startsWith('acc-rack-'))) {
           autoBom.push({ category: 'Zubehör', name: '19" Wand-Rack 6HE', slug: 'acc-rack-6u', qty: 1, price: 149 });
         }
-        // Patchpanel-Fallback: falls Rack-View nicht genutzt oder kein Patchpanel im Rack
+        // Patchpanel-Fallback: falls Rack-View nicht genutzt oder kein Patchpanel im Rack.
+        // Anzahl skaliert mit Endgeräten (1× 24-Port pro 24 APs+Kameras).
         const hasRackPatchpanel = (state.racks || []).some(r => (r.items || []).some(it => it.kind === 'patchpanel'));
         if(!rackViewUsed || !hasRackPatchpanel) {
-          autoBom.push({ category: 'Zubehör', name: 'Patchpanel 24-Port Cat6a', slug: 'acc-patch-24', qty: 1, price: 59 });
+          const ppQty = Math.max(1, Math.ceil(endpointCount / 24));
+          autoBom.push({ category: 'Zubehör', name: 'Patchpanel 24-Port Cat6a', slug: 'acc-patch-24', qty: ppQty, price: 59 });
         }
+      }
+
+      // Kabel-Fallback: wenn das Rack-View nie geöffnet wurde, gibt es keine
+      // computeRackBomAddons-Beträge. Wir schätzen Verlegekabel und Patchkabel
+      // pauschal aus der Endgerätezahl — Mesh-APs zählen NICHT mit, da sie
+      // ihren Uplink kabellos via 5-GHz-Backhaul aufbauen.
+      const wiredAps = allAps.filter(ap => !ap.meshUplink).length;
+      const wiredEndpoints = wiredAps + allCameras.length;
+      if(!rackViewUsed && wiredEndpoints > 0) {
+        const avgLen = state.cabling?.defaultLengthPerFloorM > 0 ? state.cabling.defaultLengthPerFloorM : 15;
+        const meters = Math.ceil(wiredEndpoints * avgLen / 5) * 5;
+        const cat = (state.cabling?.defaultCategory || 'cat6a').toLowerCase();
+        autoBom.push({ category: 'Zubehör', name: `${cat.toUpperCase()} Verlegekabel (Meter, geschätzt)`, slug: 'acc-cable-' + cat, qty: meters, price: 1 });
+        autoBom.push({ category: 'Zubehör', name: 'Cat6a Patchkabel 0,5 m', slug: 'acc-patch-cable', qty: wiredEndpoints, price: 3 });
       }
 
       // Rack-Addons anhängen (Kabel/Patch/Blindblenden + ggf. dynamisches Rack)
@@ -4307,8 +4965,14 @@
       const poeWallDraw = deliveredPoe / POE_EFFICIENCY;
       const totalWatts = gatewayIdle + switchIdle + nvrIdle + poeWallDraw;
       const kwhYear = totalWatts * 24 * 365 / 1000;
-      const upsVA = Math.ceil(totalWatts * 1.5 / 10) * 10; // gerundet auf 10 VA
-      return { gatewayIdle, switchIdle, nvrIdle, deliveredPoe, poeWallDraw, totalWatts, kwhYear, upsVA };
+      const tariff = (state.energy?.tariff > 0 ? state.energy.tariff : 0.32);
+      const yearlyCost = kwhYear * tariff;
+      // USV-Dimensionierung: VA via 1,5×-Faktor (Power Factor + Reserve);
+      // Wh = Akkukapazität für gewählte Autonomie (Min). Auf 10 gerundet.
+      const upsVA = Math.ceil(totalWatts * 1.5 / 10) * 10;
+      const runtimeMin = (state.energy?.upsRuntimeMin > 0 ? state.energy.upsRuntimeMin : 15);
+      const upsWh = Math.ceil(totalWatts * (runtimeMin / 60) / 10) * 10;
+      return { gatewayIdle, switchIdle, nvrIdle, deliveredPoe, poeWallDraw, totalWatts, kwhYear, yearlyCost, tariff, upsVA, upsWh, upsRuntimeMin: runtimeMin };
     }
 
     window.exportProjectJson = () => {
@@ -4334,18 +4998,31 @@
             const obj = JSON.parse(reader.result);
             const loaded = obj.state || obj;
             if(!loaded || !Array.isArray(loaded.floors)) throw new Error('Ungültige Projektdatei (floors fehlt).');
-            loaded.floors = loaded.floors.map(f => ({ cameras: [], ...f }));
+            loaded.floors = loaded.floors.map(f => {
+              const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
+              merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+              return merged;
+            });
             if(!loaded.view) loaded.view = { heatmap: false };
             if(!Array.isArray(loaded.vlans)) loaded.vlans = [];
+            loaded.vlans = loaded.vlans.map(v => ({ wpaMode: DEFAULT_WPA_MODE, ...v }));
             loaded.backup = normalizeBackupState(loaded.backup);
             loaded.bomOverrides = normalizeBomOverrides(loaded.bomOverrides);
             loaded.racks = normalizeRacksState(loaded.racks);
             loaded.cabling = normalizeCablingState(loaded.cabling);
             loaded.rackView = normalizeRackView(loaded.rackView, loaded.racks);
             loaded.rackViewOpen = false;
+            loaded.energy = { tariff: 0.32, upsRuntimeMin: 15, ...(loaded.energy || {}) };
+            loaded.coverage = { profile: 'general', ...(loaded.coverage || {}) };
+            loaded.recording = { retentionDays: 14, fpsProfile: 'standard', ...(loaded.recording || {}) };
             Object.assign(state, loaded);
+            const slugIssues = validateSlugRefs(state);
             render();
-            alert('Projekt erfolgreich geladen.');
+            if(slugIssues.length > 0) {
+              alert('Projekt geladen mit Hinweisen:\n\n• ' + slugIssues.join('\n• '));
+            } else {
+              alert('Projekt erfolgreich geladen.');
+            }
           } catch(err) {
             alert('Fehler beim Laden: ' + err.message);
           }
@@ -4372,6 +5049,135 @@
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
 
+    // Baut ein einfaches Topologie-SVG: WAN → Gateway → Switch → APs/Kameras,
+    // plus optional NVR und Mesh-Uplink-Reihe (gestrichelt). Rein deklarativ —
+    // kein Canvas, damit das Ergebnis ohne weitere Tools druck- und exportfähig
+    // ist.
+    function buildTopologySvg(b) {
+      const W = 880;
+      const boxW = 150, boxH = 48;
+      const cx = W / 2;
+      const meshAps = state.floors.flatMap(f => (f.aps || []).filter(ap => ap.meshUplink));
+      const wiredAps = state.floors.flatMap(f => (f.aps || []).filter(ap => !ap.meshUplink));
+      const cams = b.allCameras || [];
+      const hasBackup = !!state.backup?.enabled;
+      const nvrSlug = cams.length > 0 ? (cams.length > 10 ? 'unvr-pro' : 'unvr') : null;
+      const nvrSpec = nvrSlug ? (productCache.specs[nvrSlug] || { name: 'NVR' }) : null;
+
+      const endpoints = [
+        ...wiredAps.map(ap => ({ kind: 'ap',  label: productCache.specs[ap.slug]?.name || ap.slug })),
+        ...cams.map(c    => ({ kind: 'cam', label: productCache.specs[c.slug]?.name || c.slug }))
+      ];
+      const perRow = Math.min(5, Math.max(1, Math.floor((W - 40) / (boxW + 20))));
+      const wiredRows = Math.max(1, Math.ceil(endpoints.length / perRow));
+      const meshRows = meshAps.length > 0 ? Math.ceil(meshAps.length / perRow) : 0;
+
+      const yWan = 30;
+      const yGw = yWan + 80;
+      const ySw = yGw + 80;
+      const yEndStart = ySw + 90;
+      const rowGap = boxH + 36;
+      const yMeshStart = yEndStart + wiredRows * rowGap + (meshRows > 0 ? 20 : 0);
+      const H = yMeshStart + meshRows * rowGap + 40;
+
+      const esc = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const box = (x, y, title, sub, colorClass) => {
+        const fill   = colorClass === 'wan'  ? '#0f172a'
+                     : colorClass === 'gw'   ? '#1e3a8a'
+                     : colorClass === 'sw'   ? '#065f46'
+                     : colorClass === 'nvr'  ? '#5b21b6'
+                     : colorClass === 'cam'  ? '#7c2d12'
+                     : colorClass === 'mesh' ? '#5b21b6'
+                     :                          '#1f2937';
+        const stroke = colorClass === 'wan'  ? '#475569'
+                     : colorClass === 'gw'   ? '#3b82f6'
+                     : colorClass === 'sw'   ? '#10b981'
+                     : colorClass === 'nvr'  ? '#a855f7'
+                     : colorClass === 'cam'  ? '#fb923c'
+                     : colorClass === 'mesh' ? '#a855f7'
+                     :                          '#94a3b8';
+        return `<g>
+          <rect x="${x}" y="${y}" width="${boxW}" height="${boxH}" rx="6" ry="6" fill="${fill}" stroke="${stroke}" stroke-width="2"/>
+          <text x="${x + boxW/2}" y="${y + 20}" text-anchor="middle" fill="#ffffff" font-family="sans-serif" font-size="13" font-weight="700">${esc(title)}</text>
+          <text x="${x + boxW/2}" y="${y + 36}" text-anchor="middle" fill="#cbd5e1" font-family="sans-serif" font-size="11">${esc(sub)}</text>
+        </g>`;
+      };
+      const line = (x1, y1, x2, y2, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#64748b" stroke-width="2" ${dash ? 'stroke-dasharray="6 4"' : ''}/>`;
+
+      const parts = [];
+      // WAN
+      const wanLabel = state.isp ? `${state.isp.name}` : 'Internet';
+      const wanSub = state.isp ? state.isp.type : 'WAN';
+      parts.push(box(cx - boxW/2, yWan, wanLabel, wanSub, 'wan'));
+      // Backup-WAN (kleiner, rechts oben)
+      if(hasBackup) {
+        const backupLabel = state.backup.type === 'starlink' ? 'Starlink' : state.backup.type === 'cellular' ? '5G/LTE Backup' : 'Zweit-Anbieter';
+        parts.push(box(cx + boxW/2 + 30, yWan, backupLabel, 'WAN2 (Failover)', 'wan'));
+        parts.push(line(cx + boxW/2 + 30 + boxW/2, yWan + boxH, cx, yGw, true));
+      }
+      parts.push(line(cx, yWan + boxH, cx, yGw));
+
+      // Gateway
+      parts.push(box(cx - boxW/2, yGw, b.gw.name, 'Gateway', 'gw'));
+      parts.push(line(cx, yGw + boxH, cx, ySw));
+
+      // Switch (+ NVR rechts daneben falls Kameras vorhanden)
+      parts.push(box(cx - boxW/2, ySw, b.activeSwitch.name, 'Switch', 'sw'));
+      if(nvrSpec) {
+        parts.push(box(cx + boxW/2 + 30, ySw, nvrSpec.name, 'NVR', 'nvr'));
+        parts.push(line(cx + boxW/2, ySw + boxH/2, cx + boxW/2 + 30, ySw + boxH/2));
+      }
+
+      // Wired Endpoints (APs + Cams) — Reihen
+      endpoints.forEach((ep, i) => {
+        const row = Math.floor(i / perRow);
+        const col = i % perRow;
+        const rowCount = Math.min(perRow, endpoints.length - row * perRow);
+        const totalRowW = rowCount * boxW + (rowCount - 1) * 20;
+        const startX = cx - totalRowW / 2;
+        const x = startX + col * (boxW + 20);
+        const y = yEndStart + row * rowGap;
+        parts.push(box(x, y, ep.label, ep.kind === 'cam' ? 'Kamera' : 'AP (kabel)', ep.kind));
+        parts.push(line(cx, ySw + boxH, x + boxW/2, y));
+      });
+
+      // Mesh-APs als separate Reihe mit gestricheltem Uplink
+      if(meshAps.length > 0) {
+        meshAps.forEach((ap, i) => {
+          const row = Math.floor(i / perRow);
+          const col = i % perRow;
+          const rowCount = Math.min(perRow, meshAps.length - row * perRow);
+          const totalRowW = rowCount * boxW + (rowCount - 1) * 20;
+          const startX = cx - totalRowW / 2;
+          const x = startX + col * (boxW + 20);
+          const y = yMeshStart + row * rowGap;
+          const apName = productCache.specs[ap.slug]?.name || ap.slug;
+          parts.push(box(x, y, apName, 'AP (Mesh)', 'mesh'));
+          // Mesh-Uplink von der nächsten Wired-AP-Reihe oder vom Switch (gestrichelt)
+          parts.push(line(cx, ySw + boxH, x + boxW/2, y, true));
+        });
+      }
+
+      const title = `Netzwerk-Topologie · ${endpoints.length + meshAps.length} Endgeräte`;
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" aria-label="${esc(title)}">
+        <rect width="${W}" height="${H}" fill="#0f172a"/>
+        <text x="20" y="22" fill="#cbd5e1" font-family="sans-serif" font-size="12" font-weight="600">${esc(title)}</text>
+        ${parts.join('\n')}
+      </svg>`;
+    }
+
+    window.exportTopologySvg = () => {
+      const b = buildBom();
+      const svg = buildTopologySvg(b);
+      const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0,10);
+      a.href = url; a.download = `unifi-topologie-${stamp}.svg`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    };
+
     function renderStep6() {
       const b = buildBom();
       const p = computePower(b);
@@ -4380,36 +5186,225 @@
       const container = document.createElement('div');
       container.className = 'fade-in flex flex-col gap-8';
 
+      // Laufende Kosten (rein informativ — nicht in der Hardware-BOM enthalten).
+      // Aktuell: Starlink-Tarif. ISP-Tarife haben kein `monthly`-Feld und werden
+      // hier nicht erfasst.
+      const recurring = [];
+      if(state.backup?.enabled && state.backup.type === 'starlink' && state.backup.starlinkPlan) {
+        const slPlan = STARLINK_PLANS.find(pl => pl.id === state.backup.starlinkPlan);
+        if(slPlan) recurring.push({
+          label: 'Starlink-Tarif (' + slPlan.name + ')',
+          monthly: slPlan.monthly,
+          note: slPlan.data
+        });
+      }
+      const monthlySum = recurring.reduce((s, r) => s + (r.monthly || 0), 0);
+      const recurringCard = recurring.length === 0 ? '' : `
+        <div class="card p-0 overflow-hidden">
+          <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
+            <h3 class="font-bold">Laufende Kosten (monatlich)</h3>
+            <span class="text-sm text-nexus-muted">≈ <strong>${fmtEur0(monthlySum)} / Monat</strong> · ${fmtEur0(monthlySum * 12)} / Jahr</span>
+          </div>
+          <table class="w-full text-sm text-left">
+            <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
+              <tr><th class="px-6 py-3">Position</th><th class="px-6 py-3">Hinweis</th><th class="px-4 py-3 text-right">€/Monat</th></tr>
+            </thead>
+            <tbody>
+              ${recurring.map(r => `<tr class="border-b border-nexus-border">
+                <td class="px-6 py-3 font-medium">${r.label}</td>
+                <td class="px-6 py-3 text-nexus-muted">${r.note || ''}</td>
+                <td class="px-4 py-3 text-right">${fmtEur0(r.monthly)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+          <div class="px-6 py-3 text-[11px] text-nexus-muted bg-nexus-surface bg-opacity-30">Diese Kosten sind <strong>nicht</strong> in der Hardware-Stückliste oben enthalten — sie werden nur informativ ausgewiesen.</div>
+        </div>`;
+
+      // Kabel-Validierung: 100 m Kupfer-Limit, Cat-Klasse vs. Anwendung.
+      // Greift nur, wenn der User im Rack-View Verbindungen mit Längen gepflegt hat.
+      const cableIssues = [];
+      const conns = state.cabling?.connections || [];
+      conns.forEach(cn => {
+        const len = Number(cn.cableLengthM) || 0;
+        const cat = (cn.cableCategory || state.cabling?.defaultCategory || 'cat6a').toLowerCase();
+        if(len > 100) {
+          cableIssues.push({ severity: 'error', msg: `Verbindung ${fmt1(len)} m überschreitet die 100-m-Grenze für Twisted-Pair. Mit LWL/SFP+ (z. B. OM3-Multimode oder SM-LWL) und einem Aggregation-Switch arbeiten.` });
+        } else if(len > 90) {
+          cableIssues.push({ severity: 'warn', msg: `Verbindung ${fmt1(len)} m (${cat.toUpperCase()}) liegt nahe an der 100-m-Grenze. Mindestens Cat6a/Cat7 verwenden und Reserve einplanen.` });
+        } else if(len > 55 && (cat === 'cat5e' || cat === 'cat6')) {
+          cableIssues.push({ severity: 'warn', msg: `Verbindung ${fmt1(len)} m mit ${cat.toUpperCase()}: für PoE++ (bis 90 W, IEEE 802.3bt) und 10GBASE-T Cat6a ab 55 m empfohlen.` });
+        }
+      });
+      const cableCard = cableIssues.length === 0 ? '' : `
+        <div class="card p-0 overflow-hidden">
+          <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50">
+            <h3 class="font-bold">Verkabelung — Hinweise</h3>
+          </div>
+          <ul class="divide-y divide-nexus-border">
+            ${cableIssues.map(i => `<li class="px-6 py-3 text-sm flex items-start gap-2">
+              <span class="${i.severity === 'error' ? 'text-red-600' : 'text-amber-600'} mt-0.5"><i data-lucide="${i.severity === 'error' ? 'alert-octagon' : 'alert-triangle'}" class="w-4 h-4"></i></span>
+              <span>${i.msg}</span>
+            </li>`).join('')}
+          </ul>
+        </div>`;
+
+      // PoE-Klassen-Übersicht (Iter. 5) — Verteilung der Endgeräte auf
+      // 802.3af/at/bt-Klassen plus Hinweis, ob der gewählte Switch sie alle
+      // bedienen kann. Erscheint nur, wenn PoE-Geräte vorhanden sind.
+      const poeBuckets = { poe: [], 'poe+': [], 'poe++': [], 'poe+++': [], 'over': [] };
+      [...b.allAps, ...b.allCameras].forEach(d => {
+        const key = classifyDeviceWatts(d.watts);
+        if(key && poeBuckets[key]) poeBuckets[key].push(d);
+      });
+      const poeBucketsTotal = Object.values(poeBuckets).reduce((s, list) => s + list.length, 0);
+      const switchMaxPerPort = getPoeMaxPerPort(b.activeSwitch);
+      const poeClassCard = poeBucketsTotal === 0 ? '' : `
+        <div class="card p-0 overflow-hidden">
+          <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
+            <h3 class="font-bold">PoE-Klassen (Endgeräte)</h3>
+            <span class="text-xs text-nexus-muted">Switch liefert max. ${fmt0(switchMaxPerPort)} W/Port (${getPoeClassLabel(b.activeSwitch) || '—'})</span>
+          </div>
+          <table class="w-full text-sm text-left">
+            <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
+              <tr><th class="px-6 py-2">Klasse</th><th class="px-6 py-2">Standard</th><th class="px-4 py-2 text-center">Geräte</th><th class="px-6 py-2">Beispiele</th></tr>
+            </thead>
+            <tbody>
+              ${['poe','poe+','poe++','poe+++','over'].filter(k => poeBuckets[k].length > 0).map(k => {
+                const list = poeBuckets[k];
+                const samples = [...new Set(list.map(d => productCache.specs[d.slug]?.name || d.slug))].slice(0, 3).join(', ');
+                const minW = POE_CLASS_WATTS[k] || 0;
+                const switchOk = k === 'over' ? false : switchMaxPerPort >= minW;
+                return `<tr class="border-b border-nexus-border ${switchOk ? '' : 'bg-red-50'}">
+                  <td class="px-6 py-2 font-mono text-xs">${k.toUpperCase()}</td>
+                  <td class="px-6 py-2 text-xs">${getPoeStandardLabel(k)}</td>
+                  <td class="px-4 py-2 text-center font-bold">${list.length}</td>
+                  <td class="px-6 py-2 text-xs text-nexus-muted">${samples}${list.length > 3 ? ` … (+${list.length - 3})` : ''}${switchOk ? '' : ' <span class="text-red-700 font-semibold">⚠ Switch zu schwach</span>'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+
+      // NVR-Speicher-Berechnung (Iter. 5) — nur wenn Kameras platziert sind.
+      const cams = state.floors.flatMap(f => f.cameras || []);
+      let recordingCard = '';
+      let dsgvoCard = '';
+      if(cams.length > 0) {
+        const rec = state.recording || { retentionDays: 14, fpsProfile: 'standard' };
+        const dailyGB = cams.reduce((s, c) => s + camDailyGB(c, rec.fpsProfile), 0);
+        const totalGB = dailyGB * rec.retentionDays;
+        const totalTB = totalGB / 1024;
+        const nvrRec = recommendNvr(totalTB);
+        const hddSize = recommendHddSize(totalTB, nvrRec.bays);
+        const fpsLabels = { low: 'Niedrig (≈ 8 fps)', standard: 'Standard (≈ 15 fps)', high: 'Hoch (≈ 30 fps + Smart Detect)' };
+        recordingCard = `
+          <div class="card p-0 overflow-hidden">
+            <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50">
+              <h3 class="font-bold">Aufzeichnungs-Speicher (UniFi Protect)</h3>
+            </div>
+            <div class="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wide text-nexus-muted mb-1">Aufbewahrungsdauer</label>
+                <select onchange="window.setRecordingRetention(this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm no-print" aria-label="Aufbewahrungsdauer in Tagen">
+                  ${[3,7,14,30,60,90,180,365].map(d => `<option value="${d}" ${rec.retentionDays === d ? 'selected' : ''}>${d} Tage</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold uppercase tracking-wide text-nexus-muted mb-1">fps-Profil</label>
+                <select onchange="window.setRecordingFps(this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-3 py-2 text-sm no-print" aria-label="Bildrate-Profil">
+                  ${Object.entries(fpsLabels).map(([k, l]) => `<option value="${k}" ${rec.fpsProfile === k ? 'selected' : ''}>${l}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Geschätzter Bedarf</div>
+                <div class="text-2xl font-bold">${fmt1(totalTB)} TB</div>
+                <div class="text-xs text-nexus-muted mt-1">${fmt0(dailyGB)} GB/Tag · ${cams.length} Kamera${cams.length === 1 ? '' : 's'}</div>
+              </div>
+            </div>
+            <div class="px-6 pb-6 text-sm">
+              <div class="card p-4 bg-nexus-surface bg-opacity-40">
+                <div class="font-bold mb-1">Empfehlung: ${nvrRec.label} + ${nvrRec.bays}× ${hddSize} TB HDD</div>
+                <p class="text-xs text-nexus-muted">${nvrRec.hint} Reserve 30 % für Smart-Detect-Events und Snapshots eingeplant.</p>
+                <p class="text-[11px] text-nexus-muted mt-2">Faustformel: ~2 GB/Tag pro Megapixel bei 15 fps H.265. Tatsächlicher Bedarf hängt von Bewegungsanteil, Kompression und Smart-Detect-Konfiguration ab.</p>
+              </div>
+            </div>
+          </div>`;
+        dsgvoCard = `
+          <div class="card p-5 border-l-4 border-amber-500 bg-amber-50">
+            <h3 class="font-bold text-amber-900 mb-2 flex items-center gap-2"><i data-lucide="shield-alert" class="w-4 h-4" aria-hidden="true"></i> Datenschutz &amp; Compliance (Kameras)</h3>
+            <ul class="text-sm text-amber-900 list-disc pl-5 space-y-1">
+              <li>Sichtbaren Hinweis-Aushang am Eingang anbringen — DSGVO Art. 13 verlangt Information vor dem Erfassungsbereich.</li>
+              <li>Aufbewahrungsdauer ohne Vorfall: max. 72 Stunden (LfDI-Empfehlung). Aktuell eingestellt: <strong>${state.recording?.retentionDays || 14} Tage</strong> — bei &gt; 72 h begründungspflichtig.</li>
+              <li>Sichtfeld auf eigenes Grundstück beschränken; Nachbargrundstück, Gehweg, öffentlicher Raum sind tabu.</li>
+              <li>Verzeichnis Verarbeitungstätigkeiten (Art. 30 DSGVO) ergänzen — Verantwortliche/r, Zweck, Dauer, Empfänger.</li>
+              ${cams.length > 5 ? '<li><strong>Datenschutz-Folgenabschätzung (Art. 35 DSGVO)</strong> empfohlen — &gt; 5 Kameras gelten als systematische Überwachung.</li>' : ''}
+              <li>Bei Audio-Mitschnitt: separat einwilligungspflichtig (§ 201 StGB). UniFi Protect-Audio standardmäßig deaktivieren.</li>
+            </ul>
+          </div>`;
+      }
+
       const vlanCard = state.vlans && state.vlans.length > 0 ? `
           <div class="card p-0 overflow-hidden">
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50"><h3 class="font-bold">Netzwerk-Segmentierung (VLANs)</h3></div>
              <table class="w-full text-sm text-left">
                <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
-                 <tr><th class="px-6 py-3">ID</th><th class="px-6 py-3">Name</th><th class="px-6 py-3">Subnetz</th><th class="px-6 py-3">Zweck</th><th class="px-6 py-3">SSID</th></tr>
+                 <tr><th class="px-6 py-3">ID</th><th class="px-6 py-3">Name</th><th class="px-6 py-3">Subnetz</th><th class="px-6 py-3">Zweck</th><th class="px-6 py-3">SSID</th><th class="px-6 py-3">WLAN-Sicherheit</th></tr>
                </thead>
                <tbody>
-                 ${state.vlans.map(v => `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono">${v.id}</td><td class="px-6 py-3 font-medium">${v.name}</td><td class="px-6 py-3 font-mono text-xs">${v.subnet}</td><td class="px-6 py-3">${v.purpose}</td><td class="px-6 py-3">${v.ssid || '—'}</td></tr>`).join('')}
+                 ${state.vlans.map(v => {
+                   const wpa = WPA_MODES.find(w => w.id === (v.wpaMode || DEFAULT_WPA_MODE)) || WPA_MODES[0];
+                   return `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono">${v.id}</td><td class="px-6 py-3 font-medium">${v.name}</td><td class="px-6 py-3 font-mono text-xs">${v.subnet}</td><td class="px-6 py-3">${v.purpose}</td><td class="px-6 py-3">${v.ssid || '—'}</td><td class="px-6 py-3 text-xs">${v.ssid ? wpa.label : '—'}</td></tr>`;
+                 }).join('')}
                </tbody>
              </table>
           </div>` : '';
 
-      // Kanal-Kollisionswarnung
+      // Kanal-Kollisionswarnung — 2,4 GHz (1/6/11) und 5 GHz (Δ ≤ 4),
+      // plus DFS-Hinweis falls Kanäle aus dem Wetterradar-Bereich genutzt werden.
       const channelWarnings = [];
+      const dfsAps = [];
       state.floors.forEach(f => {
         const aps = f.aps || [];
         for(let i=0;i<aps.length;i++) for(let j=i+1;j<aps.length;j++) {
           const a=aps[i], c=aps[j];
           const dist = Math.hypot((a.x||0)-(c.x||0), (a.y||0)-(c.y||0));
           if(dist < 8 && a.channel5 && c.channel5 && Math.abs(a.channel5 - c.channel5) <= 4) {
-            channelWarnings.push(`${f.name}: APs auf 5 GHz-Kanal ${a.channel5} und ${c.channel5} stehen zu nah (${dist.toFixed(1)}m).`);
+            channelWarnings.push(`${f.name}: APs auf 5 GHz-Kanal ${a.channel5} und ${c.channel5} stehen zu nah (${fmt1(dist)} m).`);
+          }
+          if(dist < 8 && a.channel24 && c.channel24 && a.channel24 === c.channel24) {
+            channelWarnings.push(`${f.name}: zwei APs senden auf demselben 2,4-GHz-Kanal ${a.channel24} im Abstand von nur ${fmt1(dist)} m. Empfohlene Kanäle: 1/6/11.`);
           }
         }
+        aps.forEach(ap => {
+          if(ap.channel5 && CH5_DFS.has(ap.channel5)) {
+            dfsAps.push(`${f.name} · Kanal ${ap.channel5}`);
+          }
+        });
       });
       const warnCard = channelWarnings.length > 0 ? `
           <div class="card p-5 border-l-4 border-yellow-500 bg-yellow-50">
              <h3 class="font-bold text-yellow-800 mb-2 flex items-center gap-2"><i data-lucide="alert-triangle" class="w-4 h-4"></i> Kanal-Kollision erkannt</h3>
              <ul class="text-sm text-yellow-900 list-disc pl-5 space-y-1">${channelWarnings.map(w => `<li>${w}</li>`).join('')}</ul>
+             <p class="text-xs text-yellow-900 mt-2">Tipp: in Schritt 2 den Knopf <em>„Kanäle auto"</em> nutzen, um eine distanzbasierte Verteilung anzuwenden.</p>
           </div>` : '';
+      const dfsCard = dfsAps.length > 0 ? `
+          <div class="card p-4 border-l-4 border-blue-400 bg-blue-50">
+             <p class="text-sm text-blue-900"><i data-lucide="info" class="w-4 h-4 inline align-text-bottom"></i> <strong>DFS-Kanäle aktiv:</strong> ${dfsAps.join(', ')}. Diese können durch Wetterradar kurzzeitig ausweichen — für VoIP/Video besser UNII-1 (36–48) oder UNII-3 (149–161) bevorzugen.</p>
+          </div>` : '';
+
+      // Mesh-Hinweis: APs mit Mesh-Uplink benötigen kein Cat6, dafür ein
+      // dediziertes 5-GHz-Backhaul. Throughput sinkt durch geteilten Funk.
+      const meshAps = state.floors.flatMap(f => (f.aps || []).filter(ap => ap.meshUplink));
+      const meshCard = meshAps.length === 0 ? '' : `
+          <div class="card p-4 border-l-4 border-purple-400 bg-purple-50">
+             <p class="text-sm text-purple-900">
+               <i data-lucide="wifi" class="w-4 h-4 inline align-text-bottom"></i>
+               <strong>${meshAps.length} AP${meshAps.length === 1 ? '' : 's'} mit Mesh-Uplink:</strong>
+               kabellos via 5-GHz-Backhaul angebunden — daher kein Verlegekabel/Patchkabel in der BOM.
+               Throughput halbiert sich, da Funk geteilt wird (Backhaul + Clients).
+               Ein dedizierter 5-GHz-Backhaul-Kanal abseits der Client-Kanäle ist empfehlenswert.
+             </p>
+          </div>`;
 
       container.innerHTML = `
         <div class="print:hidden flex flex-wrap items-center justify-between gap-4">
@@ -4424,16 +5419,51 @@
 
           ${warnCard}
 
+          ${dfsCard}
+
+          ${meshCard}
+
           <div class="card p-6 bg-[#1f2937] text-white">
-             <h3 class="text-lg font-bold mb-6 text-gray-200">Netzwerk-Topologie (${b.allAps.length} APs · ${b.allCameras.length} Kameras)</h3>
-             <div class="flex flex-col items-center gap-6"><div class="text-nexus-primary font-bold">${b.gw.name}</div></div>
+             <div class="flex items-center justify-between mb-4 gap-3 flex-wrap">
+               <h3 class="text-lg font-bold text-gray-200">Netzwerk-Topologie (${b.allAps.length} APs · ${b.allCameras.length} Kameras)</h3>
+               <button onclick="window.exportTopologySvg()" class="btn-secondary text-xs flex items-center gap-1 no-print" aria-label="Topologie als SVG herunterladen"><i data-lucide="download" class="w-3 h-3" aria-hidden="true"></i> SVG laden</button>
+             </div>
+             <div class="overflow-x-auto bg-[#0f172a] rounded-lg p-2">${buildTopologySvg(b)}</div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Gesamt-Strom (Wand)</div><div class="text-2xl font-bold">${p.totalWatts.toFixed(0)} W</div><div class="text-xs text-nexus-muted mt-1">Gateway ${p.gatewayIdle} W · Switch ${p.switchIdle} W${p.nvrIdle ? ' · NVR '+p.nvrIdle+' W' : ''} · PoE-Last ${p.deliveredPoe.toFixed(0)} W (≈ ${p.poeWallDraw.toFixed(0)} W Wand bei 90 % Wirkungsgrad)</div></div>
-            <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Stromkosten (geschätzt)</div><div class="text-2xl font-bold">${p.kwhYear.toFixed(0)} kWh/Jahr</div><div class="text-xs text-nexus-muted mt-1">≈ ${(p.kwhYear * 0.32).toFixed(0)} € bei 0,32 €/kWh</div></div>
-            <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">USV-Empfehlung</div><div class="text-2xl font-bold">≥ ${p.upsVA} VA</div><div class="text-xs text-nexus-muted mt-1">1,5×-Puffer auf Gesamtlast</div></div>
+            <div class="card p-5"><div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Gesamt-Strom (Wand)</div><div class="text-2xl font-bold">${fmt0(p.totalWatts)} W</div><div class="text-xs text-nexus-muted mt-1">Gateway ${fmt0(p.gatewayIdle)} W · Switch ${fmt0(p.switchIdle)} W${p.nvrIdle ? ' · NVR '+fmt0(p.nvrIdle)+' W' : ''} · PoE-Last ${fmt0(p.deliveredPoe)} W (≈ ${fmt0(p.poeWallDraw)} W Wand bei 90 % Wirkungsgrad)</div></div>
+            <div class="card p-5">
+              <div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">Stromkosten (geschätzt)</div>
+              <div class="text-2xl font-bold">${fmt0(p.kwhYear)} kWh/Jahr</div>
+              <div class="text-xs text-nexus-muted mt-1 flex items-center gap-1 flex-wrap">
+                ≈ ${fmtEur0(p.yearlyCost)} bei
+                <input type="number" min="0" step="0.01" value="${p.tariff.toFixed(2)}" onchange="window.setEnergyTariff(this.value)" class="w-16 bg-nexus-surface border border-nexus-border rounded px-1 py-0.5 text-xs no-print" aria-label="Stromtarif in Euro pro kWh" />
+                <span>€/kWh</span>
+              </div>
+            </div>
+            <div class="card p-5">
+              <div class="text-xs text-nexus-muted uppercase tracking-wide mb-1">USV-Empfehlung</div>
+              <div class="text-2xl font-bold">≥ ${fmt0(p.upsVA)} VA</div>
+              <div class="text-xs text-nexus-muted mt-1 flex items-center gap-1 flex-wrap">
+                ≈ ${fmt0(p.upsWh)} Wh für
+                <select onchange="window.setUpsRuntime(this.value)" class="bg-nexus-surface border border-nexus-border rounded px-1 py-0.5 text-xs no-print" aria-label="USV-Autonomie">
+                  ${[5,15,30,60,120].map(m => `<option value="${m}" ${p.upsRuntimeMin === m ? 'selected' : ''}>${m}</option>`).join('')}
+                </select>
+                <span>Min Autonomie</span>
+              </div>
+            </div>
           </div>
+
+          ${recurringCard}
+
+          ${cableCard}
+
+          ${poeClassCard}
+
+          ${recordingCard}
+
+          ${dsgvoCard}
 
           ${vlanCard}
 
@@ -4441,7 +5471,7 @@
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
                <h3 class="font-bold">Stückliste (BOM)</h3>
                <div class="flex items-center gap-3">
-                 <span class="text-sm text-nexus-muted">Gesamt: <strong>~${sumTotal} €</strong></span>
+                 <span class="text-sm text-nexus-muted">Gesamt: <strong>~${fmtEur0(sumTotal)}</strong></span>
                  ${(state.bomOverrides?.removedKeys?.length || state.bomOverrides?.customRows?.length || Object.keys(state.bomOverrides?.quantityOverrides || {}).length) ? `<button onclick="window.resetBomOverrides()" class="btn-secondary text-xs flex items-center gap-1 no-print"><i data-lucide="rotate-ccw" class="w-3 h-3"></i> Auto wiederherstellen</button>` : ''}
                </div>
              </div>
@@ -4467,8 +5497,8 @@
                     </td>
                     <td class="px-4 py-3 text-right">${item.isCustom
                       ? `<input type="number" min="0" step="1" value="${item.price}" onchange="window.updateCustomBomRow('${item.customId}','price',this.value)" class="w-20 text-right bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"> €`
-                      : `~${item.price} €`}</td>
-                    <td class="px-4 py-3 text-right font-bold">~${item.price * item.qty} €</td>
+                      : `~${fmtEur0(item.price)}`}</td>
+                    <td class="px-4 py-3 text-right font-bold">~${fmtEur0(item.price * item.qty)}</td>
                     <td class="px-4 py-3 text-right no-print">
                       <button onclick="window.removeBomRow('${item.key}')" class="text-red-500 hover:text-red-700" title="Entfernen"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                     </td>
@@ -4540,7 +5570,7 @@
             if(showSwitch) {
               cards.push(`
                 <div class="card p-6">
-                   <h3 class="font-bold mb-1">PoE Power Budget · Switch (${switchPoe.toFixed(1)}W / ${switchBudget}W)${poeBadge(switchPoe, switchBudget)}</h3>
+                   <h3 class="font-bold mb-1">PoE Power Budget · Switch (${fmt1(switchPoe)} W / ${switchBudget} W)${poeBadge(switchPoe, switchBudget)}</h3>
                    <p class="text-xs text-nexus-muted mb-4">PoE-Quelle: ${b.activeSwitch.name}</p>
                    <div class="relative h-24 max-w-lg"><canvas id="poeChartSwitch"></canvas></div>
                 </div>`);
@@ -4548,7 +5578,7 @@
             if(b.gatewayHasPoe) {
               cards.push(`
                 <div class="card p-6">
-                   <h3 class="font-bold mb-1">PoE Power Budget · Gateway (${gatewayPoe.toFixed(1)}W / ${b.gatewayBudget}W)${poeBadge(gatewayPoe, b.gatewayBudget)}</h3>
+                   <h3 class="font-bold mb-1">PoE Power Budget · Gateway (${fmt1(gatewayPoe)} W / ${b.gatewayBudget} W)${poeBadge(gatewayPoe, b.gatewayBudget)}</h3>
                    <p class="text-xs text-nexus-muted mb-4">PoE-Quelle: ${b.gw.name}</p>
                    <div class="relative h-24 max-w-lg"><canvas id="poeChartGateway"></canvas></div>
                 </div>`);
