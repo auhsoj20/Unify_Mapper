@@ -770,6 +770,43 @@
     const fmtEur0 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
     const fmtEur2 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+    // Komprimiert eine Image-DataURL via Canvas, wenn sie zu groß ist. Das
+    // verhindert, dass mehrere MB Base64 in localStorage landen und die
+    // 5–10 MB Browser-Quota sprengen. Kleine Bilder werden unverändert
+    // zurückgeliefert. Tainted Canvases (CORS) fallen ebenfalls auf das
+    // Original zurück.
+    function compressImageDataUrl(dataUrl, maxDim = 2400, quality = 0.78) {
+      return new Promise((resolve) => {
+        if(typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+          resolve(dataUrl);
+          return;
+        }
+        const img = new Image();
+        img.onload = () => {
+          const w = img.naturalWidth, h = img.naturalHeight;
+          if(w <= maxDim && h <= maxDim && dataUrl.length < 1.5 * 1024 * 1024) {
+            resolve(dataUrl);
+            return;
+          }
+          const scale = Math.min(maxDim / Math.max(w, h), 1);
+          const targetW = Math.round(w * scale);
+          const targetH = Math.round(h * scale);
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+          try {
+            resolve(canvas.toDataURL('image/jpeg', quality));
+          } catch(_) {
+            resolve(dataUrl);
+          }
+        };
+        img.onerror = () => resolve(dataUrl);
+        img.src = dataUrl;
+      });
+    }
+
     // --- Coverage-Profile (Min-RSSI / Anwendungsprofil) --- //
     // Der Faktor multipliziert den theoretischen Reichweiten-Radius (sqrt(coverageM2)).
     // Hintergrund: je strenger die Min-Signalstärke-Anforderung, desto kleiner die
@@ -2188,14 +2225,15 @@
          inp.onchange = (e) => {
             const file = e.target.files?.[0];
             if(!file) return;
-            if(file.size > 5 * 1024 * 1024) {
-               if(!confirm('Bild ist größer als 5 MB. Trotzdem laden? Das kann das Projekt verlangsamen.')) return;
-            }
             const reader = new FileReader();
-            reader.onload = () => {
+            reader.onload = async () => {
+               // Komprimiert große Bilder (> 2400 px Kante) auf JPEG, damit
+               // localStorage durch Base64-Daten nicht voll läuft. Kleine
+               // Bilder bleiben unverändert.
+               const compressed = await compressImageDataUrl(reader.result);
                pushPlannerHistory();
                currentFloor.backgroundImage = {
-                  dataUrl: reader.result,
+                  dataUrl: compressed,
                   opacity: currentFloor.backgroundImage?.opacity ?? 0.55,
                   visible: true,
                   scale: currentFloor.backgroundImage?.scale ?? 1,
@@ -2203,7 +2241,8 @@
                   offsetY: currentFloor.backgroundImage?.offsetY ?? 0
                };
                saveState(); render();
-               showPlannerToast('Grundriss-Bild geladen');
+               const sizeKB = Math.round(compressed.length * 0.75 / 1024);
+               showPlannerToast(`Grundriss geladen (${sizeKB} kB im Speicher)`);
             };
             reader.readAsDataURL(file);
          };
@@ -4125,6 +4164,32 @@
       ferien: [
         { id: 1,  name: 'Management', subnet: '192.168.1.0/24',  purpose: 'mgmt',  ssid: null,                  wpaMode: 'wpa3-personal' },
         { id: 10, name: 'Gäste',      subnet: '192.168.10.0/24', purpose: 'guest', ssid: 'Ferienhaus-WLAN',     wpaMode: 'wpa3-personal' }
+      ],
+      praxis: [
+        { id: 1,  name: 'Management',     subnet: '10.10.1.0/24',  purpose: 'mgmt',   ssid: null,              wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Verwaltung',     subnet: '10.10.10.0/24', purpose: 'main',   ssid: 'Praxis-Office',   wpaMode: 'wpa3-enterprise' },
+        { id: 20, name: 'Patienten-WLAN', subnet: '10.10.20.0/24', purpose: 'guest',  ssid: 'Praxis-Gast',     wpaMode: 'wpa3-personal' },
+        { id: 30, name: 'Medizingeräte',  subnet: '10.10.30.0/24', purpose: 'iot',    ssid: null,              wpaMode: 'wpa3-personal' },
+        { id: 40, name: 'Kameras',        subnet: '10.10.40.0/24', purpose: 'camera', ssid: null,              wpaMode: 'wpa3-personal' },
+        { id: 50, name: 'VoIP',           subnet: '10.10.50.0/24', purpose: 'voip',   ssid: null,              wpaMode: 'wpa3-personal' }
+      ],
+      schule: [
+        { id: 1,  name: 'Management', subnet: '10.20.1.0/24',  purpose: 'mgmt',   ssid: null,                wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Lehrer',     subnet: '10.20.10.0/24', purpose: 'main',   ssid: 'School-Staff',      wpaMode: 'wpa3-enterprise' },
+        { id: 20, name: 'Schüler',    subnet: '10.20.20.0/24', purpose: 'main',   ssid: 'School-Students',   wpaMode: 'wpa3-enterprise' },
+        { id: 30, name: 'Gast',       subnet: '10.20.30.0/24', purpose: 'guest',  ssid: 'School-Guest',      wpaMode: 'wpa3-personal' },
+        { id: 40, name: 'IoT',        subnet: '10.20.40.0/24', purpose: 'iot',    ssid: null,                wpaMode: 'wpa2-wpa3' },
+        { id: 50, name: 'Kameras',    subnet: '10.20.50.0/24', purpose: 'camera', ssid: null,                wpaMode: 'wpa3-personal' },
+        { id: 60, name: 'Server',     subnet: '10.20.60.0/24', purpose: 'server', ssid: null,                wpaMode: 'wpa3-personal' }
+      ],
+      hotel: [
+        { id: 1,  name: 'Management',  subnet: '10.30.1.0/24',  purpose: 'mgmt',   ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 10, name: 'Personal',    subnet: '10.30.10.0/24', purpose: 'main',   ssid: 'Hotel-Staff',   wpaMode: 'wpa3-enterprise' },
+        { id: 20, name: 'Gäste-WLAN',  subnet: '10.30.20.0/24', purpose: 'guest',  ssid: 'Hotel-Guest',   wpaMode: 'wpa3-personal' },
+        { id: 30, name: 'IoT',         subnet: '10.30.30.0/24', purpose: 'iot',    ssid: null,            wpaMode: 'wpa2-wpa3' },
+        { id: 40, name: 'Kameras',     subnet: '10.30.40.0/24', purpose: 'camera', ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 50, name: 'VoIP',        subnet: '10.30.50.0/24', purpose: 'voip',   ssid: null,            wpaMode: 'wpa3-personal' },
+        { id: 60, name: 'POS / Zahlung', subnet: '10.30.60.0/24', purpose: 'server', ssid: null,          wpaMode: 'wpa3-personal' }
       ]
     };
 
@@ -4268,6 +4333,9 @@
             <button onclick="window.applyVlanPreset('haus')" class="btn-secondary text-xs">Preset: Einfamilienhaus</button>
             <button onclick="window.applyVlanPreset('buero')" class="btn-secondary text-xs">Preset: KMU-Büro</button>
             <button onclick="window.applyVlanPreset('ferien')" class="btn-secondary text-xs">Preset: Ferienhaus</button>
+            <button onclick="window.applyVlanPreset('praxis')" class="btn-secondary text-xs">Preset: Arztpraxis</button>
+            <button onclick="window.applyVlanPreset('schule')" class="btn-secondary text-xs">Preset: Schule</button>
+            <button onclick="window.applyVlanPreset('hotel')" class="btn-secondary text-xs">Preset: Hotel/Gastronomie</button>
             <button onclick="window.addVlan()" class="btn-primary text-xs flex items-center gap-1"><i data-lucide="plus" class="w-3 h-3"></i> VLAN hinzufügen</button>
           </div>
           ${tableHtml}
