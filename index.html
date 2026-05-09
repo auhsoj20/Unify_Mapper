@@ -1147,6 +1147,8 @@
       switching: [],
       gateways: [],
       protect: [],
+      talk: [],            // UniFi Talk Telefonanlage (Iter. 18)
+      power: [],           // UniFi SmartPower (USV/PDU/RPS) (Iter. 18)
       accessories: [],
       cellular: [],
       specs: {},
@@ -1164,11 +1166,13 @@
       productCache.switching = window.UNIFI_DATA.categories.switching;
       productCache.gateways = window.UNIFI_DATA.categories['cloud-gateways'];
       productCache.protect = window.UNIFI_DATA.categories.protect || [];
+      productCache.talk = window.UNIFI_DATA.categories.talk || [];
+      productCache.power = window.UNIFI_DATA.categories.power || [];
       productCache.accessories = window.UNIFI_DATA.categories.accessories || [];
       productCache.cellular = window.UNIFI_DATA.categories.cellular || [];
       productCache.prices = window.UNIFI_DATA.prices || {};
 
-      const allP = [...productCache.wifi, ...productCache.switching, ...productCache.gateways, ...productCache.protect, ...productCache.accessories, ...productCache.cellular];
+      const allP = [...productCache.wifi, ...productCache.switching, ...productCache.gateways, ...productCache.protect, ...productCache.talk, ...productCache.power, ...productCache.accessories, ...productCache.cellular];
       allP.forEach(p => { productCache.specs[p.slug] = p; });
 
       // UDR 5G Max ist ein Cloud-Gateway mit 5G-Modem — in der Mobilfunk-Auswahl als

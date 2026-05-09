@@ -2614,6 +2614,121 @@ window.UNIFI_DATA = {
         "price": 2199
       }
     ],
+    "talk": [
+      {
+        "slug": "utp-touch",
+        "name": "UniFi Talk Touch",
+        "category": "talk",
+        "loaded": true,
+        "type": "desk-phone",
+        "tags": ["talk", "desktop"],
+        "displayInch": 5,
+        "poeWatts": 6,
+        "price": 179
+      },
+      {
+        "slug": "utp-touchmax-u",
+        "name": "UniFi Talk TouchMax",
+        "category": "talk",
+        "loaded": true,
+        "type": "desk-phone",
+        "tags": ["talk", "desktop", "premium"],
+        "displayInch": 7,
+        "poeWatts": 8,
+        "price": 259
+      },
+      {
+        "slug": "utp-g3-touch-pro",
+        "name": "UniFi Talk Touch Pro (Wand)",
+        "category": "talk",
+        "loaded": true,
+        "type": "wall-phone",
+        "tags": ["talk", "wall"],
+        "displayInch": 5,
+        "poeWatts": 8,
+        "price": 179
+      },
+      {
+        "slug": "utp-g3-touch-enterprise",
+        "name": "UniFi Talk Touch Enterprise (Wand)",
+        "category": "talk",
+        "loaded": true,
+        "type": "wall-phone",
+        "tags": ["talk", "wall", "enterprise"],
+        "displayInch": 7,
+        "poeWatts": 9,
+        "price": 269
+      },
+      {
+        "slug": "utp-g3-touch-wall",
+        "name": "UniFi Talk Touch G3 Wall (Premium)",
+        "category": "talk",
+        "loaded": true,
+        "type": "wall-phone",
+        "tags": ["talk", "wall", "premium"],
+        "displayInch": 8,
+        "poeWatts": 10,
+        "price": 359
+      },
+      {
+        "slug": "ut-g3-handset",
+        "name": "UniFi Talk Handset G3 (DECT)",
+        "category": "talk",
+        "loaded": true,
+        "type": "handset",
+        "tags": ["talk", "wireless", "dect"],
+        "poeWatts": 0,
+        "price": 89
+      }
+    ],
+    "power": [
+      {
+        "slug": "usp-rps",
+        "name": "UniFi SmartPower RPS",
+        "category": "power",
+        "loaded": true,
+        "type": "rps",
+        "tags": ["smartpower", "redundancy"],
+        "outputs": 6,
+        "powerWatts": 950,
+        "price": 359
+      },
+      {
+        "slug": "ups-tower-eu",
+        "name": "UniFi SmartPower USV Tower",
+        "category": "power",
+        "loaded": true,
+        "type": "ups",
+        "tags": ["smartpower", "ups", "tower"],
+        "vaCapacity": 1500,
+        "powerWatts": 900,
+        "outputs": 8,
+        "price": 145
+      },
+      {
+        "slug": "ups-2u-eu",
+        "name": "UniFi SmartPower USV 2U",
+        "category": "power",
+        "loaded": true,
+        "type": "ups",
+        "tags": ["smartpower", "ups", "rackmount"],
+        "vaCapacity": 1500,
+        "powerWatts": 900,
+        "outputs": 8,
+        "price": 250
+      },
+      {
+        "slug": "usp-pdu-pro",
+        "name": "UniFi SmartPower PDU Pro",
+        "category": "power",
+        "loaded": true,
+        "type": "pdu",
+        "tags": ["smartpower", "pdu", "rackmount"],
+        "outputs": 8,
+        "powerWatts": 1700,
+        "price": 459
+      }
+    ],
     "cellular": [
       {
         "slug": "u5g-max",
