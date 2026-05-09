@@ -323,10 +323,14 @@
       padding: 0.3rem;
       z-index: 1000;
       min-width: 180px;
+      max-width: calc(100vw - 16px);
       flex-direction: column;
       gap: 0.15rem;
     }
     .floor-tab-actions.open { display: flex; }
+    @media (max-width: 360px) {
+      .floor-tab-actions { min-width: 0; width: calc(100vw - 16px); }
+    }
     .floor-menu-backdrop {
       position: fixed;
       inset: 0;
@@ -400,6 +404,10 @@
       animation: fadeSlideIn 0.2s ease;
       pointer-events: none;
       max-width: min(92vw, 520px); text-align: center;
+    }
+    /* Auf engen Mobile-Viewports Toast näher an die Footer-Nav-Oberkante setzen */
+    @media (max-width: 480px) {
+      .planner-toast { bottom: 4.25rem; padding: 0.45rem 0.85rem; font-size: 0.8rem; }
     }
     .planner-toast.toast-error {
       background: #b91c1c; color: #fff;
