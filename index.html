@@ -770,6 +770,31 @@
     const fmtEur0 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
     const fmtEur2 = (v) => Number(v ?? 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+    // Long-Press-Handler für Touch (Iter. 10): nach `ms` ohne Bewegung wird
+    // `cb(originalEvent)` aufgerufen — typisch für Kontextmenüs auf Mobile.
+    // Mehr als 8 px Bewegung gilt als Drag und bricht ab.
+    function attachLongPress(el, cb, ms = 500) {
+      let timer = null;
+      let startX = 0, startY = 0;
+      const cancel = () => { if(timer) { clearTimeout(timer); timer = null; } };
+      el.addEventListener('pointerdown', (e) => {
+        if(e.pointerType === 'mouse') return;  // Mouse hat eigene UX (Hover-Buttons)
+        startX = e.clientX; startY = e.clientY;
+        cancel();
+        timer = setTimeout(() => {
+          timer = null;
+          if(navigator.vibrate) try { navigator.vibrate(40); } catch(_) {}
+          cb(e);
+        }, ms);
+      });
+      el.addEventListener('pointerup', cancel);
+      el.addEventListener('pointercancel', cancel);
+      el.addEventListener('pointerleave', cancel);
+      el.addEventListener('pointermove', (e) => {
+        if(Math.hypot(e.clientX - startX, e.clientY - startY) > 8) cancel();
+      });
+    }
+
     // Komprimiert eine Image-DataURL via Canvas, wenn sie zu groß ist. Das
     // verhindert, dass mehrere MB Base64 in localStorage landen und die
     // 5–10 MB Browser-Quota sprengen. Kleine Bilder werden unverändert
@@ -840,6 +865,15 @@
     // 2,4 GHz: nur 3 nicht-überlappende Kanäle (1/6/11) sind brauchbar.
     // 5 GHz: UNII-1 (36–48) + UNII-2 + UNII-2 extended (DFS, 52–144) +
     // UNII-3 (149–161). DFS-Bereich kann durch Wetterradar gestört werden.
+    // Aperturen (Türen/Fenster) im Raumplaner — dämpfen die Heatmap nicht
+    // explizit, sondern dienen als Notiz/Doku auf dem Grundriss. Für eine
+    // RF-Simulation müssen die Wand-Polygone durchbrochen werden — das
+    // sprengt diesen einfachen Mapper.
+    const APERTURE_TYPES = {
+      door:   { label: 'Tür',     color: '#f97316', defaultLengthM: 0.9 },
+      window: { label: 'Fenster', color: '#0ea5e9', defaultLengthM: 1.2 }
+    };
+
     const CH24_NONOVERLAP = [1, 6, 11];
     const CH5_LIST = [36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161];
     const CH5_DFS = new Set([52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144]);
@@ -1258,7 +1292,10 @@
         isp2: null,              // voller ispList-Eintrag bei type === 'isp2'
         speedDown2: 100,
         speedUp2: 40,
-        mode: 'failover'         // 'failover' | 'loadbalance'
+        mode: 'failover',        // 'failover' | 'loadbalance'
+        healthCheckSec: 10,      // Sek.: wie oft prüft das Gateway den Primär-WAN?
+        failoverDelaySec: 30,    // Sek.: Ausfall-Hysterese vor Umschalten
+        restoreDelaySec: 60      // Sek.: stabile Phase vor Zurückschalten
       },
       bomOverrides: {
         removedKeys: [],         // ['auto:Zubehör:acc-rack-6u', ...]
@@ -1280,8 +1317,20 @@
     };
 
     // Backup-State Defaults + Migration alter Schema-Versionen.
+    // failover-Parameter (Iter. 11):
+    //   healthCheckSec   — Intervall, in dem das Gateway die Primärleitung prüft
+    //   failoverDelaySec — wie viele Sek. Ausfall müssen vergehen, bevor auf
+    //                      Backup geschaltet wird (Hysterese gegen Flapping)
+    //   restoreDelaySec  — wie viele Sek. die Primärleitung wieder stabil sein
+    //                      muss, bevor zurückgeschaltet wird
     function normalizeBackupState(bu) {
-      const def = { enabled: false, type: null, cellularModel: null, starlinkAntenna: null, starlinkPlan: null, isp2: null, speedDown2: 100, speedUp2: 40, mode: 'failover' };
+      const def = {
+        enabled: false, type: null, cellularModel: null,
+        starlinkAntenna: null, starlinkPlan: null, isp2: null,
+        speedDown2: 100, speedUp2: 40,
+        mode: 'failover',
+        healthCheckSec: 10, failoverDelaySec: 30, restoreDelaySec: 60
+      };
       if(!bu || typeof bu !== 'object') return def;
       // Migration: alte Variante `type: 'udr5g'` → Mobilfunk + cellularModel: 'udr-5g-max'
       if(bu.type === 'udr5g') {
@@ -1543,10 +1592,11 @@
         const parsed = JSON.parse(raw);
         if(parsed && typeof parsed === 'object' && Array.isArray(parsed.floors)) {
           // Migration: alte Floors ohne cameras[] / wallMaterial,
-          // alte APs ohne meshUplink-Flag.
+          // alte APs ohne meshUplink-Flag, alte Räume ohne apertures[].
           parsed.floors = parsed.floors.map(f => {
             const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
             merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+            merged.rooms = (merged.rooms || []).map(r => ({ apertures: [], ...r }));
             return merged;
           });
           if(!parsed.view) parsed.view = { heatmap: false };
@@ -2055,6 +2105,12 @@
                <button onclick="window.autoAssignChannels()" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Kanäle automatisch verteilen (2,4 + 5 GHz)" aria-label="Kanäle automatisch verteilen">
                   <i data-lucide="radio-tower" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Kanäle auto</span>
                </button>
+               <button onclick="window.setAperturesMode('door')" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state._aperturesMode === 'door' ? 'bg-orange-500 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Tür-Modus: Wand-Kante anklicken, um eine Tür einzufügen" aria-label="Tür-Modus umschalten" aria-pressed="${state._aperturesMode === 'door' ? 'true' : 'false'}">
+                  <i data-lucide="door-open" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Tür</span>
+               </button>
+               <button onclick="window.setAperturesMode('window')" class="text-xs font-bold flex items-center gap-1 px-2 md:px-3 py-1.5 rounded transition-opacity ${state._aperturesMode === 'window' ? 'bg-sky-500 text-white' : 'bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base'}" title="Fenster-Modus: Wand-Kante anklicken, um ein Fenster einzufügen" aria-label="Fenster-Modus umschalten" aria-pressed="${state._aperturesMode === 'window' ? 'true' : 'false'}">
+                  <i data-lucide="square" class="w-3.5 h-3.5" aria-hidden="true"></i><span class="hidden md:inline"> Fenster</span>
+               </button>
                <button onclick="window.toggleFullscreen()" id="planner-fs-btn" class="text-xs font-bold flex items-center gap-1 px-2 py-1.5 rounded bg-nexus-surface text-nexus-muted border border-nexus-border hover:text-nexus-base transition-opacity" title="Vollbild umschalten" aria-label="Vollbild umschalten">
                   <i data-lucide="maximize-2" class="w-3.5 h-3.5" aria-hidden="true"></i>
                </button>
@@ -2366,6 +2422,60 @@
 
       const planner = document.getElementById('planner-area');
       const CELL_SIZE = 20;
+
+      // Drag&Drop für Hintergrundbilder (Iter. 10) — der User kann eine
+      // Bilddatei direkt auf den Planner ziehen und sie wird als Grundriss
+      // gesetzt (mit der gleichen Kompression wie der Datei-Upload).
+      if(!planner._dndAttached) {
+        planner._dndAttached = true;
+        let dndOverlay = null;
+        const showOverlay = () => {
+          if(dndOverlay) return;
+          dndOverlay = document.createElement('div');
+          dndOverlay.style.cssText = 'position:absolute;inset:0;background:rgba(1,105,111,0.10);border:3px dashed var(--color-primary);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--color-primary);pointer-events:none;z-index:60;';
+          dndOverlay.textContent = 'Bild zum Setzen des Grundrisses ablegen…';
+          planner.appendChild(dndOverlay);
+        };
+        const hideOverlay = () => { if(dndOverlay) { dndOverlay.remove(); dndOverlay = null; } };
+        planner.addEventListener('dragover', (e) => {
+          if(!e.dataTransfer) return;
+          const hasFile = Array.from(e.dataTransfer.items || []).some(it => it.kind === 'file');
+          if(!hasFile) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+          showOverlay();
+        });
+        planner.addEventListener('dragleave', (e) => {
+          if(e.target === planner || e.target === dndOverlay) hideOverlay();
+        });
+        planner.addEventListener('drop', (e) => {
+          hideOverlay();
+          const file = Array.from(e.dataTransfer?.files || []).find(f => f.type.startsWith('image/'));
+          if(!file) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const cf = state.floors.find(f => f.id === state.currentFloorId);
+          if(!cf) return;
+          const reader = new FileReader();
+          reader.onload = async () => {
+            const compressed = await compressImageDataUrl(reader.result);
+            pushPlannerHistory();
+            cf.backgroundImage = {
+              dataUrl: compressed,
+              opacity: cf.backgroundImage?.opacity ?? 0.55,
+              visible: true,
+              scale: cf.backgroundImage?.scale ?? 1,
+              offsetX: cf.backgroundImage?.offsetX ?? 0,
+              offsetY: cf.backgroundImage?.offsetY ?? 0
+            };
+            saveState();
+            render();
+            const sizeKB = Math.round(compressed.length * 0.75 / 1024);
+            showPlannerToast(`Grundriss per Drag&Drop geladen (${sizeKB} kB).`);
+          };
+          reader.readAsDataURL(file);
+        });
+      }
 
       // View state (pan + zoom) – persisted per floor
       if(!currentFloor.view) currentFloor.view = { panX: 0, panY: 0, zoom: 1 };
@@ -2877,6 +2987,19 @@
             activePointerEl = poly;
             if(!isSel) { state.selectedRoomId = room.id; render(); }
          });
+         attachLongPress(poly, () => {
+            if(currentFloor.rooms.length <= 1) {
+               showPlannerToast('Mindestens ein Raum muss bestehen bleiben.', 'warn');
+               return;
+            }
+            if(confirm(`Raum „${room.name}" entfernen?`)) {
+               pushPlannerHistory();
+               currentFloor.rooms = currentFloor.rooms.filter(r => r.id !== room.id);
+               if(state.selectedRoomId === room.id) state.selectedRoomId = null;
+               saveState();
+               render();
+            }
+         });
          svg.appendChild(poly);
 
          // Label
@@ -2926,23 +3049,78 @@
 
          labelsLayer.appendChild(lbl);
 
+         // Aperturen (Türen/Fenster) — immer sichtbar, auch bei
+         // nicht-ausgewählten Räumen. Klick entfernt sie.
+         (room.apertures || []).forEach((ap, apIdx) => {
+            const a = room.points[ap.edgeIndex];
+            const b = room.points[(ap.edgeIndex + 1) % room.points.length];
+            if(!a || !b) return;
+            const ex = b.x - a.x, ey = b.y - a.y;
+            const edgeLen = Math.hypot(ex, ey);
+            if(edgeLen <= 0.01) return;
+            const dx = ex / edgeLen, dy = ey / edgeLen;
+            const halfLen = Math.min(ap.length || 0.9, edgeLen) / 2;
+            const cx = a.x + ex * (ap.t ?? 0.5);
+            const cy = a.y + ey * (ap.t ?? 0.5);
+            const meta = APERTURE_TYPES[ap.type] || APERTURE_TYPES.door;
+            const apLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            apLine.setAttribute('x1', (cx - dx * halfLen) * CELL_SIZE);
+            apLine.setAttribute('y1', (cy - dy * halfLen) * CELL_SIZE);
+            apLine.setAttribute('x2', (cx + dx * halfLen) * CELL_SIZE);
+            apLine.setAttribute('y2', (cy + dy * halfLen) * CELL_SIZE);
+            apLine.setAttribute('stroke', meta.color);
+            apLine.setAttribute('stroke-width', '6');
+            apLine.setAttribute('stroke-linecap', 'round');
+            apLine.setAttribute('class', 'pointer-events-auto cursor-pointer');
+            apLine.setAttribute('title', `${meta.label} — klicken zum Entfernen`);
+            apLine.setAttribute('aria-label', `${meta.label} an Wand ${ap.edgeIndex + 1}`);
+            apLine.addEventListener('pointerdown', (e) => {
+               if(e.pointerType === 'mouse' && e.button !== 0) return;
+               e.stopPropagation();
+               e.preventDefault();
+               pushPlannerHistory();
+               room.apertures.splice(apIdx, 1);
+               saveState();
+               render();
+            });
+            svg.appendChild(apLine);
+         });
+
          // Vertex Handlers and Edge Labels
          if(isSel) {
             room.points.forEach((pt, i) => {
                let nxt = room.points[(i+1)%room.points.length];
 
-               // Invisible Edge Hitbox for Adding new Points
+               // Invisible Edge Hitbox for Adding new Points (oder Aperturen, wenn Modus aktiv)
                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
                line.setAttribute('x1', pt.x * CELL_SIZE);
                line.setAttribute('y1', pt.y * CELL_SIZE);
                line.setAttribute('x2', nxt.x * CELL_SIZE);
                line.setAttribute('y2', nxt.y * CELL_SIZE);
-               line.setAttribute('class', 'stroke-transparent stroke-[12px] pointer-events-auto cursor-crosshair hover:stroke-nexus-primary/30 edge-hitbox transition-colors');
-               
+               const apActive = !!state._aperturesMode;
+               line.setAttribute('class', `stroke-transparent stroke-[12px] pointer-events-auto ${apActive ? 'cursor-cell' : 'cursor-crosshair'} hover:stroke-nexus-primary/30 edge-hitbox transition-colors`);
+
                line.addEventListener('pointerdown', (e) => {
                   if(e.pointerType === 'mouse' && e.button !== 0) return;
                   e.stopPropagation();
                   e.preventDefault();
+                  if(state._aperturesMode) {
+                     // Apertur an der Click-Position einfügen
+                     pushPlannerHistory();
+                     const wpt = clientToWorld(e.clientX, e.clientY);
+                     const ax = pt.x * CELL_SIZE, ay = pt.y * CELL_SIZE;
+                     const bx = nxt.x * CELL_SIZE, by = nxt.y * CELL_SIZE;
+                     const eX = bx - ax, eY = by - ay;
+                     const len2 = eX * eX + eY * eY;
+                     if(len2 < 0.01) return;
+                     const t = Math.max(0.05, Math.min(0.95, ((wpt.x - ax) * eX + (wpt.y - ay) * eY) / len2));
+                     const meta = APERTURE_TYPES[state._aperturesMode];
+                     if(!Array.isArray(room.apertures)) room.apertures = [];
+                     room.apertures.push({ edgeIndex: i, t, length: meta.defaultLengthM, type: state._aperturesMode });
+                     saveState();
+                     render();
+                     return;
+                  }
                   pushPlannerHistory();
                   const w = clientToWorld(e.clientX, e.clientY);
                   let nx = Math.round(w.x / CELL_SIZE);
@@ -3425,6 +3603,16 @@
              drawAps();
              saveState();
           });
+          // Long-Press (Touch): Kontext-Aktion „Löschen?"
+          attachLongPress(dotContainer, () => {
+             if(confirm(`AP „${spec.name}" entfernen?`)) {
+                pushPlannerHistory();
+                currentFloor.aps = currentFloor.aps.filter(a => a.id !== apState.id);
+                if(dragMode==='ap') dragMode = null;
+                saveState();
+                render();
+             }
+          });
 
           apLayer.appendChild(dotContainer);
         });
@@ -3461,6 +3649,15 @@
              if(dragMode==='cam') {dragMode=null;}
              drawAps();
              saveState();
+          });
+          attachLongPress(dotContainer, () => {
+             if(confirm(`Kamera „${spec.name}" entfernen?`)) {
+                pushPlannerHistory();
+                currentFloor.cameras = currentFloor.cameras.filter(c => c.id !== camState.id);
+                if(dragMode==='cam') dragMode = null;
+                saveState();
+                render();
+             }
           });
           apLayer.appendChild(dotContainer);
         });
@@ -3656,6 +3853,50 @@
     // PoE-Last, der Anzahl PoE-pflichtiger Geräte, der höchsten benötigten
     // Port-Klasse und der Anzahl benötigter Gesamt-Ports (inkl. Uplink).
     // Wenn das Gateway alle PoE-Geräte versorgen kann, reicht ein Non-PoE-Switch.
+    // Multi-Switch-Stacking (Iter. 8): liefert ein Array {switch, devices,
+    // poeDevices, watts, qty} — wenn ein einzelner Switch den Bedarf nicht
+    // deckt, wird der größte verfügbare Switch mehrfach gestapelt. Der erste
+    // Eintrag ist der „Master" und wird auch als Auswahl in Step 3 angezeigt.
+    function recommendSwitchStack(switches, totalPoe, totalDevices, gatewayCanCoverAll, opts = {}) {
+      const poeDevices = opts.poeDevices ?? totalDevices;
+      const maxDeviceWatts = opts.maxDeviceWatts ?? 0;
+      const single = recommendSwitch(switches, totalPoe, totalDevices, gatewayCanCoverAll, opts);
+      const portsNeeded = totalDevices + SWITCH_UPLINK_PORTS;
+      const fitsAll = (s) => (s.ports || 0) >= portsNeeded
+        && getPoePortCount(s) >= poeDevices
+        && getPoeMaxPerPort(s) >= maxDeviceWatts
+        && (s.budget || 0) >= totalPoe * POE_HEADROOM;
+      if(fitsAll(single) || totalDevices === 0) {
+        return [{ switch: single, devices: totalDevices, poeDevices, watts: totalPoe, qty: 1 }];
+      }
+      // Stack-Strategie: der größte Switch deckt so viele Geräte wie möglich,
+      // weitere identische Switches absorbieren den Rest. Begrenzt auf 6
+      // Stack-Mitglieder, damit kein endloser Loop bei winzigen Switches.
+      const sortedDesc = [...switches].sort((a, b) =>
+        (getPoePortCount(b) - getPoePortCount(a)) ||
+        ((b.budget || 0) - (a.budget || 0)) ||
+        ((b.ports || 0) - (a.ports || 0))
+      );
+      const master = sortedDesc.find(s => getPoeMaxPerPort(s) >= maxDeviceWatts) || sortedDesc[0] || single;
+      const swPorts = Math.max(1, (master.ports || 1) - SWITCH_UPLINK_PORTS);
+      const swPoePorts = Math.max(0, getPoePortCount(master));
+      const swBudget = Math.max(0, (master.budget || 0) / POE_HEADROOM);
+      let remDevices = totalDevices, remWatts = totalPoe, remPoeDev = poeDevices;
+      const entries = [];
+      for(let i = 0; i < 6 && (remDevices > 0 || remPoeDev > 0); i++) {
+        const takeDevices = Math.min(swPorts, remDevices);
+        const takePoe    = Math.min(swPoePorts, remPoeDev);
+        const takeWatts  = Math.min(swBudget, remWatts);
+        if(takeDevices === 0 && takePoe === 0) break;
+        entries.push({ switch: master, devices: takeDevices, poeDevices: takePoe, watts: takeWatts, qty: 1 });
+        remDevices -= takeDevices;
+        remWatts -= takeWatts;
+        remPoeDev -= takePoe;
+      }
+      // Falls keine Entries entstanden (z. B. master ohne PoE und alle Devices PoE): single zurückgeben.
+      return entries.length > 0 ? entries : [{ switch: single, devices: totalDevices, poeDevices, watts: totalPoe, qty: 1 }];
+    }
+
     function recommendSwitch(switches, switchPoe, switchDevices, gatewayCanCoverAll, opts = {}) {
       const poeDevices = opts.poeDevices ?? switchDevices;        // wieviele brauchen PoE?
       const maxDeviceWatts = opts.maxDeviceWatts ?? 0;             // max. Einzelgerät-Watt
@@ -3714,9 +3955,12 @@
       const initialSwitchPoe = gatewayCanCoverAll ? 0 : totalPoe;
       const initialSwitchDevices = gatewayCanCoverAll ? 0 : allDevices.length;
       const initialPoeDevices = gatewayCanCoverAll ? 0 : poeDeviceCount;
+      const stackOpts3 = { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts };
       const recSwitch = recommendSwitch(
-        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll,
-        { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts }
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll, stackOpts3
+      );
+      const recStack = recommendSwitchStack(
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll, stackOpts3
       );
 
       // Gespeicherte Auswahl wiederherstellen, sonst die Empfehlung übernehmen.
@@ -4036,6 +4280,18 @@
           </select>
           <p class="text-xs text-nexus-muted mt-2">Empfehlung: ${recSwitch.name || '—'} (${recSwitch.ports || 0} Ports${(recSwitch.budget || 0) > 0 ? `, ${recSwitch.budget} W PoE` : ', ohne PoE'}).
             ${state.selectedSwitch !== recSwitch.slug ? `<button type="button" id="btn-use-rec" class="text-nexus-primary underline ml-1">Empfehlung übernehmen</button>` : ''}</p>
+          ${recStack.length > 1 ? `
+            <div class="mt-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-xs flex gap-2 items-start">
+              <i data-lucide="layers" class="w-4 h-4 mt-0.5 flex-shrink-0" aria-hidden="true"></i>
+              <div>
+                <strong>Stack empfohlen: ${recStack.length} × ${recStack[0].switch.name}</strong> —
+                Ein einzelner Switch deckt die ${initialSwitchDevices} Endgeräte
+                (${fmt0(initialSwitchPoe)} W PoE) nicht ab. Stapel ${recStack.length} identische Switches
+                über das integrierte UniFi-Stacking (Aggregation-Uplink) oder lege sie als parallele
+                Distribution-Switches an. Die zusätzlichen ${recStack.length - 1} Switches stehen
+                automatisch in der BOM.
+              </div>
+            </div>` : ''}
         </div>
         ${renderAssignmentCard()}
         <div id="switch-card-container">${renderSwitchCard(activeSwitch)}</div>
@@ -4149,6 +4405,16 @@
       state.backup.mode = mode;
       saveState();
     };
+    // Iter. 11 — Failover-Parameter (Hysterese-Sekunden) editierbar.
+    window.setBackupTimingParam = (field, val) => {
+      const n = parseInt(val);
+      if(!Number.isFinite(n) || n < 0) return;
+      const limits = { healthCheckSec: [1, 300], failoverDelaySec: [0, 600], restoreDelaySec: [0, 1800] };
+      const lim = limits[field];
+      if(!lim) return;
+      state.backup[field] = Math.max(lim[0], Math.min(lim[1], n));
+      render();
+    };
 
     // Setter für Stromtarif, USV-Autonomie und Coverage-Profil (Iter. 2)
     window.setEnergyTariff = (val) => {
@@ -4213,6 +4479,13 @@
       const cf = state.floors.find(f => f.id === state.currentFloorId);
       if(!cf) return;
       cf.wallMaterial = id;
+      render();
+    };
+    window.setAperturesMode = (mode) => {
+      // null | 'door' | 'window' — toggle: nochmal denselben drücken schaltet ab.
+      if(mode != null && !APERTURE_TYPES[mode]) mode = null;
+      if(state._aperturesMode === mode) state._aperturesMode = null;
+      else state._aperturesMode = mode;
       render();
     };
 
@@ -4731,7 +5004,29 @@
                 <label class="text-xs font-bold uppercase tracking-wide text-nexus-muted block mb-2">Empfehlung</label>
                 ${recoHtml || '<p class="text-xs text-nexus-muted">Wähle einen Backup-Typ.</p>'}
               </div>
-            </div>` : ''}
+            </div>
+            ${bu.mode === 'failover' ? `
+              <div class="card p-4 bg-nexus-surface bg-opacity-40 mt-3">
+                <label class="text-xs font-bold uppercase tracking-wide text-nexus-muted block mb-3">Failover-Timing</label>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <span class="text-[11px] text-nexus-muted block mb-1">Health-Check (Sek.)</span>
+                    <input type="number" min="1" max="300" step="1" value="${bu.healthCheckSec ?? 10}" onchange="window.setBackupTimingParam('healthCheckSec', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-sm" aria-label="Health-Check-Intervall in Sekunden" />
+                    <p class="text-[10px] text-nexus-muted mt-1">Wie oft das Gateway die Primärleitung pingt. UniFi-Default: 10 s.</p>
+                  </div>
+                  <div>
+                    <span class="text-[11px] text-nexus-muted block mb-1">Failover nach (Sek.)</span>
+                    <input type="number" min="0" max="600" step="5" value="${bu.failoverDelaySec ?? 30}" onchange="window.setBackupTimingParam('failoverDelaySec', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-sm" aria-label="Failover-Verzögerung in Sekunden" />
+                    <p class="text-[10px] text-nexus-muted mt-1">Wie lange Ausfall anhalten muss, bevor auf Backup umgeschaltet wird (Hysterese gegen Flapping).</p>
+                  </div>
+                  <div>
+                    <span class="text-[11px] text-nexus-muted block mb-1">Rückfall nach (Sek.)</span>
+                    <input type="number" min="0" max="1800" step="10" value="${bu.restoreDelaySec ?? 60}" onchange="window.setBackupTimingParam('restoreDelaySec', this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1.5 text-sm" aria-label="Rückfall-Verzögerung in Sekunden" />
+                    <p class="text-[10px] text-nexus-muted mt-1">Wie lange die Primärleitung wieder stabil sein muss, bevor zurückgeschaltet wird.</p>
+                  </div>
+                </div>
+                <p class="text-[11px] text-nexus-muted mt-3"><i data-lucide="info" class="w-3 h-3 inline align-text-bottom" aria-hidden="true"></i> Diese Werte sind als Vorgabe für die UniFi-Controller-Konfiguration gedacht. Im UniFi-Network-UI unter <code>Settings → Internet → Failover</code> einstellen.</p>
+              </div>` : ''}` : ''}
         </div>
 
         ${dualWanWarn}
@@ -4893,9 +5188,12 @@
       const initialSwitchPoe = gatewayCanCoverAll ? 0 : totalPoe;
       const initialSwitchDevices = gatewayCanCoverAll ? 0 : allDevices.length;
       const initialPoeDevices = gatewayCanCoverAll ? 0 : poeDeviceCount;
+      const stackOpts = { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts };
       let recSwitch = recommendSwitch(
-        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll,
-        { poeDevices: initialPoeDevices, maxDeviceWatts: gatewayCanCoverAll ? 0 : maxDeviceWatts }
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll, stackOpts
+      );
+      const switchStack = recommendSwitchStack(
+        switches, initialSwitchPoe, initialSwitchDevices, gatewayCanCoverAll, stackOpts
       );
       if(!recSwitch) recSwitch = { name: 'Generic PoE Switch', budget: 150, price: 199, ports: 8, slug: '' };
       const activeSwitch = (state.selectedSwitch && switches.find(s => s.slug === state.selectedSwitch)) || recSwitch;
@@ -4922,6 +5220,21 @@
       }
 
       autoBom.push({ category: 'Switch', name: activeSwitch.name, slug: activeSwitch.slug || '', qty: 1, price: activeSwitch.price || 199 });
+      // Wenn ein einzelner Switch die Last nicht decken kann, fügen wir
+      // weitere Switches als Stack-Mitglieder hinzu. Slug wird mit "-stack-N"
+      // suffigiert, damit die BOM-Override-Map den Eintrag nicht mit dem
+      // Master-Switch verwechselt.
+      const stackExtras = Math.max(0, switchStack.length - 1);
+      if(stackExtras > 0) {
+        const stackMaster = switchStack[0].switch;
+        autoBom.push({
+          category: 'Switch (Stack)',
+          name: stackMaster.name,
+          slug: (stackMaster.slug || 'switch') + '-stack',
+          qty: stackExtras,
+          price: stackMaster.price || 199
+        });
+      }
 
       const apCounts = {};
       allAps.forEach(ap => apCounts[ap.slug] = (apCounts[ap.slug] || 0) + 1);
@@ -4993,7 +5306,7 @@
       const switchHasPoe = !!activeSwitch && activeSwitch.poe !== false && (activeSwitch.budget || 0) > 0;
       const poeAllocation = computePoeAllocation(allDevices, switchHasPoe, gatewayHasPoe);
 
-      return { gw, gwSpec, gatewayBudget, gatewayHasPoe, switchHasPoe, poeAllocation, allAps, allCameras, totalApPoe, totalCamPoe, totalPoe, recSwitch, activeSwitch, bom, autoBom, apCounts, camCounts };
+      return { gw, gwSpec, gatewayBudget, gatewayHasPoe, switchHasPoe, poeAllocation, allAps, allCameras, totalApPoe, totalCamPoe, totalPoe, recSwitch, activeSwitch, switchStack, bom, autoBom, apCounts, camCounts };
     }
 
     // Realistische Idle-Wattage-Schätzung für Gateways (ohne PoE-Last).
@@ -5169,6 +5482,7 @@
             loaded.floors = loaded.floors.map(f => {
               const merged = { cameras: [], wallMaterial: DEFAULT_FLOOR_MATERIAL, ...f };
               merged.aps = (merged.aps || []).map(ap => ({ meshUplink: false, ...ap }));
+              merged.rooms = (merged.rooms || []).map(r => ({ apertures: [], ...r }));
               return merged;
             });
             if(!loaded.view) loaded.view = { heatmap: false };
