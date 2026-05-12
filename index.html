@@ -870,6 +870,89 @@
       width: 100%;
       justify-content: center;
     }
+
+    /* --- Generisches App-Modal (Alert/Confirm/Prompt-Ersatz) --- */
+    #app-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 10001;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    #app-modal.is-open { display: flex; }
+    #app-modal .app-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(4px);
+    }
+    #app-modal .app-modal-card {
+      position: relative;
+      z-index: 1;
+      max-width: 28rem;
+      width: calc(100% - 0.5rem);
+      padding: clamp(1rem, 5vw, 1.5rem);
+      max-height: calc(100vh - 2rem);
+      overflow-y: auto;
+      animation: fadeSlideIn 0.18s ease;
+    }
+    #app-modal h2 {
+      margin-bottom: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--color-primary);
+      font-size: 1.1rem;
+    }
+    #app-modal.variant-error h2 { color: #b91c1c; }
+    #app-modal.variant-warn h2 { color: #b45309; }
+    #app-modal.variant-success h2 { color: #15803d; }
+    #app-modal .app-modal-body p {
+      margin-bottom: 0.85rem;
+      line-height: 1.5;
+      color: var(--color-text);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #app-modal .app-modal-input {
+      width: 100%;
+      padding: 0.5rem 0.7rem;
+      border: 1px solid var(--color-border);
+      border-radius: 6px;
+      background: var(--color-surface, #fff);
+      color: var(--color-text);
+      font-size: 0.95rem;
+      margin-bottom: 0.85rem;
+      box-sizing: border-box;
+    }
+    #app-modal .app-modal-input:focus {
+      outline: none;
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 2px color-mix(in oklch, var(--color-primary) 25%, transparent);
+    }
+    #app-modal .app-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    #app-modal .app-modal-actions button {
+      padding: 0.55rem 1.1rem;
+      font-size: 0.9rem;
+    }
+    @media (max-width: 480px) {
+      #app-modal .app-modal-actions { flex-direction: column-reverse; }
+      #app-modal .app-modal-actions button { width: 100%; justify-content: center; }
+    }
+    .btn-danger {
+      background: #b91c1c; color: #fff;
+      padding: 0.75rem 1.5rem; border-radius: 8px; font-weight: 500;
+      transition: background 0.2s ease;
+      display: inline-flex; align-items: center; gap: 0.5rem;
+    }
+    .btn-danger:hover { background: #991b1b; }
   </style>
 </head>
 <body class="min-h-screen text-nexus-base">
@@ -1519,7 +1602,7 @@
 
     function initDataFromDB() {
       if(!window.UNIFI_DATA) {
-         alert("FEHLER: 'unifi-products.js' wurde nicht gefunden. Bitte lade die Datei herunter und lege sie in den Ordner.");
+         showAlert("FEHLER: 'unifi-products.js' wurde nicht gefunden. Bitte lade die Datei herunter und lege sie in den Ordner.", { variant: 'error' });
          return;
       }
       productCache.wifi = window.UNIFI_DATA.categories.wifi;
@@ -1547,7 +1630,7 @@
       initDataFromDB();
       // Wenn die URL einen #share=…-Hash hat, daraus laden — sonst aus
       // localStorage. Hash gewinnt, weil es eine explizite Empfangs-Aktion ist.
-      const loadedFromHash = (typeof tryLoadFromHash === 'function') ? tryLoadFromHash() : false;
+      const loadedFromHash = (typeof tryLoadFromHash === 'function') ? await tryLoadFromHash() : false;
       if(!loadedFromHash) loadState();
 
       const overlay = document.getElementById('loader-overlay');
@@ -1983,6 +2066,184 @@
       _toastTimer = setTimeout(() => { t.remove(); _toastTimer = null; }, duration);
     }
     window.showPlannerToast = showPlannerToast;
+
+    // --- Eigene Popups (Ersatz für native alert/confirm/prompt) --- //
+    // Promise-basiert, Fokus-Trap, ESC = Abbrechen, Enter = OK, Backdrop-Klick
+    // = Abbrechen. Es ist immer nur ein Modal gleichzeitig aktiv: ein neuer
+    // Aufruf schließt ein eventuell noch offenes Modal still.
+    let _appModalReleaseTrap = null;
+    let _appModalKeyHandler = null;
+    let _appModalCloseListener = null;
+    function _escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+      ));
+    }
+    function _ensureAppModalRoot() {
+      let root = document.getElementById('app-modal');
+      if(root) return root;
+      root = document.createElement('div');
+      root.id = 'app-modal';
+      root.className = 'no-print';
+      root.setAttribute('role', 'dialog');
+      root.setAttribute('aria-modal', 'true');
+      root.setAttribute('aria-labelledby', 'app-modal-title');
+      root.setAttribute('aria-describedby', 'app-modal-body');
+      document.body.appendChild(root);
+      return root;
+    }
+    function _closeAppModal() {
+      const root = document.getElementById('app-modal');
+      if(!root) return;
+      if(_appModalKeyHandler) { root.removeEventListener('keydown', _appModalKeyHandler); _appModalKeyHandler = null; }
+      if(_appModalReleaseTrap) { try { _appModalReleaseTrap(); } catch(_) {} _appModalReleaseTrap = null; }
+      _appModalCloseListener = null;
+      root.classList.remove('is-open');
+      root.className = 'no-print';
+      root.innerHTML = '';
+    }
+    function _openAppModal({ title, bodyHtml, variant, buttonsHtml, onKey, onClose }) {
+      // Falls bereits ein Modal offen ist: stilles Schließen ohne Callback
+      if(_appModalCloseListener) { _appModalCloseListener = null; _closeAppModal(); }
+      const root = _ensureAppModalRoot();
+      const iconName = variant === 'error' ? 'alert-triangle'
+                     : variant === 'warn'  ? 'alert-circle'
+                     : variant === 'success' ? 'check-circle-2'
+                     : 'info';
+      root.className = 'no-print' + (variant ? ' variant-' + variant : '');
+      root.innerHTML =
+        '<div class="app-modal-backdrop" data-modal-cancel-zone></div>' +
+        '<div class="app-modal-card card">' +
+          '<h2 id="app-modal-title">' +
+            '<i data-lucide="' + iconName + '" class="w-5 h-5"></i>' +
+            '<span>' + _escapeHtml(title || 'Hinweis') + '</span>' +
+          '</h2>' +
+          '<div id="app-modal-body" class="app-modal-body">' + bodyHtml + '</div>' +
+          '<div class="app-modal-actions">' + buttonsHtml + '</div>' +
+        '</div>';
+      root.classList.add('is-open');
+      try { lucide.createIcons(); } catch(_) {}
+      _appModalCloseListener = onClose || null;
+      root.querySelector('[data-modal-cancel-zone]').addEventListener('click', () => {
+        const cb = _appModalCloseListener; _appModalCloseListener = null;
+        _closeAppModal();
+        if(cb) cb({ reason: 'backdrop' });
+      });
+      _appModalReleaseTrap = trapFocus(root);
+      if(onKey) {
+        _appModalKeyHandler = (e) => onKey(e);
+        root.addEventListener('keydown', _appModalKeyHandler);
+      }
+      return root;
+    }
+
+    function showAlert(message, opts) {
+      opts = opts || {};
+      return new Promise((resolve) => {
+        const variant = opts.variant || 'info';
+        const okLabel = opts.okLabel || 'OK';
+        const title = opts.title || (
+          variant === 'error' ? 'Fehler' :
+          variant === 'warn' ? 'Hinweis' :
+          variant === 'success' ? 'Erfolg' : 'Hinweis'
+        );
+        const finish = () => {
+          _appModalCloseListener = null;
+          _closeAppModal();
+          resolve();
+        };
+        const root = _openAppModal({
+          title, variant,
+          bodyHtml: '<p>' + _escapeHtml(message) + '</p>',
+          buttonsHtml: '<button type="button" class="btn-primary" data-modal-ok>' + _escapeHtml(okLabel) + '</button>',
+          onKey: (e) => {
+            if(e.key === 'Escape' || e.key === 'Enter') { e.preventDefault(); finish(); }
+          },
+          onClose: () => resolve()
+        });
+        root.querySelector('[data-modal-ok]').addEventListener('click', finish);
+      });
+    }
+
+    function showConfirm(message, opts) {
+      opts = opts || {};
+      return new Promise((resolve) => {
+        const okLabel = opts.okLabel || 'OK';
+        const cancelLabel = opts.cancelLabel || 'Abbrechen';
+        const danger = !!opts.danger;
+        const variant = opts.variant || (danger ? 'warn' : 'info');
+        const title = opts.title || (danger ? 'Bestätigung erforderlich' : 'Bestätigen');
+        const okClass = danger ? 'btn-danger' : 'btn-primary';
+        const finish = (v) => {
+          _appModalCloseListener = null;
+          _closeAppModal();
+          resolve(v);
+        };
+        const root = _openAppModal({
+          title, variant,
+          bodyHtml: '<p>' + _escapeHtml(message) + '</p>',
+          buttonsHtml:
+            '<button type="button" class="btn-secondary" data-modal-cancel>' + _escapeHtml(cancelLabel) + '</button>' +
+            '<button type="button" class="' + okClass + '" data-modal-ok>' + _escapeHtml(okLabel) + '</button>',
+          onKey: (e) => {
+            if(e.key === 'Escape') { e.preventDefault(); finish(false); }
+            else if(e.key === 'Enter') { e.preventDefault(); finish(true); }
+          },
+          onClose: () => resolve(false)
+        });
+        root.querySelector('[data-modal-ok]').addEventListener('click', () => finish(true));
+        root.querySelector('[data-modal-cancel]').addEventListener('click', () => finish(false));
+      });
+    }
+
+    function showPrompt(message, opts) {
+      opts = opts || {};
+      return new Promise((resolve) => {
+        const okLabel = opts.okLabel || 'OK';
+        const cancelLabel = opts.cancelLabel || 'Abbrechen';
+        const title = opts.title || 'Eingabe';
+        const inputType = opts.inputType || 'text';
+        const defaultValue = opts.defaultValue != null ? String(opts.defaultValue) : '';
+        const placeholder = opts.placeholder || '';
+        const extraAttrs = inputType === 'number' ? ' inputmode="decimal" step="any"' : '';
+        const finish = (v) => {
+          _appModalCloseListener = null;
+          _closeAppModal();
+          resolve(v);
+        };
+        const root = _openAppModal({
+          title, variant: 'info',
+          bodyHtml:
+            '<p>' + _escapeHtml(message) + '</p>' +
+            '<input type="' + inputType + '" class="app-modal-input" data-modal-input' +
+              ' value="' + _escapeHtml(defaultValue) + '"' +
+              ' placeholder="' + _escapeHtml(placeholder) + '"' + extraAttrs + ' />',
+          buttonsHtml:
+            '<button type="button" class="btn-secondary" data-modal-cancel>' + _escapeHtml(cancelLabel) + '</button>' +
+            '<button type="button" class="btn-primary" data-modal-ok>' + _escapeHtml(okLabel) + '</button>',
+          onKey: (e) => {
+            if(e.key === 'Escape') { e.preventDefault(); finish(null); }
+            else if(e.key === 'Enter' && e.target && e.target.matches && e.target.matches('[data-modal-input]')) {
+              e.preventDefault(); finish(input.value);
+            }
+          },
+          onClose: () => resolve(null)
+        });
+        const input = root.querySelector('[data-modal-input]');
+        // Input fokussieren und vorhandenen Text markieren — überschreibt die
+        // Default-Fokussierung von trapFocus (auf den ersten Button).
+        setTimeout(() => {
+          if(input) { try { input.focus(); input.select && input.select(); } catch(_) {} }
+        }, 0);
+        root.querySelector('[data-modal-ok]').addEventListener('click', () => finish(input.value));
+        root.querySelector('[data-modal-cancel]').addEventListener('click', () => finish(null));
+      });
+    }
+
+    window.showAlert = showAlert;
+    window.showConfirm = showConfirm;
+    window.showPrompt = showPrompt;
+
     let _loadStateError = null; // wird nach dem Boot vom App-Init als Toast ausgespielt
     function loadState() {
       let raw;
@@ -2049,8 +2310,8 @@
         if(typeof console !== 'undefined') console.warn('[loadState]', err);
       }
     }
-    window.resetPlannerState = () => {
-      if(!confirm('Aktuelles Projekt wirklich zurücksetzen? Alle Eingaben werden gelöscht.')) return;
+    window.resetPlannerState = async () => {
+      if(!(await showConfirm('Aktuelles Projekt wirklich zurücksetzen? Alle Eingaben werden gelöscht.', { danger: true, okLabel: 'Zurücksetzen' }))) return;
       try { localStorage.removeItem(STATE_KEY); } catch(_) {}
       location.reload();
     };
@@ -2058,8 +2319,8 @@
     // Demo-Projekt: kompaktes EFH-Setup (2 Etagen, 4 Räume, Glasfaser, IoT-VLANs,
     // ein paar APs/Kameras). Hilft Erstnutzern, das Tool ohne leere Bühne zu
     // erkunden. Überschreibt das aktuelle Projekt nach Confirm.
-    window.loadDemoProject = () => {
-      if(!confirm('Beispielprojekt laden? Dein aktuelles Projekt wird überschrieben (vorher ggf. als JSON exportieren).')) return;
+    window.loadDemoProject = async () => {
+      if(!(await showConfirm('Beispielprojekt laden? Dein aktuelles Projekt wird überschrieben (vorher ggf. als JSON exportieren).', { okLabel: 'Beispiel laden' }))) return;
       const isp = ispList.find(i => i.id === 'telekom_fiber') || ispList[0];
       const demoFloors = [
         {
@@ -2359,18 +2620,19 @@
       const confirmOverride = (kind, val, max) => {
         const labels = { down: 'Download', up: 'Upload' };
         const techLbl = state.isp ? `${state.isp.name} – ${state.isp.type}` : 'gewählter Anbieter';
-        return confirm(
+        return showConfirm(
           `Die eingegebene ${labels[kind]}-Geschwindigkeit (${val} Mbit/s) liegt über dem für ` +
           `${techLbl} angenommenen Maximum von ${max} Mbit/s.\n\n` +
-          `Trotzdem übernehmen?`
+          `Trotzdem übernehmen?`,
+          { okLabel: 'Übernehmen' }
         );
       };
-      const onManualChange = (kind) => (e) => {
+      const onManualChange = (kind) => async (e) => {
         const max = state.isp ? (kind === 'down' ? state.isp.maxDown : state.isp.maxUp) : HARD_MAX;
         const val = parseInt(e.target.value, 10);
         if(!Number.isFinite(val)) return;
         if(state.isp && val > max) {
-          if(confirmOverride(kind, val, max)) {
+          if(await confirmOverride(kind, val, max)) {
             // Override akzeptiert → Slider-Max temporär anheben, damit Wert sichtbar bleibt
             if(kind === 'down') { sDown.max = val; iDown.max = val; handleDown(val); }
             else                { sUp.max   = val; iUp.max   = val; handleUp(val);   }
@@ -2695,14 +2957,14 @@
          saveState(); render();
          showPlannerToast('Etage dupliziert');
       };
-      window.deleteFloor = (id) => {
+      window.deleteFloor = async (id) => {
          if(state.floors.length <= 1) {
             showPlannerToast('Mindestens eine Etage erforderlich');
             return;
          }
          const f = state.floors.find(fl => fl.id === id);
          if(!f) return;
-         if(!confirm(`Etage "${f.name}" wirklich löschen? Räume, APs und Kameras gehen verloren.`)) return;
+         if(!(await showConfirm(`Etage "${f.name}" wirklich löschen? Räume, APs und Kameras gehen verloren.`, { danger: true, okLabel: 'Löschen' }))) return;
          pushPlannerHistory();
          const idx = state.floors.findIndex(fl => fl.id === id);
          state.floors.splice(idx, 1);
@@ -2853,9 +3115,9 @@
          };
          inp.click();
       };
-      window.removeFloorBackground = () => {
+      window.removeFloorBackground = async () => {
          if(!currentFloor.backgroundImage) return;
-         if(!confirm('Hintergrund-Grundriss entfernen?')) return;
+         if(!(await showConfirm('Hintergrund-Grundriss entfernen?', { danger: true, okLabel: 'Entfernen' }))) return;
          pushPlannerHistory();
          delete currentFloor.backgroundImage;
          saveState(); render();
@@ -3171,7 +3433,7 @@
          };
          planner.style.cursor = 'crosshair';
          const stopOther = (e) => { e.stopPropagation(); };
-         const onClick = (e) => {
+         const onClick = async (e) => {
             e.stopPropagation();
             e.preventDefault();
             const wpt = clientToWorld(e.clientX, e.clientY);
@@ -3190,9 +3452,9 @@
                cleanup();
                return;
             }
-            const input = prompt(`Welche reale Distanz haben die beiden Punkte? (Meter)\n\nIm aktuellen Maßstab gemessen: ${fmt1(measuredM)} m.`);
+            const input = await showPrompt(`Welche reale Distanz haben die beiden Punkte? (Meter)\n\nIm aktuellen Maßstab gemessen: ${fmt1(measuredM)} m.`, { title: 'Maßstab kalibrieren', inputType: 'number', placeholder: 'z. B. 5.0' });
             marker2.remove();
-            if(input == null) { cleanup(); showPlannerToast('Kalibrierung abgebrochen.'); return; }
+            if(input == null || input === '') { cleanup(); showPlannerToast('Kalibrierung abgebrochen.'); return; }
             const real = parseFloat(String(input).replace(',', '.'));
             if(!Number.isFinite(real) || real <= 0) {
                showPlannerToast('Ungültiger Wert — Kalibrierung abgebrochen.', 'error');
@@ -3510,12 +3772,12 @@
             activePointerEl = poly;
             if(!isSel) { state.selectedRoomId = room.id; render(); }
          });
-         attachLongPress(poly, () => {
+         attachLongPress(poly, async () => {
             if(currentFloor.rooms.length <= 1) {
                showPlannerToast('Mindestens ein Raum muss bestehen bleiben.', 'warn');
                return;
             }
-            if(confirm(`Raum „${room.name}" entfernen?`)) {
+            if(await showConfirm(`Raum „${room.name}" entfernen?`, { danger: true, okLabel: 'Entfernen' })) {
                pushPlannerHistory();
                currentFloor.rooms = currentFloor.rooms.filter(r => r.id !== room.id);
                if(state.selectedRoomId === room.id) state.selectedRoomId = null;
@@ -4164,8 +4426,8 @@
              saveState();
           });
           // Long-Press (Touch): Kontext-Aktion „Löschen?"
-          attachLongPress(dotContainer, () => {
-             if(confirm(`AP „${spec.name}" entfernen?`)) {
+          attachLongPress(dotContainer, async () => {
+             if(await showConfirm(`AP „${spec.name}" entfernen?`, { danger: true, okLabel: 'Entfernen' })) {
                 pushPlannerHistory();
                 currentFloor.aps = currentFloor.aps.filter(a => a.id !== apState.id);
                 if(dragMode==='ap') dragMode = null;
@@ -4211,8 +4473,8 @@
              drawAps();
              saveState();
           });
-          attachLongPress(dotContainer, () => {
-             if(confirm(`${isDoorbell ? 'Türsprechanlage' : 'Kamera'} „${spec.name}" entfernen?`)) {
+          attachLongPress(dotContainer, async () => {
+             if(await showConfirm(`${isDoorbell ? 'Türsprechanlage' : 'Kamera'} „${spec.name}" entfernen?`, { danger: true, okLabel: 'Entfernen' })) {
                 pushPlannerHistory();
                 currentFloor.cameras = currentFloor.cameras.filter(c => c.id !== camState.id);
                 if(dragMode==='cam') dragMode = null;
@@ -4992,17 +5254,18 @@
       }
       render();
     };
-    window.setBackupSpeed = (field, val) => {
+    window.setBackupSpeed = async (field, val) => {
       const n = Math.max(0, parseInt(val) || 0);
       const isp = state.backup?.isp2;
       const max = isp ? (field === 'speedDown2' ? isp.maxDown : isp.maxUp) : null;
       if(max != null && n > max) {
         const lbl = field === 'speedDown2' ? 'Download' : 'Upload';
         const techLbl = `${isp.name} – ${isp.type}`;
-        const ok = confirm(
+        const ok = await showConfirm(
           `Die eingegebene ${lbl}-Geschwindigkeit (${n} Mbit/s) liegt über dem für ` +
           `${techLbl} angenommenen Maximum von ${max} Mbit/s.\n\n` +
-          `Trotzdem übernehmen?`
+          `Trotzdem übernehmen?`,
+          { okLabel: 'Übernehmen' }
         );
         if(!ok) {
           state.backup[field] = max;
@@ -5807,15 +6070,15 @@
         name = p.name || name;
         if(!price) price = p.price || 0;
       }
-      if(!name) { alert('Bitte Modell-/Artikelname angeben.'); return; }
+      if(!name) { showPlannerToast('Bitte Modell-/Artikelname angeben.', 'warn'); return; }
 
       const id = 'c' + Date.now() + Math.floor(Math.random() * 1000);
       state.bomOverrides.customRows.push({ id, category, name, slug: catalogSlug || '', qty, price });
       render();
     };
 
-    window.resetBomOverrides = () => {
-      if(!confirm('Alle manuellen BOM-Anpassungen zurücksetzen?')) return;
+    window.resetBomOverrides = async () => {
+      if(!(await showConfirm('Alle manuellen BOM-Anpassungen zurücksetzen?', { danger: true, okLabel: 'Zurücksetzen' }))) return;
       state.bomOverrides = { removedKeys: [], customRows: [], quantityOverrides: {} };
       render();
     };
@@ -6215,7 +6478,7 @@
     // Wird vor loadState() aufgerufen. Liefert true, wenn aus dem Hash
     // erfolgreich geladen wurde — dann überspringt initializeApp() den
     // localStorage-Load.
-    function tryLoadFromHash() {
+    async function tryLoadFromHash() {
       const HASH_PREFIX = '#share=';
       if(typeof location === 'undefined' || !location.hash || !location.hash.startsWith(HASH_PREFIX)) return false;
       const data = location.hash.slice(HASH_PREFIX.length);
@@ -6225,7 +6488,7 @@
       try {
         const parsed = decodeShareData(data);
         if(!parsed || !Array.isArray(parsed.floors)) throw new Error('Ungültiges Share-Format');
-        if(!confirm('Geteiltes Projekt aus URL laden? Dein aktuelles Projekt wird ersetzt (du kannst es vor dem Übernehmen exportieren).')) {
+        if(!(await showConfirm('Geteiltes Projekt aus URL laden? Dein aktuelles Projekt wird ersetzt (du kannst es vor dem Übernehmen exportieren).', { okLabel: 'Laden' }))) {
           stripHash();
           return false;
         }
@@ -6268,7 +6531,7 @@
       const encoded = encodeShareData(payload);
       const url = location.origin + location.pathname + '#share=' + encoded;
       if(url.length > 16384) {
-        if(!confirm(`Der Link ist sehr lang (${(url.length/1024).toFixed(1)} KB). Einige Server/Browser schneiden lange URLs ab. Trotzdem kopieren?`)) return;
+        if(!(await showConfirm(`Der Link ist sehr lang (${(url.length/1024).toFixed(1)} KB). Einige Server/Browser schneiden lange URLs ab. Trotzdem kopieren?`, { okLabel: 'Kopieren' }))) return;
       }
       const note = strippedImages > 0
         ? ` Hinweis: ${strippedImages} Hintergrundbild${strippedImages === 1 ? '' : 'er'} nicht im Link — separat als JSON teilen.`
@@ -6277,8 +6540,8 @@
         await navigator.clipboard.writeText(url);
         showPlannerToast('Share-Link in Zwischenablage kopiert.' + note);
       } catch(_) {
-        // Clipboard-API verweigert → Fallback Prompt
-        const ok = prompt('Share-Link manuell kopieren (Zwischenablage-API blockiert):', url);
+        // Clipboard-API verweigert → Fallback Prompt mit selektiertem Link
+        const ok = await showPrompt('Share-Link manuell kopieren (Zwischenablage-API blockiert):', { title: 'Share-Link', defaultValue: url, okLabel: 'Schließen', cancelLabel: 'Abbrechen' });
         if(ok != null) showPlannerToast('Link bereit.' + note);
       }
     };
@@ -6331,12 +6594,12 @@
             const slugIssues = validateSlugRefs(state);
             render();
             if(slugIssues.length > 0) {
-              alert('Projekt geladen mit Hinweisen:\n\n• ' + slugIssues.join('\n• '));
+              showAlert('Projekt geladen mit Hinweisen:\n\n• ' + slugIssues.join('\n• '), { variant: 'warn' });
             } else {
-              alert('Projekt erfolgreich geladen.');
+              showPlannerToast('Projekt erfolgreich geladen.');
             }
           } catch(err) {
-            alert('Fehler beim Laden: ' + err.message);
+            showAlert('Fehler beim Laden: ' + err.message, { variant: 'error' });
           }
         };
         reader.readAsText(file, 'utf-8');
@@ -7728,29 +7991,29 @@
     window.openRackView = () => { state.rackViewOpen = true; renderRackOverlay(); };
     window.closeRackView = () => { state.rackViewOpen = false; renderRackOverlay(); };
     window.rackSelect = (id) => { state.rackView.activeRackId = id; saveState(); renderRackOverlay(); };
-    window.rackAddRack = () => {
-      const name = prompt('Name für neues Rack:', `Rack ${state.racks.length + 1}`);
+    window.rackAddRack = async () => {
+      const name = await showPrompt('Name für neues Rack:', { title: 'Neues Rack', defaultValue: `Rack ${state.racks.length + 1}`, okLabel: 'Anlegen' });
       if(!name) return;
       const id = rackGenId('r');
       state.racks.push({ id, name, heightU: 12, depthMm: 450, items: [] });
       state.rackView.activeRackId = id;
       saveState(); renderRackOverlay();
     };
-    window.rackRemoveRack = (id) => {
-      if(state.racks.length <= 1) { alert('Mindestens ein Rack muss erhalten bleiben.'); return; }
+    window.rackRemoveRack = async (id) => {
+      if(state.racks.length <= 1) { showPlannerToast('Mindestens ein Rack muss erhalten bleiben.', 'warn'); return; }
       const rack = state.racks.find(r => r.id === id);
       if(!rack) return;
-      if(rack.items.length > 0 && !confirm(`Rack "${rack.name}" mit ${rack.items.length} Gerät(en) wirklich löschen?`)) return;
+      if(rack.items.length > 0 && !(await showConfirm(`Rack "${rack.name}" mit ${rack.items.length} Gerät(en) wirklich löschen?`, { danger: true, okLabel: 'Löschen' }))) return;
       const rackItemIds = new Set((rack.items || []).map(it => it.id));
       state.cabling.connections = state.cabling.connections.filter(cn => !rackItemIds.has(cn.rackItemId));
       state.racks = state.racks.filter(r => r.id !== id);
       state.rackView.activeRackId = state.racks[0]?.id || 'r-main';
       saveState(); renderRackOverlay();
     };
-    window.rackRename = (id) => {
+    window.rackRename = async (id) => {
       const rack = state.racks.find(r => r.id === id);
       if(!rack) return;
-      const name = prompt('Neuer Name für das Rack:', rack.name);
+      const name = await showPrompt('Neuer Name für das Rack:', { title: 'Rack umbenennen', defaultValue: rack.name, okLabel: 'Umbenennen' });
       if(name == null) return;
       const trimmed = name.trim();
       if(!trimmed) return;
@@ -7764,14 +8027,14 @@
       rack.depthMm = d;
       saveState(); renderRackOverlay();
     };
-    window.rackSetPatchpanelPorts = (itemId) => {
+    window.rackSetPatchpanelPorts = async (itemId) => {
       let target = null;
       for(const rack of state.racks) {
         const it = (rack.items || []).find(x => x.id === itemId);
         if(it) { target = it; break; }
       }
       if(!target || target.kind !== 'patchpanel') return;
-      const val = prompt('Port-Anzahl am Patchpanel (12, 24 oder 48):', String(target.ports || 24));
+      const val = await showPrompt('Port-Anzahl am Patchpanel (12, 24 oder 48):', { title: 'Patchpanel-Ports', inputType: 'number', defaultValue: String(target.ports || 24), okLabel: 'Übernehmen' });
       if(val == null) return;
       const p = parseInt(val);
       if(!Number.isFinite(p) || p <= 0) { rackToast('Ungültige Port-Anzahl'); return; }
@@ -7779,7 +8042,7 @@
       target.label = `Patchpanel ${p}-Port`;
       saveState(); renderRackOverlay(); render();
     };
-    window.rackSetItemPrice = (itemId) => {
+    window.rackSetItemPrice = async (itemId) => {
       let target = null;
       for(const rack of state.racks) {
         const it = (rack.items || []).find(x => x.id === itemId);
@@ -7788,21 +8051,21 @@
       if(!target) return;
       const d = getRackItemDefaults(target.slug, target.kind);
       const cur = target.price != null ? target.price : d.price;
-      const val = prompt(`Preis in € (Default: ${d.price} €):`, String(cur));
+      const val = await showPrompt(`Preis in € (Default: ${d.price} €):`, { title: 'Preis ändern', inputType: 'number', defaultValue: String(cur), okLabel: 'Übernehmen' });
       if(val == null) return;
       const p = parseFloat(val);
       if(!Number.isFinite(p) || p < 0) { rackToast('Ungültiger Preis'); return; }
       target.price = p;
       saveState(); renderRackOverlay(); render();
     };
-    window.rackSetHeight = (val) => {
+    window.rackSetHeight = async (val) => {
       const newH = parseInt(val);
       const rack = getActiveRack();
       if(!rack || !Number.isFinite(newH)) return;
       const outside = (rack.items || []).filter(it => it.uStart + it.uSize - 1 > newH);
       if(outside.length > 0) {
         const names = outside.map(it => it.label || productCache.specs[it.slug]?.name || it.kind).join(', ');
-        if(!confirm(`${outside.length} Item(s) liegen außerhalb ${newH}U und werden entfernt:\n\n${names}\n\nFortfahren?`)) {
+        if(!(await showConfirm(`${outside.length} Item(s) liegen außerhalb ${newH}U und werden entfernt:\n\n${names}\n\nFortfahren?`, { danger: true, okLabel: 'Fortfahren' }))) {
           renderRackOverlay(); return;
         }
       }
@@ -7824,13 +8087,13 @@
     // Klick-Handler für Palette-Cards: Hardware-Items werden direkt platziert
     // (Preis aus Katalog). Generische Items zeigen einen Preis-Prompt mit
     // Default-Wert vorbelegt — Cancel = Default greift, OK mit Wert = Override.
-    window.rackPromptAndPlaceItem = (slug, kind, name) => {
+    window.rackPromptAndPlaceItem = async (slug, kind, name) => {
       if(slug && productCache.specs && productCache.specs[slug]) {
         window.rackPlaceItem(slug, kind, name);
         return;
       }
       const d = getRackItemDefaults(slug || null, kind);
-      const val = prompt(`Preis für "${name}" in € (Default: ${d.price} €):`, String(d.price));
+      const val = await showPrompt(`Preis für "${name}" in € (Default: ${d.price} €):`, { title: 'Preis festlegen', inputType: 'number', defaultValue: String(d.price), okLabel: 'Platzieren' });
       if(val == null) {
         // Cancel: trotzdem mit Default platzieren, kein Override speichern
         window.rackPlaceItem(slug, kind, name);
@@ -7885,16 +8148,16 @@
       });
       saveState(); renderRackOverlay(); render();
     };
-    window.rackAddCustomPaletteItem = () => {
-      const name = prompt('Name für eigenes Palette-Item:');
+    window.rackAddCustomPaletteItem = async () => {
+      const name = await showPrompt('Name für eigenes Palette-Item:', { title: 'Neues Palette-Item (1/3)', placeholder: 'z. B. Steckdosenleiste', okLabel: 'Weiter' });
       if(!name) return;
       const trimmed = name.trim();
       if(!trimmed) return;
-      const uStr = prompt('Höhe in HE (1–10):', '1');
+      const uStr = await showPrompt('Höhe in HE (1–10):', { title: `„${trimmed}" — Höhe (2/3)`, inputType: 'number', defaultValue: '1', okLabel: 'Weiter' });
       if(uStr == null) return;
       const u = parseInt(uStr);
       if(!Number.isFinite(u) || u < 1 || u > 10) { rackToast('Ungültige Höhe (1–10 HE)'); return; }
-      const priceStr = prompt('Preis in € (optional, leer = 0):', '0');
+      const priceStr = await showPrompt('Preis in € (optional, leer = 0):', { title: `„${trimmed}" — Preis (3/3)`, inputType: 'number', defaultValue: '0', okLabel: 'Anlegen' });
       if(priceStr == null) return;
       const priceParsed = parseFloat(priceStr);
       const price = Number.isFinite(priceParsed) && priceParsed >= 0 ? priceParsed : 0;
@@ -8054,10 +8317,10 @@
       saveState(); renderRackOverlay();
       rackToast('Verkabelung automatisch neu zugewiesen');
     };
-    window.rackAutoFill = () => {
+    window.rackAutoFill = async () => {
       const rack = getActiveRack();
       if(!rack) return;
-      if(rack.items.length > 0 && !confirm('Aktuelles Layout überschreiben?')) return;
+      if(rack.items.length > 0 && !(await showConfirm('Aktuelles Layout überschreiben?', { danger: true, okLabel: 'Überschreiben' }))) return;
       rack.items = [];
       state.cabling.connections = [];
       const b = buildBom();
@@ -8066,11 +8329,11 @@
       saveState(); renderRackOverlay();
       rackToast('Rack automatisch befüllt');
     };
-    window.rackResetLayout = () => {
+    window.rackResetLayout = async () => {
       const rack = getActiveRack();
       if(!rack) return;
       if(rack.items.length === 0) return;
-      if(!confirm(`Alle ${rack.items.length} Item(s) aus dem Rack entfernen? Zugehörige Kabelzuordnungen werden mit entfernt.`)) return;
+      if(!(await showConfirm(`Alle ${rack.items.length} Item(s) aus dem Rack entfernen? Zugehörige Kabelzuordnungen werden mit entfernt.`, { danger: true, okLabel: 'Entfernen' }))) return;
       const rackItemIds = new Set((rack.items || []).map(it => it.id));
       state.cabling.connections = state.cabling.connections.filter(cn => !rackItemIds.has(cn.rackItemId));
       rack.items = [];
