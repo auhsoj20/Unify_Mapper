@@ -96,9 +96,11 @@
     .step-node.completed { border-color: var(--color-primary); color: var(--color-primary); }
     .step-line { flex: 1; height: 2px; background: var(--color-border); margin: 0 0.5rem; transition: background 0.3s ease; min-width: 8px; }
     .step-line.active { background: var(--color-primary); }
+    .step-label { width: 2rem; text-align: center; white-space: nowrap; flex-shrink: 0; overflow: visible; }
     @media (max-width: 480px) {
       .step-node { width: 1.5rem; height: 1.5rem; font-size: 0.75rem; border-width: 1.5px; }
       .step-line { margin: 0 0.25rem; }
+      .step-label { width: 1.5rem; }
     }
 
     #planner-area {
@@ -1014,13 +1016,13 @@
       <div class="step-line" id="line-5"></div>
       <div class="step-node" data-step="6">6</div>
     </div>
-    <div class="flex items-start justify-between max-w-2xl mx-auto mt-2 text-[10px] sm:text-xs md:text-sm text-nexus-muted font-medium text-center leading-tight">
-      <div class="w-6 sm:w-8 whitespace-nowrap" title="Internet">Internet</div>
-      <div class="w-6 sm:w-8 whitespace-nowrap" title="Räume &amp; APs">Räume</div>
-      <div class="w-6 sm:w-8 whitespace-nowrap" title="Switch &amp; PoE">Switch</div>
-      <div class="w-6 sm:w-8 whitespace-nowrap" title="Features">Features</div>
-      <div class="w-6 sm:w-8 whitespace-nowrap" title="Backup">Backup</div>
-      <div class="w-6 sm:w-8 whitespace-nowrap" title="Ergebnis">Ergebnis</div>
+    <div class="flex items-start justify-between max-w-2xl mx-auto mt-2 text-[10px] sm:text-xs md:text-sm text-nexus-muted font-medium leading-tight">
+      <div class="step-label" title="Internet">Internet</div>
+      <div class="step-label" title="Räume &amp; APs">Räume</div>
+      <div class="step-label" title="Switch &amp; PoE">Switch</div>
+      <div class="step-label" title="Features">Features</div>
+      <div class="step-label" title="Backup">Backup</div>
+      <div class="step-label" title="Ergebnis">Ergebnis</div>
     </div>
   </div>
 
