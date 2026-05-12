@@ -807,6 +807,17 @@
       outline-offset: 2px;
     }
 
+    /* Touch-Targets für Step-3-Filter und ähnliche Picker auf Touch-Geräten.
+       Pflicht-Mindestmaß 44 px gemäß WCAG / Apple HIG / Material Guidelines. */
+    @media (pointer: coarse) {
+      .switch-filter-control,
+      #switch-filter-card select,
+      #switch-filter-card input[type="checkbox"] {
+        min-height: 44px;
+      }
+      #switch-filter-card summary { min-height: 44px; }
+    }
+
     /* Erweiterte Print-CSS: BOM / Topologie / Power-Karten druckfreundlich.
        Dunkle Topologie-Karte wird in S/W ausgegeben, Tabellen brechen nicht
        mitten in einer Zeile um. */
@@ -1373,20 +1384,41 @@
 
     // --- Data Definitions (ISPs & Fallbacks) --- //
     // Maximalgeschwindigkeiten = realistischer Konsumenten-Topspeed pro Anbieter/
-    // Technologie in Deutschland (Stand 2026). Einheit Mbit/s.
+    // Technologie in Deutschland (Stand Mai 2026). Einheit Mbit/s.
     //   DSL VDSL2 Super-Vectoring 35b: 250/40 (technisches Limit der Norm)
-    //   Kabel DOCSIS 3.1: bis ~1 GBit/s down, Upload bei dt. Anbietern bei 50
-    //   Telekom Glasfaser: Top-Consumer-Tarif "MagentaZuhause Glasfaser Pro 2000"
+    //   Kabel DOCSIS 3.1 Low-Split (Vodafone ab Feb 2026): bis 1 GBit/s down,
+    //     Upload bis 75 (zuvor max. 50 MBit/s).
+    //   Telekom Glasfaser: Top-Consumer-Tarif "MagentaZuhause Glasfaser Pro 1000"
+    //     (1000/500). Pro 2000 (2000/1000) regional verfügbar.
     //   1&1 Glasfaser: GlasfaserPower 1000 (1000/500)
+    //   o2 Home Fiber: bis 1000/500
+    //   Deutsche Glasfaser DG Giga 1000: 1000/500
+    //   PYUR: Kabel bis 1000/50, Fiber bis 1000/500
+    //   NetCologne (NRW): Glasfaser bis 2000/2000 in Köln/Bonn
+    //   M-net: bayernweit Glasfaser bis 1000/500
+    //   EWE: Glasfaser bis 1000/500
+    //   tarife.* — typische Tarifname-Beispiele (Stand Mai 2026). Werte sind
+    //   die maximalen Download-/Upload-Limits laut Anbieter. Manuelle Eingabe
+    //   im Slider-Feld kann sie überschreiben (Bestätigungsabfrage).
     const ispList = [
-      { id: 'telekom_dsl', name: 'Deutsche Telekom', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
-      { id: 'telekom_fiber', name: 'Deutsche Telekom', type: 'Glasfaser (FTTH)', notes: 'Telekom Glasfaser Modem 2 (ONT) verwenden.', modemRec: 'Telekom Glasfaser Modem 2', modemPrice: 49, maxDown: 2000, maxUp: 1000 },
-      { id: 'vodafone_cable', name: 'Vodafone', type: 'Kabel (Coax)', notes: 'Bridge-Mode im Vodafone-Portal aktivieren!', modemRec: 'Vodafone Station (Bridge Mode)', modemPrice: 0, maxDown: 1000, maxUp: 50 },
-      { id: 'vodafone_dsl', name: 'Vodafone', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
-      { id: '1und1_dsl', name: '1&1', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
-      { id: '1und1_fiber', name: '1&1', type: 'Glasfaser (FTTH)', notes: 'Standard ONT von 1&1.', modemRec: '1&1 Glasfaser ONT', modemPrice: 0, maxDown: 1000, maxUp: 500 },
-      { id: 'o2_dsl', name: 'o2 / Telefónica', type: 'DSL (VDSL/ADSL)', notes: 'PPPoE, externes Modem erforderlich.', modemRec: 'DrayTek Vigor167', modemPrice: 89, maxDown: 250, maxUp: 40 },
-      { id: 'o2_cable', name: 'o2 / Telefónica', type: 'Kabel (Coax)', notes: 'Bridge-Mode am o2-Kabelrouter aktivieren.', modemRec: 'o2 HomeBox (Bridge Mode)', modemPrice: 0, maxDown: 1000, maxUp: 50 }
+      { id: 'telekom_dsl',         name: 'Deutsche Telekom',  type: 'DSL (VDSL/ADSL)',  notes: 'MagentaZuhause S/M/L/XL. PPPoE, externes Modem erforderlich.',                  modemRec: 'DrayTek Vigor167',           modemPrice: 89, maxDown: 250,  maxUp: 40,  tariff: 'MagentaZuhause XL (250/40)' },
+      { id: 'telekom_fiber',       name: 'Deutsche Telekom',  type: 'Glasfaser (FTTH)', notes: 'Glasfaser 150/300/600/1000. Telekom Glasfaser Modem 2 (ONT) verwenden.',         modemRec: 'Telekom Glasfaser Modem 2',  modemPrice: 49, maxDown: 1000, maxUp: 500, tariff: 'Glasfaser 1000 (1000/500)' },
+      { id: 'telekom_fiber_pro',   name: 'Deutsche Telekom',  type: 'Glasfaser Pro (FTTH)', notes: 'Glasfaser Pro 2000 — regional in Ballungsgebieten. ONT vorausgesetzt.',      modemRec: 'Telekom Glasfaser Modem 2',  modemPrice: 49, maxDown: 2000, maxUp: 1000, tariff: 'Glasfaser Pro 2000 (2000/1000)' },
+      { id: 'vodafone_cable',      name: 'Vodafone',          type: 'Kabel (Coax)',     notes: 'GigaZuhause Kabel 150/300/600/800/1000 — seit Feb 2026 mit Upload-Booster bis 75 MBit/s (DOCSIS 3.1 Low-Split). Bridge-Mode im Vodafone-Portal aktivieren!', modemRec: 'Vodafone Station (Bridge Mode)', modemPrice: 0, maxDown: 1000, maxUp: 75, tariff: 'GigaZuhause Kabel 1000 (1000/75)' },
+      { id: 'vodafone_dsl',        name: 'Vodafone',          type: 'DSL (VDSL/ADSL)',  notes: 'GigaZuhause DSL 16/50/100/250. PPPoE, externes Modem erforderlich.',            modemRec: 'DrayTek Vigor167',           modemPrice: 89, maxDown: 250,  maxUp: 40,  tariff: 'GigaZuhause DSL 250 (250/40)' },
+      { id: 'vodafone_fiber',      name: 'Vodafone',          type: 'Glasfaser (FTTH)', notes: 'GigaZuhause Glasfaser 300/600/1000 — Vodafone-FTTH-Ausbau (OXG/Kooperationen).', modemRec: 'Vodafone Glasfaser-Modem',  modemPrice: 0,  maxDown: 1000, maxUp: 500, tariff: 'GigaZuhause Glasfaser 1000 (1000/500)' },
+      { id: '1und1_dsl',           name: '1&1',               type: 'DSL (VDSL/ADSL)',  notes: '1&1 DSL 16/50/100/250. PPPoE, externes Modem erforderlich.',                    modemRec: 'DrayTek Vigor167',           modemPrice: 89, maxDown: 250,  maxUp: 40,  tariff: '1&1 DSL 250 (250/40)' },
+      { id: '1und1_fiber',         name: '1&1',               type: 'Glasfaser (FTTH)', notes: '1&1 Glasfaser 100/250/600/1000. Standard-ONT von 1&1 inkludiert.',              modemRec: '1&1 Glasfaser ONT',          modemPrice: 0,  maxDown: 1000, maxUp: 500, tariff: '1&1 Glasfaser 1000 (1000/500)' },
+      { id: 'o2_dsl',              name: 'o2 / Telefónica',   type: 'DSL (VDSL/ADSL)',  notes: 'o2 Home S/M/L DSL (50/100/250). PPPoE, externes Modem erforderlich.',           modemRec: 'DrayTek Vigor167',           modemPrice: 89, maxDown: 250,  maxUp: 40,  tariff: 'o2 Home L DSL (250/40)' },
+      { id: 'o2_cable',            name: 'o2 / Telefónica',   type: 'Kabel (Coax)',     notes: 'o2 Home XL/XXL Kabel (500/1000). Bridge-Mode am o2-Kabelrouter aktivieren.',    modemRec: 'o2 HomeBox (Bridge Mode)',    modemPrice: 0, maxDown: 1000, maxUp: 50, tariff: 'o2 Home XXL Kabel (1000/50)' },
+      { id: 'o2_fiber',            name: 'o2 / Telefónica',   type: 'Glasfaser (FTTH)', notes: 'o2 Home M/L/XL/XXL Fiber (150/300/600/1000). Ausbau via Telekom/OXG-Kooperation.', modemRec: 'o2 Glasfaser-Modem',       modemPrice: 0,  maxDown: 1000, maxUp: 500, tariff: 'o2 Home XXL Fiber (1000/500)' },
+      { id: 'dgs_fiber',           name: 'Deutsche Glasfaser', type: 'Glasfaser (FTTH)', notes: 'DG Giga 300/600/1000. Ländlicher Ausbau (10 Bundesländer). ONT inklusive.',    modemRec: 'Deutsche Glasfaser ONT',     modemPrice: 0,  maxDown: 1000, maxUp: 500, tariff: 'DG Giga 1000 (1000/500)' },
+      { id: 'pyur_cable',          name: 'PŸUR',              type: 'Kabel (Coax)',     notes: 'PYUR Pure Speed 100/250/500/1000. Bridge-Mode aktivieren.',                     modemRec: 'PYUR-Kabelmodem (Bridge)',   modemPrice: 0,  maxDown: 1000, maxUp: 50,  tariff: 'PYUR Pure Speed 1000 (1000/50)' },
+      { id: 'pyur_fiber',          name: 'PŸUR',              type: 'Glasfaser (FTTH)', notes: 'PYUR Glasfaser bis 1000/500. Ausbau in Berlin, Hamburg, Sachsen u. a.',         modemRec: 'PYUR Glasfaser-ONT',         modemPrice: 0,  maxDown: 1000, maxUp: 500, tariff: 'PYUR Glasfaser 1000 (1000/500)' },
+      { id: 'netcologne_fiber',    name: 'NetCologne',        type: 'Glasfaser (FTTH)', notes: 'Regional Köln/Bonn. NetSpeed Fiber 100/250/1000/2000. ONT inklusive.',          modemRec: 'NetCologne ONT',             modemPrice: 0,  maxDown: 2000, maxUp: 2000, tariff: 'NetSpeed 2000 (2000/2000)' },
+      { id: 'mnet_fiber',          name: 'M-net',             type: 'Glasfaser (FTTH)', notes: 'Regional Bayern. Surf&Fon-Flat Glasfaser 100/300/600/1000. ONT inklusive.',     modemRec: 'M-net Glasfaser-ONT',        modemPrice: 0,  maxDown: 1000, maxUp: 500, tariff: 'Surf&Fon-Flat Glasfaser 1000 (1000/500)' },
+      { id: 'ewe_fiber',           name: 'EWE',               type: 'Glasfaser (FTTH)', notes: 'Regional Nordwesten (NDS/NRW/Brandenburg). zuhauseGigaFiber bis 1000/500.',     modemRec: 'EWE Glasfaser-ONT',          modemPrice: 0,  maxDown: 1000, maxUp: 500, tariff: 'zuhauseGigaFiber 1000 (1000/500)' },
+      { id: 'other_custom',        name: 'Anderer Anbieter',  type: 'Manuelle Eingabe', notes: 'Falls dein Anbieter nicht aufgelistet ist: Werte manuell anpassen. Hardware nach Anschlussart wählen (ONT für Glasfaser, Kabelmodem im Bridge-Mode für Kabel, externes VDSL-Modem für DSL).', modemRec: 'Anbieter-Hardware oder DrayTek Vigor', modemPrice: 0, maxDown: 1000, maxUp: 500, tariff: 'Individuell' }
     ];
 
     // Gateways mit nativem Dual-WAN (WAN2 physisch oder via SFP+ / integriertes 5G)
@@ -1433,6 +1465,29 @@
         if(v != null) return v;
       }
       return null;
+    }
+
+    // Liefert die EU-Store-URL zu einem techspecs-Slug, sofern dieser im
+    // productCache.prices verifiziert oder zumindest plausibel auflösbar ist.
+    // Nicht-UniFi-Items (Zubehör, Modems, manuelle Einträge) → null.
+    // Wir bevorzugen den verifizierten Slug aus productCache.prices, damit
+    // toter Link minimiert sind; wenn keiner gefunden wird, nehmen wir den
+    // ersten Kandidaten ohne -us-Suffix.
+    const UBNT_STORE_BASE = 'https://eu.store.ui.com/eu/en/products/';
+    function getUbntStoreUrl(id) {
+      if(!id) return null;
+      // Bekannte Nicht-UniFi-Slugs (Modems, Zubehör) ausschließen.
+      if(id.startsWith('acc-') || id.startsWith('mod-') || id.startsWith('custom-')) return null;
+      const candidates = storeSlugCandidates(id);
+      // Suche zuerst nach einem verifizierten Preis-Treffer.
+      for(const c of candidates) {
+        if(productCache.prices && productCache.prices[c] != null) {
+          return UBNT_STORE_BASE + c;
+        }
+      }
+      // Fallback: erster Kandidat ohne -us (EU-Store hat keine -us-Slugs).
+      const fallback = candidates.find(c => !c.endsWith('-us')) || candidates[0];
+      return fallback ? UBNT_STORE_BASE + fallback : null;
     }
 
     // --- Rack: Höheneinheiten-Mapping und FAQ-Daten --- //
@@ -1775,6 +1830,13 @@
         quantityOverrides: {}    // { 'auto:Access Point:u7-pro': 3 }
       },
       poeAssignments: {},        // { [ap.id|cam.id]: 'switch' | 'gateway' }
+      switchFilters: {            // Step-3 Switch-Picker — UI-only, beeinflusst nicht die Empfehlung
+        poe: 'any',               // 'any' | 'with' | 'without'
+        formFactor: 'any',        // 'any' | 'rack' | 'desktop'
+        minPorts: 0,              // 0 = kein Mindestport-Filter
+        family: 'any',            // 'any' | 'lite' | 'usw' | 'pro' | 'pro-max' | 'pro-xg' | 'enterprise' | 'flex' | 'aggregation'
+        fitsLoad: false           // true: nur Switches mit ausreichend Budget + Ports
+      },
       racks: [],                 // [{id,name,heightU,depthMm,items:[{id,slug,kind,uStart,uSize,label,ports}]}]
       cabling: {
         connections: [],         // [{id,deviceKind,deviceId,rackItemId,portNumber,cableLengthM,cableCategory,autoRouted}]
@@ -2275,6 +2337,8 @@
           parsed.backup = normalizeBackupState(parsed.backup);
           parsed.bomOverrides = normalizeBomOverrides(parsed.bomOverrides);
           if(!parsed.poeAssignments || typeof parsed.poeAssignments !== 'object') parsed.poeAssignments = {};
+          // Migration: Switch-Filter (Step 3) defaults
+          parsed.switchFilters = { poe: 'any', formFactor: 'any', minPorts: 0, family: 'any', fitsLoad: false, ...(parsed.switchFilters || {}) };
           parsed.racks = normalizeRacksState(parsed.racks);
           parsed.cabling = normalizeCablingState(parsed.cabling);
           parsed.rackView = normalizeRackView(parsed.rackView, parsed.racks);
@@ -2370,6 +2434,7 @@
         backup: normalizeBackupState({ enabled: false }),
         bomOverrides: { removedKeys: [], customRows: [], quantityOverrides: {} },
         poeAssignments: {},
+        switchFilters: { poe: 'any', formFactor: 'any', minPorts: 0, family: 'any', fitsLoad: false },
         racks: [],
         cabling: { connections: [], defaultCategory: 'cat6a', defaultLengthPerFloorM: 15 },
         rackView: { faqCollapsed: false, activeRackId: 'r-main', customPalette: [] },
@@ -2509,11 +2574,12 @@
         </div>
 
         <div id="isp-recommendation" class="card p-6 bg-nexus-surfaceCard hidden">
-          <div class="flex gap-4 items-start">
-            <div class="bg-nexus-surface p-3 rounded-lg text-nexus-primary"><i data-lucide="router" class="w-8 h-8"></i></div>
-            <div>
-              <h3 class="text-lg font-bold" id="rec-modem-name"></h3>
+          <div class="flex gap-3 sm:gap-4 items-start flex-wrap sm:flex-nowrap">
+            <div class="bg-nexus-surface p-3 rounded-lg text-nexus-primary shrink-0"><i data-lucide="router" class="w-8 h-8"></i></div>
+            <div class="min-w-0 flex-1">
+              <h3 class="text-base sm:text-lg font-bold" id="rec-modem-name"></h3>
               <p class="text-sm text-nexus-muted mt-1" id="rec-modem-notes"></p>
+              <p class="text-xs text-nexus-muted mt-2" id="rec-modem-tariff"></p>
             </div>
           </div>
         </div>
@@ -2562,6 +2628,8 @@
           container.querySelector('#isp-recommendation').classList.remove('hidden');
           container.querySelector('#rec-modem-name').textContent = 'Modem-Empfehlung: ' + state.isp.modemRec;
           container.querySelector('#rec-modem-notes').textContent = 'Hinweis: ' + state.isp.notes;
+          const tariffEl = container.querySelector('#rec-modem-tariff');
+          if(tariffEl) tariffEl.textContent = state.isp.tariff ? `Aktueller Top-Tarif (Stand Mai 2026): ${state.isp.tariff}` : '';
 
           const gw = getGatewayRecommended();
           const gwDiv = container.querySelector('#gateway-recommendation');
@@ -4517,6 +4585,81 @@
       if(spec.poePortClass && POE_CLASS_WATTS[spec.poePortClass]) return POE_CLASS_WATTS[spec.poePortClass];
       return (spec.poe && spec.budget > 0) ? 30 : 0;
     }
+
+    // --- Switch-Klassifikation für Step-3-Filter --- //
+    // Liefert die Switch-Familie (für Filter-UI) anhand des Slug:
+    //   'aggregation' | 'enterprise' | 'pro-xg' | 'pro-max' | 'pro' | 'flex' |
+    //   'lite' | 'mission-critical' | 'industrial' | 'ultra' | 'usw' (generisch)
+    function getSwitchFamily(slug) {
+      const s = (slug || '').toLowerCase();
+      if(!s) return 'usw';
+      if(s.includes('aggregation') || s === 'ecs-aggregation' || s === 'eav-fiber') return 'aggregation';
+      if(s.includes('enterprise')) return 'enterprise';
+      if(s.includes('pro-xg') || s.includes('pro-hd')) return 'pro-xg';
+      if(s.includes('pro-max')) return 'pro-max';
+      if(s.includes('mission-critical')) return 'mission-critical';
+      if(s.includes('industrial')) return 'industrial';
+      if(s.includes('ultra')) return 'ultra';
+      if(s.includes('flex')) return 'flex';
+      if(s.includes('lite')) return 'lite';
+      if(s.startsWith('usw-pro')) return 'pro';
+      if(s.startsWith('ecs-')) return 'enterprise';
+      if(s.startsWith('eav-')) return 'aggregation';
+      return 'usw';
+    }
+    const SWITCH_FAMILY_LABEL = {
+      'any':              'Alle Familien',
+      'lite':             'Lite',
+      'usw':              'Standard (USW)',
+      'flex':             'Flex (kompakt)',
+      'pro':              'Pro',
+      'pro-max':          'Pro Max',
+      'pro-xg':           'Pro XG',
+      'enterprise':       'Enterprise',
+      'aggregation':      'Aggregation',
+      'mission-critical': 'Mission Critical',
+      'industrial':       'Industrial',
+      'ultra':            'Ultra'
+    };
+    // Form-Factor: anhand RACK_UNITS_BY_SLUG → 'rack' (volle 1U+), 'desktop'
+    // (u=0 oder width:half), sonst 'rack' als Default.
+    function getSwitchFormFactor(slug) {
+      const m = RACK_UNITS_BY_SLUG[slug];
+      if(!m) return 'rack';
+      if(m.u === 0) return 'desktop';
+      if(m.width === 'half') return 'desktop';
+      return 'rack';
+    }
+    // Wendet die Step-3-Filter auf eine Switch-Spec an. Rückgabe true = sichtbar.
+    // Empfehlung-Switch wird IMMER eingeblendet, damit der User die Empfehlung
+    // nicht verliert; das passiert im Caller (renderStep3).
+    function passesSwitchFilter(sw, filters, ctx) {
+      if(!sw) return false;
+      const f = filters || {};
+      // PoE-Filter
+      const swHasPoe = (sw.budget || 0) > 0;
+      if(f.poe === 'with'    && !swHasPoe) return false;
+      if(f.poe === 'without' &&  swHasPoe) return false;
+      // Form-Factor
+      const ff = getSwitchFormFactor(sw.slug);
+      if(f.formFactor === 'rack'    && ff !== 'rack')    return false;
+      if(f.formFactor === 'desktop' && ff !== 'desktop') return false;
+      // Mindest-Ports
+      if(f.minPorts > 0 && (sw.ports || 0) < f.minPorts) return false;
+      // Familie
+      if(f.family && f.family !== 'any' && getSwitchFamily(sw.slug) !== f.family) return false;
+      // Passt zur Last (Budget + Ports + PoE-Klasse)
+      if(f.fitsLoad && ctx) {
+        const sPoePorts = getPoePortCount(sw);
+        const sMaxPort  = getPoeMaxPerPort(sw);
+        const fitsBudget    = (sw.budget || 0) >= ctx.initialSwitchPoe * POE_HEADROOM || ctx.gatewayCanCoverAll;
+        const fitsTotalPorts= (sw.ports  || 0) >= ctx.initialSwitchDevices + SWITCH_UPLINK_PORTS;
+        const fitsPoePorts  = sPoePorts >= ctx.initialPoeDevices || ctx.gatewayCanCoverAll;
+        const fitsClass     = sMaxPort  >= ctx.maxDeviceWatts    || ctx.gatewayCanCoverAll;
+        if(!(fitsBudget && fitsTotalPorts && fitsPoePorts && fitsClass)) return false;
+      }
+      return true;
+    }
     // Antennen-/Montage-Heuristik (Iter. 14, P2 #29): Liest explizite Felder
     // aus unifi-products.js (antennaPattern, gainDbi, mounting), wenn vorhanden.
     // Sonst Fallback aus dem Slug-Schema (-iw / -wall / -outdoor / -mesh).
@@ -4998,6 +5141,10 @@
           </div>` : '';
         const valueClass = overBudget ? 'text-red-600' : '';
         const classBadge = poeLabel ? `<span class="text-[10px] font-bold uppercase tracking-wide bg-nexus-surface border border-nexus-border text-nexus-base px-2 py-0.5 rounded-full">${poeLabel}/Port</span>` : '';
+        const swStoreUrl = getUbntStoreUrl(sw.slug);
+        const swNameHtml = swStoreUrl
+          ? `<a href="${swStoreUrl}" target="_blank" rel="noopener noreferrer" class="hover:text-nexus-primary hover:underline inline-flex items-center gap-1 group" title="Auf store.ui.com öffnen">${sw.name}<i data-lucide="external-link" class="w-3 h-3 opacity-60 group-hover:opacity-100 no-print" aria-hidden="true"></i></a>`
+          : sw.name;
         return `
           <div class="card p-4 sm:p-6" id="switch-card">
             <div class="flex justify-between items-start mb-4 gap-2 sm:gap-4 flex-wrap sm:flex-nowrap">
@@ -5005,7 +5152,7 @@
                 ${image}
                 <div class="min-w-0">
                   <div class="flex items-center gap-2 mb-1 flex-wrap">
-                    <h3 class="text-base sm:text-lg font-bold">${sw.name}</h3>
+                    <h3 class="text-base sm:text-lg font-bold">${swNameHtml}</h3>
                     ${isRec ? '<span class="text-[10px] font-bold uppercase tracking-wide bg-nexus-primary text-white px-2 py-0.5 rounded-full">Empfohlen</span>' : ''}
                     ${classBadge}
                   </div>
@@ -5059,6 +5206,10 @@
           ? `<img src="${gw.image}" alt="${gw.name}" loading="lazy" class="w-16 h-16 sm:w-24 sm:h-24 object-contain bg-white rounded-lg border border-nexus-border shrink-0" />`
           : '';
         const classBadge = gwPoeLabel ? `<span class="text-[10px] font-bold uppercase tracking-wide bg-nexus-surface border border-nexus-border text-nexus-base px-2 py-0.5 rounded-full">${gwPoeLabel}/Port</span>` : '';
+        const gwStoreUrl = getUbntStoreUrl(gw.slug);
+        const gwNameHtml = gwStoreUrl
+          ? `<a href="${gwStoreUrl}" target="_blank" rel="noopener noreferrer" class="hover:text-nexus-primary hover:underline inline-flex items-center gap-1 group" title="Auf store.ui.com öffnen">${gw.name}<i data-lucide="external-link" class="w-3 h-3 opacity-60 group-hover:opacity-100 no-print" aria-hidden="true"></i></a>`
+          : gw.name;
         return `
           <div class="card p-4 sm:p-6" id="gateway-poe-card">
             <div class="flex justify-between items-start mb-4 gap-2 sm:gap-4 flex-wrap sm:flex-nowrap">
@@ -5066,7 +5217,7 @@
                 ${image}
                 <div class="min-w-0">
                   <div class="flex items-center gap-2 mb-1 flex-wrap">
-                    <h3 class="text-base sm:text-lg font-bold">${gw.name}</h3>
+                    <h3 class="text-base sm:text-lg font-bold">${gwNameHtml}</h3>
                     <span class="text-[10px] font-bold uppercase tracking-wide bg-nexus-primary text-white px-2 py-0.5 rounded-full">PoE-Quelle</span>
                     ${classBadge}
                   </div>
@@ -5129,8 +5280,30 @@
           </div>`;
       };
 
-      // Auflistung der Switches im Dropdown — kennzeichnet Empfehlung und „Passt nicht".
-      const switchOptions = switches.map(s => {
+      // Filter aus state übernehmen (Step-3-only, UI-Filter).
+      if(!state.switchFilters) state.switchFilters = { poe: 'any', formFactor: 'any', minPorts: 0, family: 'any', fitsLoad: false };
+      const swFilters = state.switchFilters;
+      const filterCtx = {
+        initialSwitchPoe, initialSwitchDevices, initialPoeDevices,
+        gatewayCanCoverAll, maxDeviceWatts
+      };
+      // Welche Familien tauchen tatsächlich im Katalog auf? Nur die zeigen wir
+      // im Filter-Dropdown an, um den Picker nicht mit leeren Optionen zu
+      // verwässern.
+      const availableFamilies = new Set();
+      switches.forEach(s => { availableFamilies.add(getSwitchFamily(s.slug)); });
+      // Liste filtern; Empfehlung wird unter der Liste separat angezeigt,
+      // falls sie ausgefiltert wurde — damit der User die Empfehlung sieht,
+      // selbst wenn die Filter sie ausblenden.
+      const filteredSwitches = switches.filter(s => passesSwitchFilter(s, swFilters, filterCtx));
+      const recFiltered = !filteredSwitches.some(s => s.slug === recSwitch.slug);
+      const filtersActive = swFilters.poe !== 'any' || swFilters.formFactor !== 'any'
+        || swFilters.minPorts > 0 || swFilters.family !== 'any' || swFilters.fitsLoad;
+      const totalSwitchCount = switches.length;
+      const visibleSwitchCount = filteredSwitches.length;
+
+      // Auflistung der gefilterten Switches im Dropdown.
+      const switchOptions = filteredSwitches.map(s => {
         const isRec = s.slug === recSwitch.slug;
         const sPoePorts = getPoePortCount(s);
         const sMaxPort = getPoeMaxPerPort(s);
@@ -5147,15 +5320,72 @@
         return `<option value="${s.slug}" ${s.slug === activeSwitch.slug ? 'selected' : ''}>${s.name} – ${budgetTxt}${flag}</option>`;
       }).join('');
 
+      // Filter-UI mit großzügigen Touch-Targets (min-h 44px in Coarse-Pointer)
+      // — siehe globale .filter-control-Klasse unten in CSS.
+      const familyOptions = ['any', ...Object.keys(SWITCH_FAMILY_LABEL).filter(k => k !== 'any' && availableFamilies.has(k))]
+        .map(k => `<option value="${k}" ${swFilters.family === k ? 'selected' : ''}>${SWITCH_FAMILY_LABEL[k]}</option>`).join('');
+      const portOptions = [0, 5, 8, 10, 16, 24, 48].map(n =>
+        `<option value="${n}" ${swFilters.minPorts === n ? 'selected' : ''}>${n === 0 ? 'beliebig' : `≥ ${n} Ports`}</option>`
+      ).join('');
+      const filterUi = `
+        <details class="card p-3 sm:p-4 no-print" id="switch-filter-card" ${filtersActive ? 'open' : ''}>
+          <summary class="cursor-pointer flex items-center gap-2 select-none font-bold text-sm">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4 text-nexus-primary"></i>
+            <span>Filter</span>
+            <span class="text-xs text-nexus-muted font-normal">· zeigt ${visibleSwitchCount}/${totalSwitchCount} Switches</span>
+            ${filtersActive ? '<span class="ml-auto text-[10px] font-bold uppercase tracking-wide bg-nexus-primary text-white px-2 py-0.5 rounded-full">aktiv</span>' : ''}
+          </summary>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-bold text-nexus-muted uppercase tracking-wide">PoE</span>
+              <select class="switch-filter-control w-full bg-nexus-surface border border-nexus-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-nexus-primary" onchange="window.setSwitchFilter('poe', this.value)">
+                <option value="any"     ${swFilters.poe === 'any'     ? 'selected' : ''}>beliebig</option>
+                <option value="with"    ${swFilters.poe === 'with'    ? 'selected' : ''}>nur mit PoE</option>
+                <option value="without" ${swFilters.poe === 'without' ? 'selected' : ''}>nur ohne PoE</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-bold text-nexus-muted uppercase tracking-wide">Bauform</span>
+              <select class="switch-filter-control w-full bg-nexus-surface border border-nexus-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-nexus-primary" onchange="window.setSwitchFilter('formFactor', this.value)">
+                <option value="any"     ${swFilters.formFactor === 'any'     ? 'selected' : ''}>beliebig</option>
+                <option value="rack"    ${swFilters.formFactor === 'rack'    ? 'selected' : ''}>19″ Rack (1U)</option>
+                <option value="desktop" ${swFilters.formFactor === 'desktop' ? 'selected' : ''}>Desktop / Halb-1U</option>
+              </select>
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-bold text-nexus-muted uppercase tracking-wide">Mindest-Ports</span>
+              <select class="switch-filter-control w-full bg-nexus-surface border border-nexus-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-nexus-primary" onchange="window.setSwitchFilter('minPorts', this.value)">
+                ${portOptions}
+              </select>
+            </label>
+            <label class="flex flex-col gap-1">
+              <span class="text-xs font-bold text-nexus-muted uppercase tracking-wide">Familie</span>
+              <select class="switch-filter-control w-full bg-nexus-surface border border-nexus-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-nexus-primary" onchange="window.setSwitchFilter('family', this.value)">
+                ${familyOptions}
+              </select>
+            </label>
+            <label class="flex items-center gap-2 sm:col-span-2 lg:col-span-2 mt-1 cursor-pointer">
+              <input type="checkbox" class="w-5 h-5 accent-nexus-primary" ${swFilters.fitsLoad ? 'checked' : ''} onchange="window.setSwitchFilter('fitsLoad', this.checked)">
+              <span class="text-sm">Nur Switches anzeigen, die zur aktuellen Last passen (Budget · Ports · PoE-Klasse)</span>
+            </label>
+          </div>
+          <div class="mt-3 flex justify-between items-center flex-wrap gap-2">
+            <span class="text-xs text-nexus-muted">${visibleSwitchCount === 0 ? '⚠ Kein Switch matched die Filter — passe sie an oder klicke „Zurücksetzen".' : ''}</span>
+            ${filtersActive ? `<button type="button" onclick="window.resetSwitchFilters()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="x" class="w-3 h-3"></i> Filter zurücksetzen</button>` : ''}
+          </div>
+        </details>
+      `;
+
       container.innerHTML = `
         <h2 class="mb-2">3. Switch & PoE Planung</h2>
         <div id="poe-warning-container" class="flex flex-col gap-2">${renderWarnings()}</div>
+        ${filterUi}
         <div class="card p-6">
           <label class="block text-sm font-bold mb-2">Switch auswählen</label>
-          <select id="switch-select" class="w-full bg-nexus-surface border border-nexus-border rounded-lg px-4 py-3 focus:outline-none focus:border-nexus-primary">
-            ${switchOptions}
+          <select id="switch-select" class="w-full bg-nexus-surface border border-nexus-border rounded-lg px-4 py-3 focus:outline-none focus:border-nexus-primary" ${visibleSwitchCount === 0 ? 'disabled' : ''}>
+            ${visibleSwitchCount === 0 ? '<option>— Keine Treffer; Filter lockern —</option>' : switchOptions}
           </select>
-          <p class="text-xs text-nexus-muted mt-2">Empfehlung: ${recSwitch.name || '—'} (${recSwitch.ports || 0} Ports${(recSwitch.budget || 0) > 0 ? `, ${recSwitch.budget} W PoE` : ', ohne PoE'}).
+          <p class="text-xs text-nexus-muted mt-2">Empfehlung: ${recSwitch.name || '—'} (${recSwitch.ports || 0} Ports${(recSwitch.budget || 0) > 0 ? `, ${recSwitch.budget} W PoE` : ', ohne PoE'})${recFiltered && filtersActive ? ' — durch Filter aktuell ausgeblendet' : ''}.
             ${state.selectedSwitch !== recSwitch.slug ? `<button type="button" id="btn-use-rec" class="text-nexus-primary underline ml-1">Empfehlung übernehmen</button>` : ''}</p>
           ${recStack.length > 1 ? `
             <div class="mt-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-xs flex gap-2 items-start">
@@ -5176,11 +5406,14 @@
       `;
       contentDiv.appendChild(container);
 
-      container.querySelector('#switch-select').addEventListener('change', (e) => {
-        state.selectedSwitch = e.target.value;
-        saveState();
-        render();
-      });
+      const switchSelectEl = container.querySelector('#switch-select');
+      if(switchSelectEl && !switchSelectEl.disabled) {
+        switchSelectEl.addEventListener('change', (e) => {
+          state.selectedSwitch = e.target.value;
+          saveState();
+          render();
+        });
+      }
       const useRecBtn = container.querySelector('#btn-use-rec');
       if(useRecBtn) useRecBtn.addEventListener('click', () => {
         state.selectedSwitch = recSwitch.slug;
@@ -5326,6 +5559,37 @@
       if(!['low','standard','high'].includes(profile)) return;
       if(!state.recording) state.recording = { retentionDays: 14, fpsProfile: 'standard' };
       state.recording.fpsProfile = profile;
+      render();
+    };
+
+    // --- Step-3 Switch-Filter Handler (state.switchFilters) --- //
+    function ensureSwitchFilters() {
+      if(!state.switchFilters || typeof state.switchFilters !== 'object') {
+        state.switchFilters = { poe: 'any', formFactor: 'any', minPorts: 0, family: 'any', fitsLoad: false };
+      }
+    }
+    window.setSwitchFilter = (key, value) => {
+      ensureSwitchFilters();
+      const allowed = {
+        poe:        ['any','with','without'],
+        formFactor: ['any','rack','desktop'],
+        family:     Object.keys(SWITCH_FAMILY_LABEL)
+      };
+      if(allowed[key]) {
+        if(!allowed[key].includes(value)) return;
+        state.switchFilters[key] = value;
+      } else if(key === 'minPorts') {
+        const n = parseInt(value, 10);
+        state.switchFilters.minPorts = Number.isFinite(n) && n >= 0 ? n : 0;
+      } else if(key === 'fitsLoad') {
+        state.switchFilters.fitsLoad = !!value;
+      }
+      saveState();
+      render();
+    };
+    window.resetSwitchFilters = () => {
+      state.switchFilters = { poe: 'any', formFactor: 'any', minPorts: 0, family: 'any', fitsLoad: false };
+      saveState();
       render();
     };
 
@@ -7212,11 +7476,16 @@
                  </tr>
                </thead>
                <tbody>
-                  ${b.bom.map(item => `<tr class="border-b border-nexus-border ${item.isCustom ? 'bg-nexus-primary bg-opacity-5' : ''}">
+                  ${b.bom.map(item => {
+                    const url = item.isCustom ? null : getUbntStoreUrl(item.slug);
+                    const linkedName = url
+                      ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-nexus-primary hover:underline inline-flex items-center gap-1 group" title="Auf store.ui.com öffnen">${item.name}<i data-lucide="external-link" class="w-3 h-3 opacity-60 group-hover:opacity-100 no-print" aria-hidden="true"></i></a>`
+                      : item.name;
+                    return `<tr class="border-b border-nexus-border ${item.isCustom ? 'bg-nexus-primary bg-opacity-5' : ''}">
                     <td class="px-3 sm:px-6 py-3 font-medium">${item.category}${item.isCustom ? ' <span class="ml-1 text-[10px] uppercase tracking-wide bg-nexus-primary text-white px-1.5 py-0.5 rounded">Manuell</span>' : ''}</td>
                     <td class="px-3 sm:px-6 py-3">${item.isCustom
                       ? `<input type="text" value="${(item.name || '').replace(/"/g,'&quot;')}" onchange="window.updateCustomBomRow('${item.customId}','name',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">`
-                      : item.name}</td>
+                      : linkedName}</td>
                     <td class="px-3 sm:px-4 py-3 text-center">
                       <input type="number" inputmode="numeric" min="0" max="999" value="${item.qty}" onchange="window.setBomQuantity('${item.key}', this.value)" class="w-16 text-center bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">
                     </td>
@@ -7227,7 +7496,8 @@
                     <td class="px-3 sm:px-4 py-3 text-right no-print">
                       <button onclick="window.removeBomRow('${item.key}')" class="text-red-500 hover:text-red-700" title="Entfernen"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                     </td>
-                  </tr>`).join('')}
+                  </tr>`;
+                  }).join('')}
                   ${(state.bomOverrides?.removedKeys || []).length > 0 ? `<tr class="border-b border-nexus-border bg-nexus-surface bg-opacity-30 no-print">
                     <td colspan="6" class="px-3 sm:px-6 py-3 text-xs text-nexus-muted">
                       <div class="flex items-center gap-2 flex-wrap">
