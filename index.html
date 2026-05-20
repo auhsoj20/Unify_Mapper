@@ -1233,7 +1233,7 @@
     // drawHeatmap auf den synchronen Inline-Pfad zurück.
     const HEATMAP_WORKER_SOURCE = `
       self.onmessage = (e) => {
-        const { jobId, w, h, walls, aps, step, atten } = e.data;
+        const { jobId, w, h, minX, minY, walls, aps, step, atten } = e.data;
         const data = new Uint8ClampedArray(w * h * 4);
         const crosses = (ax,ay,bx,by,cx,cy,dx,dy) => {
           const d1x = bx-ax, d1y = by-ay;
@@ -1257,16 +1257,18 @@
         for(let py = 0; py < h; py += step) {
           for(let px = 0; px < w; px += step) {
             let best = 0;
+            const worldX = minX + px;
+            const worldY = minY + py;
             for(const ap of aps) {
               if(ap.r <= 0) continue;
-              const ddx = px - ap.x, ddy = py - ap.y;
+              const ddx = worldX - ap.x, ddy = worldY - ap.y;
               const dist = Math.sqrt(ddx*ddx + ddy*ddy);
               if(dist > ap.r * 1.4) continue;
               let raw = Math.max(0, 1 - dist / ap.r);
               if(raw <= 0.02) continue;
               let wc = 0;
               for(const wall of walls) {
-                if(crosses(ap.x, ap.y, px, py, wall.x1, wall.y1, wall.x2, wall.y2)) {
+                if(crosses(ap.x, ap.y, worldX, worldY, wall.x1, wall.y1, wall.x2, wall.y2)) {
                   wc++;
                   if(wc >= 4) break;
                 }
@@ -3298,6 +3300,10 @@
       }
       const applyView = () => {
          world.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+         if(planner) {
+            planner.style.backgroundSize = `${20 * view.zoom}px ${20 * view.zoom}px`;
+            planner.style.backgroundPosition = `${view.panX - 10 * view.zoom}px ${view.panY - 10 * view.zoom}px`;
+         }
       };
       applyView();
       const clientToWorld = (clientX, clientY) => {
@@ -3716,14 +3722,14 @@
          const commit = () => {
             if(committed) return; committed = true;
             const parsed = parseFloat((inp.value || '').replace(',', '.'));
-            inp.remove();
+               inp.remove();
             if(!isFinite(parsed) || parsed <= 0) { render(); return; }
             const newLen = Math.round(parsed * 10) / 10; // 1 decimal place
             const scale = newLen / oldLen;
             const nb = { x: a.x + dx * scale, y: a.y + dy * scale };
             // Round to 1 decimal in grid units to keep state tidy
-            nb.x = Math.round(Math.max(0, nb.x) * 10) / 10;
-            nb.y = Math.round(Math.max(0, nb.y) * 10) / 10;
+            nb.x = Math.round(Math.max(-500, nb.x) * 10) / 10;
+            nb.y = Math.round(Math.max(-500, nb.y) * 10) / 10;
             room.points[(i+1) % room.points.length] = nb;
             saveState();
             render();
@@ -3740,12 +3746,11 @@
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.setAttribute('class', 'absolute inset-0 w-full h-full pointer-events-none');
       svg.style.zIndex = '1';
+      svg.style.overflow = 'visible';
       world.appendChild(svg);
 
       const heatmapCanvas = document.createElement('canvas');
-      heatmapCanvas.className = 'absolute inset-0 pointer-events-none';
-      heatmapCanvas.style.width = '100%';
-      heatmapCanvas.style.height = '100%';
+      heatmapCanvas.className = 'absolute pointer-events-none';
       heatmapCanvas.style.zIndex = '5';
       world.appendChild(heatmapCanvas);
 
@@ -3920,7 +3925,7 @@
                   const w = clientToWorld(e.clientX, e.clientY);
                   let nx = Math.round(w.x / CELL_SIZE);
                   let ny = Math.round(w.y / CELL_SIZE);
-                  room.points.splice(i+1, 0, {x: Math.max(0, nx), y: Math.max(0, ny)});
+                  room.points.splice(i+1, 0, {x: Math.max(-500, nx), y: Math.max(-500, ny)});
                   saveState();
                   render();
                });
@@ -4023,8 +4028,8 @@
          if(dragMode === 'vert') {
              let nx = Math.round((w.x - dOffX) / CELL_SIZE);
              let ny = Math.round((w.y - dOffY) / CELL_SIZE);
-             activeObj.points[activeVertIdx].x = Math.max(0, nx);
-             activeObj.points[activeVertIdx].y = Math.max(0, ny);
+             activeObj.points[activeVertIdx].x = Math.max(-500, nx);
+             activeObj.points[activeVertIdx].y = Math.max(-500, ny);
              flushVectors(); // Fast local visual update
          }
          else if(dragMode === 'poly') {
@@ -4033,8 +4038,8 @@
              if(dx !== 0 || dy !== 0) {
                  const minX = Math.min(...activeObj.points.map(p=>p.x));
                  const minY = Math.min(...activeObj.points.map(p=>p.y));
-                 if(minX + dx < 0) dx = -minX;
-                 if(minY + dy < 0) dy = -minY;
+                 if(minX + dx < -500) dx = -500 - minX;
+                 if(minY + dy < -500) dy = -500 - minY;
 
                  activeObj.points.forEach(p => { p.x += dx; p.y += dy; });
                  if(activeObj.labelPos) { activeObj.labelPos.x += dx * CELL_SIZE; activeObj.labelPos.y += dy * CELL_SIZE; }
@@ -4050,13 +4055,13 @@
                const maxY = Math.max(...activeObj.points.map(p=>p.y))*CELL_SIZE;
                activeObj.labelPos = { x: (minX + (maxX-minX)/2), y: (minY + (maxY-minY)/2) };
              }
-             activeObj.labelPos.x = Math.max(0, w.x - dOffX);
-             activeObj.labelPos.y = Math.max(0, w.y - dOffY);
+             activeObj.labelPos.x = Math.max(-10000, w.x - dOffX);
+             activeObj.labelPos.y = Math.max(-10000, w.y - dOffY);
              flushVectors();
          }
          else if(dragMode === 'ap' || dragMode === 'cam') {
-             activeObj.x = Math.max(0, w.x - dOffX);
-             activeObj.y = Math.max(0, w.y - dOffY);
+             activeObj.x = Math.max(-10000, w.x - dOffX);
+             activeObj.y = Math.max(-10000, w.y - dOffY);
              drawAps();
          }
       });
@@ -4263,7 +4268,7 @@
       // Synchroner Fallback (alte Implementierung), wenn der WebWorker nicht
       // verfügbar ist (z. B. file://-Modus mit blockierten Workers oder bei
       // einem Worker-Fehler). Identische Logik wie der Worker-Code.
-      const drawHeatmapSync = (ctx, w, h, walls, aps) => {
+      const drawHeatmapSync = (ctx, minX, minY, w, h, walls, aps) => {
         const crosses = (ax, ay, bx, by, cx, cy, dx, dy) => {
           const d1x = bx-ax, d1y = by-ay;
           const d2x = dx-cx, d2y = dy-cy;
@@ -4288,16 +4293,18 @@
         for(let py = 0; py < h; py += HEATMAP_STEP) {
           for(let px = 0; px < w; px += HEATMAP_STEP) {
             let best = 0;
+            const worldX = minX + px;
+            const worldY = minY + py;
             for(const ap of aps) {
               if(ap.r <= 0) continue;
-              const ddx = px - ap.x, ddy = py - ap.y;
+              const ddx = worldX - ap.x, ddy = worldY - ap.y;
               const dist = Math.sqrt(ddx*ddx + ddy*ddy);
               if(dist > ap.r * 1.4) continue;
               let raw = Math.max(0, 1 - dist / ap.r);
               if(raw <= 0.02) continue;
               let wc = 0;
               for(const wall of walls) {
-                if(crosses(ap.x, ap.y, px, py, wall.x1, wall.y1, wall.x2, wall.y2)) {
+                if(crosses(ap.x, ap.y, worldX, worldY, wall.x1, wall.y1, wall.x2, wall.y2)) {
                   wc++;
                   if(wc >= 4) break;
                 }
@@ -4323,10 +4330,57 @@
       const drawHeatmap = () => {
         const w = planner.clientWidth, h = planner.clientHeight;
         if(w === 0 || h === 0) return;
-        heatmapCanvas.width = w;
-        heatmapCanvas.height = h;
+
+        // Bounding box of elements in world coordinates (pixels)
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        currentFloor.rooms.forEach(room => {
+          room.points.forEach(p => {
+            const px = p.x * CELL_SIZE;
+            const py = p.y * CELL_SIZE;
+            if(px < minX) minX = px;
+            if(px > maxX) maxX = px;
+            if(py < minY) minY = py;
+            if(py > maxY) maxY = py;
+          });
+        });
+        currentFloor.aps.forEach(ap => {
+          const spec = productCache.specs[ap.slug] || { coverageM2: 140 };
+          const r = Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor) * bandFactor()) * CELL_SIZE;
+          if(ap.x - r < minX) minX = ap.x - r;
+          if(ap.x + r > maxX) maxX = ap.x + r;
+          if(ap.y - r < minY) minY = ap.y - r;
+          if(ap.y + r > maxY) maxY = ap.y + r;
+        });
+
+        if(minX === Infinity) {
+          minX = 0; minY = 0; maxX = w; maxY = h;
+        } else {
+          // Add padding (e.g. 200px / 10m)
+          minX -= 200;
+          minY -= 200;
+          maxX += 200;
+          maxY += 200;
+        }
+
+        // Align boundaries to HEATMAP_STEP to prevent subpixel jittering
+        minX = Math.floor(minX / HEATMAP_STEP) * HEATMAP_STEP;
+        minY = Math.floor(minY / HEATMAP_STEP) * HEATMAP_STEP;
+        maxX = Math.ceil(maxX / HEATMAP_STEP) * HEATMAP_STEP;
+        maxY = Math.ceil(maxY / HEATMAP_STEP) * HEATMAP_STEP;
+
+        const cw = maxX - minX;
+        const ch = maxY - minY;
+
+        heatmapCanvas.style.left = minX + 'px';
+        heatmapCanvas.style.top = minY + 'px';
+        heatmapCanvas.style.width = cw + 'px';
+        heatmapCanvas.style.height = ch + 'px';
+
+        heatmapCanvas.width = cw;
+        heatmapCanvas.height = ch;
+
         const ctx = heatmapCanvas.getContext('2d');
-        ctx.clearRect(0, 0, w, h);
+        ctx.clearRect(0, 0, cw, ch);
         if(!state.view || !state.view.heatmap) return;
         if(!currentFloor.aps.length) return;
 
@@ -4352,28 +4406,24 @@
 
         const worker = getHeatmapWorker();
         if(!worker) {
-          drawHeatmapSync(ctx, w, h, walls, aps);
+          drawHeatmapSync(ctx, minX, minY, cw, ch, walls, aps);
           return;
         }
-        // Worker-Pfad: Job-ID schützt gegen verspätete Antworten nach
-        // schnellem Heatmap-Wechsel (Etage, Toggle, Zoom).
         const jobId = ++_heatmapWorkerJobId;
         worker.onmessage = (e) => {
           if(!e.data || e.data.jobId !== _heatmapWorkerJobId) return; // veralteter Job
-          // Canvas-Größe könnte sich zwischenzeitlich geändert haben — nur
-          // zeichnen, wenn die zurückgelieferten Dimensionen noch passen.
           if(heatmapCanvas.width !== e.data.w || heatmapCanvas.height !== e.data.h) return;
           const arr = new Uint8ClampedArray(e.data.buffer);
           ctx.putImageData(new ImageData(arr, e.data.w, e.data.h), 0, 0);
         };
         worker.onerror = () => {
           _heatmapWorker = false; // einmaliger Fehler → künftig synchron
-          drawHeatmapSync(ctx, w, h, walls, aps);
+          drawHeatmapSync(ctx, minX, minY, cw, ch, walls, aps);
         };
         try {
-          worker.postMessage({ jobId, w, h, walls, aps, step: HEATMAP_STEP, atten: HEATMAP_ATTEN });
+          worker.postMessage({ jobId, w: cw, h: ch, minX, minY, walls, aps, step: HEATMAP_STEP, atten: HEATMAP_ATTEN });
         } catch(_) {
-          drawHeatmapSync(ctx, w, h, walls, aps);
+          drawHeatmapSync(ctx, minX, minY, cw, ch, walls, aps);
         }
       };
 
