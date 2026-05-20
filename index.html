@@ -1882,7 +1882,10 @@
           name: r.name || 'Rack',
           heightU,
           depthMm: parseInt(r.depthMm) || 450,
-          items
+          items,
+          // Bestehende Racks mit Items gelten als bereits auto-befüllt, damit
+          // sie nicht beim nächsten Öffnen erneut aufgefüllt werden.
+          autoPopulated: typeof r.autoPopulated === 'boolean' ? r.autoPopulated : items.length > 0
         };
       });
     }
@@ -7533,7 +7536,7 @@
     }
     function ensureDefaultRack() {
       if(!state.racks.length) {
-        state.racks = [{ id: 'r-main', name: 'Hauptrack', heightU: 12, depthMm: 450, items: [] }];
+        state.racks = [{ id: 'r-main', name: 'Hauptrack', heightU: 12, depthMm: 450, items: [], autoPopulated: false }];
         state.rackView.activeRackId = 'r-main';
       }
     }
@@ -7624,6 +7627,7 @@
       }
       // PDU
       add(null, 'pdu', 'PDU 1U');
+      rack.autoPopulated = true;
     }
     function autoRouteCabling(b) {
       const rack = getActiveRack();
@@ -7807,8 +7811,10 @@
       ensureDefaultRack();
       const rack = getActiveRack();
       const b = buildBom();
-      // Auto-Populate beim Erst-Öffnen
-      if(rack && rack.items.length === 0) {
+      // Auto-Populate nur beim Erst-Öffnen eines noch nie befüllten Racks.
+      // Nach einer einmaligen Auto-Befüllung bleibt das Rack auch leer, wenn
+      // der User es bewusst leert oder alle Items einzeln entfernt.
+      if(rack && rack.items.length === 0 && !rack.autoPopulated) {
         autoPopulateRack(rack, b);
         autoRouteCabling(b);
       }
@@ -8355,7 +8361,7 @@
       const name = await showPrompt('Name für neues Rack:', { title: 'Neues Rack', defaultValue: `Rack ${state.racks.length + 1}`, okLabel: 'Anlegen' });
       if(!name) return;
       const id = rackGenId('r');
-      state.racks.push({ id, name, heightU: 12, depthMm: 450, items: [] });
+      state.racks.push({ id, name, heightU: 12, depthMm: 450, items: [], autoPopulated: false });
       state.rackView.activeRackId = id;
       saveState(); renderRackOverlay();
     };
@@ -8739,6 +8745,8 @@
       const rackItemIds = new Set((rack.items || []).map(it => it.id));
       state.cabling.connections = state.cabling.connections.filter(cn => !rackItemIds.has(cn.rackItemId));
       rack.items = [];
+      // Verhindert, dass renderRackOverlay das Rack direkt wieder auto-befüllt.
+      rack.autoPopulated = true;
       saveState(); renderRackOverlay();
     };
 
