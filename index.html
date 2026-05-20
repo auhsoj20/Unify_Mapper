@@ -683,8 +683,11 @@
     .rack-item[data-kind="pdu"]        { border-left-color: #f97316; }
     .rack-item[data-kind="ups"]        { border-left-color: #eab308; }
     .rack-item[data-kind="cableTray"]  { border-left-color: #64748b; }
+    .rack-item[data-kind="brush"]      { border-left-color: #64748b; }
     .rack-item[data-kind="blank"]      { border-left-color: #374151; background: repeating-linear-gradient(45deg, #2a2825, #2a2825 4px, #1f1d1b 4px, #1f1d1b 8px); }
+    .rack-item[data-kind="blank2u"]    { border-left-color: #374151; background: repeating-linear-gradient(45deg, #2a2825, #2a2825 4px, #1f1d1b 4px, #1f1d1b 8px); }
     .rack-item[data-kind="shelf"]      { border-left-color: #78716c; }
+    .rack-item[data-kind="power"]      { border-left-color: #ec4899; }
     .rack-item .ri-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .rack-item .ri-badge { font-size: 9px; padding: 1px 4px; border-radius: 2px; background: rgba(255,255,255,0.1); }
     .rack-item .ri-remove { color: rgba(255,255,255,0.5); cursor: pointer; padding: 0 2px; }
@@ -1475,11 +1478,14 @@
       'usw-wan': {u:0, note:'Desktop'}, 'usw-wan-rj45': {u:0, note:'Desktop'},
       // Protect / NVR
       'unvr': {u:1}, 'unvr-pro': {u:2}, 'unvr-enterprise': {u:2},
+      // Power / RPS
+      'usp-rps': {u:1}
     };
     const RACK_DEFAULTS_BY_KIND = {
       gateway:    {u:1}, switch:{u:1}, nvr:{u:1},
       patchpanel: {u:1}, pdu:{u:1}, ups:{u:2},
-      cableTray:  {u:1}, shelf:{u:1}, blank:{u:1}, custom:{u:1}
+      cableTray:  {u:1}, shelf:{u:1}, blank:{u:1}, custom:{u:1},
+      brush:      {u:1}, blank2u:{u:2}, power:{u:1}
     };
     // Default-Preise + BOM-Metadaten für generische (non-Hardware) Rack-Items.
     // Hardware-Items (slug ∈ productCache.specs) ziehen Preis/Name aus dem Katalog.
@@ -1490,6 +1496,8 @@
       cableTray:  { price: 12,  label: 'Kabelführung 1U',          slugStem: 'acc-cable-tray-1u',category: 'Zubehör'   },
       shelf:      { price: 25,  label: 'Fachboden 1U',             slugStem: 'acc-shelf-1u',     category: 'Zubehör'   },
       blank:      { price: 4,   label: 'Blindblende 1U',           slugStem: 'acc-blank-1u',     category: 'Zubehör'   },
+      brush:      { price: 15,  label: 'Bürstenblende 1HE',        slugStem: 'acc-brush-1u',     category: 'Zubehör'   },
+      blank2u:    { price: 8,   label: 'Blindblende 2HE',          slugStem: 'acc-blank-2u',     category: 'Zubehör'   },
       custom:     { price: 0,   label: 'Eigenes Item',             slugStem: 'acc-custom',       category: 'Sonstiges' }
     };
     function getRackUnits(slug, kind) {
@@ -1498,7 +1506,7 @@
       return { u: 1 };
     }
     function bomCategoryForKind(kind) {
-      return ({ gateway:'Gateway', switch:'Switch', nvr:'NVR' })[kind]
+      return ({ gateway:'Gateway', switch:'Switch', nvr:'NVR', power:'Stromversorgung' })[kind]
         || RACK_KIND_DEFAULTS[kind]?.category
         || 'Sonstiges';
     }
@@ -4610,6 +4618,59 @@
       return productCache.specs[slug]?.name || slug;
     }
 
+    function getDeviceSpeedNeeded(slug) {
+      if(!slug) return 1000;
+      const wifi7Or6E = [
+        'u7-pro', 'u7-pro-max', 'u7-pro-xg', 'u7-pro-xgs', 'u7-iw', 
+        'u7-pro-wall', 'u7-pro-xg-wall', 'u6-enterprise', 'u6-enterprise-iw'
+      ];
+      if(wifi7Or6E.some(x => slug.startsWith(x))) {
+        if(slug.includes('xg') || slug.includes('xgs')) return 10000;
+        return 2500;
+      }
+      return 1000;
+    }
+
+    function getSwitchMaxPortSpeed(sw) {
+      if(!sw) return 1000;
+      const tags = sw.tags || [];
+      if(tags.includes('feature:10-gbe') || sw.slug?.includes('flex-xg') || sw.slug?.includes('xg-6poe') || sw.slug?.includes('pro-xg') || sw.slug?.includes('aggregation')) {
+        return 10000;
+      }
+      if(tags.includes('feature:25-gbe') || tags.includes('feature:2.5-gbe') || sw.slug?.includes('enterprise') || sw.slug?.includes('pro-max')) {
+        return 2500;
+      }
+      return 1000;
+    }
+
+    function getGatewayMaxPortSpeed(gw) {
+      if(!gw) return 1000;
+      const slug = gw.slug || '';
+      if(slug === 'ucg-max' || slug === 'ucg-max-ns' || slug === 'ucg-fiber' || slug === 'ucw' || slug === 'udr7' || slug === 'ux7') {
+        return 2500;
+      }
+      return 1000;
+    }
+
+    function hasSfpPlusPort(slug) {
+      if(!slug) return false;
+      const spec = productCache.specs[slug];
+      if(!spec) return false;
+      const tags = spec.tags || [];
+      return tags.includes('feature:10g-sfp-plus') || tags.includes('feature:25g-sfp28') || slug.includes('aggregation') || slug.includes('pro-max') || slug.includes('enterprise');
+    }
+
+    function isUspRpsCompatible(slug) {
+      if(!slug) return false;
+      if(slug === 'udm-pro' || slug === 'udm-pro-max' || slug === 'udm-se') return true;
+      const isProOrEnterprise = slug.includes('pro') || slug.includes('enterprise');
+      const isRackSwitch = slug.includes('24') || slug.includes('48');
+      if(slug.startsWith('usw-') && isProOrEnterprise && isRackSwitch && !slug.includes('aggregation')) {
+        return true;
+      }
+      return false;
+    }
+
     // Bin-Packing für die Switch- bzw. Gateway-Ports.
     // - Reserviert SWITCH_UPLINK_PORTS Ports am Anfang als Uplink (nur für Switches).
     // - Sortiert Geräte nach Watt absteigend, damit hochstrom-Geräte zuerst auf
@@ -4885,6 +4946,35 @@
         warnings.push({ level: 'error', icon: 'alert-triangle',
           title: 'Zu wenige Switch-Ports',
           msg: `${allocation.switch.deviceCount} Endgeräte + 1 Uplink benötigen ${switchPortsNeeded} Ports, der Switch hat nur ${activeSwitch.ports}. Es fehlen ${over} Ports — größeren Switch wählen oder Geräte aufs Gateway umhängen.` });
+      }
+
+      // Port-Geschwindigkeits-Bottleneck-Check
+      const switchSpeed = getSwitchMaxPortSpeed(activeSwitch);
+      const gatewaySpeed = getGatewayMaxPortSpeed(gatewaySpec);
+      const speedBottlenecks = [];
+      const fmtSpeed = (s) => s >= 10000 ? '10 GbE' : s >= 2500 ? '2.5 GbE' : '1 GbE';
+      
+      allocation.switch.devices.forEach(d => {
+        const needed = getDeviceSpeedNeeded(d.slug);
+        if (needed > switchSpeed) {
+          speedBottlenecks.push({ name: d.name, needed, actual: switchSpeed, source: 'Switch' });
+        }
+      });
+      allocation.gateway.devices.forEach(d => {
+        const needed = getDeviceSpeedNeeded(d.slug);
+        if (needed > gatewaySpeed) {
+          speedBottlenecks.push({ name: d.name, needed, actual: gatewaySpeed, source: 'Gateway' });
+        }
+      });
+      
+      if (speedBottlenecks.length > 0) {
+        const list = speedBottlenecks.map(b => `<strong>${escapeHtml(b.name)}</strong> (benötigt ${fmtSpeed(b.needed)}, Quelle ${b.source} bietet nur ${fmtSpeed(b.actual)})`).join(', ');
+        warnings.push({
+          level: 'warn',
+          icon: 'alert-circle',
+          title: 'Flaschenhals bei Portgeschwindigkeit',
+          msg: `Die folgenden Geräte können nicht mit ihrer vollen Geschwindigkeit betrieben werden: ${list}. Wähle für diese einen Enterprise- oder Pro-Max-Switch bzw. ein passendes Gateway mit Multi-Gigabit-Ports.`
+        });
       }
       // Switch-PoE-Port-Check: nicht jeder Port liefert zwangsläufig PoE.
       const switchPoePorts = getPoePortCount(activeSwitch);
@@ -7556,6 +7646,47 @@
         const heightU = parseInt(h);
         out.push({ category: 'Zubehör', name: `19" Wand-Rack ${heightU}HE`, slug: 'acc-rack-' + heightU + 'u', qty, price: heightU * 15 + 50 });
       });
+
+      // SFP+ DAC Kabel Empfehlung (Gateway <-> Switch)
+      let dacQty = 0;
+      for (const r of racks) {
+        const items = r.items || [];
+        const hasGatewaySfp = items.some(it => it.kind === 'gateway' && hasSfpPlusPort(it.slug));
+        const hasSwitchSfp = items.some(it => it.kind === 'switch' && hasSfpPlusPort(it.slug));
+        if (hasGatewaySfp && hasSwitchSfp) {
+          dacQty += 1;
+        }
+      }
+      if (dacQty > 0) {
+        out.push({
+          category: 'Zubehör',
+          name: 'UniFi SFP+ 10G DAC Kabel 0,5 m',
+          slug: 'uacc-dac-sfp10-0.5m',
+          qty: dacQty,
+          price: (typeof getLivePrice === 'function' ? getLivePrice('uacc-dac-sfp10-0.5m') : 19) ?? 19
+        });
+      }
+
+      // SmartPower RPS Kabel (USP-RPS vorhanden -> Kabel für kompatible Geräte)
+      let rpsCableQty = 0;
+      for (const r of racks) {
+        const items = r.items || [];
+        const hasRps = items.some(it => it.slug === 'usp-rps');
+        if (hasRps) {
+          const compatibleDevices = items.filter(it => it.id && it.slug !== 'usp-rps' && isUspRpsCompatible(it.slug));
+          rpsCableQty += Math.min(6, compatibleDevices.length);
+        }
+      }
+      if (rpsCableQty > 0) {
+        out.push({
+          category: 'Zubehör',
+          name: 'UniFi SmartPower RPS Kabel',
+          slug: 'usp-cable',
+          qty: rpsCableQty,
+          price: (typeof getLivePrice === 'function' ? getLivePrice('usp-cable') : 36) ?? 36
+        });
+      }
+
       return out;
     }
 
@@ -7681,8 +7812,11 @@
         { slug: null, kind: 'pdu', name: 'PDU 1U' },
         { slug: null, kind: 'ups', name: 'USV 2U' },
         { slug: null, kind: 'cableTray', name: 'Kabelführung 1U' },
+        { slug: null, kind: 'brush', name: 'Bürstenblende 1U' },
         { slug: null, kind: 'shelf', name: 'Fachboden 1U' },
-        { slug: null, kind: 'blank', name: 'Blindblende 1U' }
+        { slug: null, kind: 'blank', name: 'Blindblende 1U' },
+        { slug: null, kind: 'blank2u', name: 'Blindblende 2U' },
+        { slug: 'usp-rps', kind: 'power', name: 'SmartPower RPS 1U' }
       ];
       const paletteCards = [...candidates, ...generics].map(c => {
         const meta = getRackUnits(c.slug, c.kind);
