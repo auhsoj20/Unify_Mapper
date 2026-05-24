@@ -40,7 +40,16 @@ window.UNIFI_DATA = {
     "udr-5g-max-eu": 449,
     "udr7": 250,
     "ux7": 179,
-    "udw": 499
+    "udw": 499,
+    "uacc-dac-sfp10-0.5m": 19,
+    "usp-cable": 36,
+    "acc-brush-1u": 15,
+    "acc-blank-1u": 4,
+    "acc-blank-2u": 8,
+    "acc-pdu-1u": 45,
+    "acc-ups-2u": 199,
+    "acc-cable-tray-1u": 12,
+    "acc-shelf-1u": 25
   },
   "categories": {
     "wifi": [

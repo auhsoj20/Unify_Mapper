@@ -683,12 +683,23 @@
     .rack-item[data-kind="pdu"]        { border-left-color: #f97316; }
     .rack-item[data-kind="ups"]        { border-left-color: #eab308; }
     .rack-item[data-kind="cableTray"]  { border-left-color: #64748b; }
+    .rack-item[data-kind="brush"]      { border-left-color: #64748b; }
     .rack-item[data-kind="blank"]      { border-left-color: #374151; background: repeating-linear-gradient(45deg, #2a2825, #2a2825 4px, #1f1d1b 4px, #1f1d1b 8px); }
+    .rack-item[data-kind="blank2u"]    { border-left-color: #374151; background: repeating-linear-gradient(45deg, #2a2825, #2a2825 4px, #1f1d1b 4px, #1f1d1b 8px); }
     .rack-item[data-kind="shelf"]      { border-left-color: #78716c; }
+    .rack-item[data-kind="power"]      { border-left-color: #ec4899; }
     .rack-item .ri-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .rack-item .ri-badge { font-size: 9px; padding: 1px 4px; border-radius: 2px; background: rgba(255,255,255,0.1); }
     .rack-item .ri-remove { color: rgba(255,255,255,0.5); cursor: pointer; padding: 0 2px; }
     .rack-item .ri-remove:hover { color: #ff6b6b; }
+    .rack-item.no-drag { cursor: default; }
+    @media print {
+      .rack-frame, .rack-item { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+    .rack-slot.hover-drop[data-hover-side="left"] { background: linear-gradient(90deg, rgba(1,105,111,0.35) 0%, rgba(1,105,111,0.35) 50%, transparent 50%); }
+    .rack-slot.hover-drop[data-hover-side="right"] { background: linear-gradient(90deg, transparent 0%, transparent 50%, rgba(1,105,111,0.35) 50%); }
+    .rack-slot.hover-drop-invalid[data-hover-side="left"] { background: linear-gradient(90deg, rgba(220,38,38,0.35) 0%, rgba(220,38,38,0.35) 50%, transparent 50%); }
+    .rack-slot.hover-drop-invalid[data-hover-side="right"] { background: linear-gradient(90deg, transparent 0%, transparent 50%, rgba(220,38,38,0.35) 50%); }
 
     /* Palette (middle col) */
     .rack-palette-card {
@@ -1241,7 +1252,7 @@
     // drawHeatmap auf den synchronen Inline-Pfad zurück.
     const HEATMAP_WORKER_SOURCE = `
       self.onmessage = (e) => {
-        const { jobId, w, h, walls, aps, step, atten } = e.data;
+        const { jobId, w, h, minX, minY, walls, aps, step, atten } = e.data;
         const data = new Uint8ClampedArray(w * h * 4);
         const crosses = (ax,ay,bx,by,cx,cy,dx,dy) => {
           const d1x = bx-ax, d1y = by-ay;
@@ -1265,16 +1276,18 @@
         for(let py = 0; py < h; py += step) {
           for(let px = 0; px < w; px += step) {
             let best = 0;
+            const worldX = minX + px;
+            const worldY = minY + py;
             for(const ap of aps) {
               if(ap.r <= 0) continue;
-              const ddx = px - ap.x, ddy = py - ap.y;
+              const ddx = worldX - ap.x, ddy = worldY - ap.y;
               const dist = Math.sqrt(ddx*ddx + ddy*ddy);
               if(dist > ap.r * 1.4) continue;
               let raw = Math.max(0, 1 - dist / ap.r);
               if(raw <= 0.02) continue;
               let wc = 0;
               for(const wall of walls) {
-                if(crosses(ap.x, ap.y, px, py, wall.x1, wall.y1, wall.x2, wall.y2)) {
+                if(crosses(ap.x, ap.y, worldX, worldY, wall.x1, wall.y1, wall.x2, wall.y2)) {
                   wc++;
                   if(wc >= 4) break;
                 }
@@ -1530,11 +1543,14 @@
       'usw-wan': {u:0, note:'Desktop'}, 'usw-wan-rj45': {u:0, note:'Desktop'},
       // Protect / NVR
       'unvr': {u:1}, 'unvr-pro': {u:2}, 'unvr-enterprise': {u:2},
+      // Power / RPS
+      'usp-rps': {u:1}
     };
     const RACK_DEFAULTS_BY_KIND = {
       gateway:    {u:1}, switch:{u:1}, nvr:{u:1},
       patchpanel: {u:1}, pdu:{u:1}, ups:{u:2},
-      cableTray:  {u:1}, shelf:{u:1}, blank:{u:1}, custom:{u:1}
+      cableTray:  {u:1}, shelf:{u:1}, blank:{u:1}, custom:{u:1},
+      brush:      {u:1}, blank2u:{u:2}, power:{u:1}
     };
     // Default-Preise + BOM-Metadaten für generische (non-Hardware) Rack-Items.
     // Hardware-Items (slug ∈ productCache.specs) ziehen Preis/Name aus dem Katalog.
@@ -1545,6 +1561,8 @@
       cableTray:  { price: 12,  label: 'Kabelführung 1U',          slugStem: 'acc-cable-tray-1u',category: 'Zubehör'   },
       shelf:      { price: 25,  label: 'Fachboden 1U',             slugStem: 'acc-shelf-1u',     category: 'Zubehör'   },
       blank:      { price: 4,   label: 'Blindblende 1U',           slugStem: 'acc-blank-1u',     category: 'Zubehör'   },
+      brush:      { price: 15,  label: 'Bürstenblende 1HE',        slugStem: 'acc-brush-1u',     category: 'Zubehör'   },
+      blank2u:    { price: 8,   label: 'Blindblende 2HE',          slugStem: 'acc-blank-2u',     category: 'Zubehör'   },
       custom:     { price: 0,   label: 'Eigenes Item',             slugStem: 'acc-custom',       category: 'Sonstiges' }
     };
     function getRackUnits(slug, kind) {
@@ -1553,7 +1571,7 @@
       return { u: 1 };
     }
     function bomCategoryForKind(kind) {
-      return ({ gateway:'Gateway', switch:'Switch', nvr:'NVR' })[kind]
+      return ({ gateway:'Gateway', switch:'Switch', nvr:'NVR', power:'Stromversorgung' })[kind]
         || RACK_KIND_DEFAULTS[kind]?.category
         || 'Sonstiges';
     }
@@ -1926,7 +1944,10 @@
           name: r.name || 'Rack',
           heightU,
           depthMm: parseInt(r.depthMm) || 450,
-          items
+          items,
+          // Bestehende Racks mit Items gelten als bereits auto-befüllt, damit
+          // sie nicht beim nächsten Öffnen erneut aufgefüllt werden.
+          autoPopulated: typeof r.autoPopulated === 'boolean' ? r.autoPopulated : items.length > 0
         };
       });
     }
@@ -3358,6 +3379,10 @@
       }
       const applyView = () => {
          world.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`;
+         if(planner) {
+            planner.style.backgroundSize = `${20 * view.zoom}px ${20 * view.zoom}px`;
+            planner.style.backgroundPosition = `${view.panX - 10 * view.zoom}px ${view.panY - 10 * view.zoom}px`;
+         }
       };
       applyView();
       const clientToWorld = (clientX, clientY) => {
@@ -3776,14 +3801,14 @@
          const commit = () => {
             if(committed) return; committed = true;
             const parsed = parseFloat((inp.value || '').replace(',', '.'));
-            inp.remove();
+               inp.remove();
             if(!isFinite(parsed) || parsed <= 0) { render(); return; }
             const newLen = Math.round(parsed * 10) / 10; // 1 decimal place
             const scale = newLen / oldLen;
             const nb = { x: a.x + dx * scale, y: a.y + dy * scale };
             // Round to 1 decimal in grid units to keep state tidy
-            nb.x = Math.round(Math.max(0, nb.x) * 10) / 10;
-            nb.y = Math.round(Math.max(0, nb.y) * 10) / 10;
+            nb.x = Math.round(Math.max(-500, nb.x) * 10) / 10;
+            nb.y = Math.round(Math.max(-500, nb.y) * 10) / 10;
             room.points[(i+1) % room.points.length] = nb;
             saveState();
             render();
@@ -3800,12 +3825,11 @@
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.setAttribute('class', 'absolute inset-0 w-full h-full pointer-events-none');
       svg.style.zIndex = '1';
+      svg.style.overflow = 'visible';
       world.appendChild(svg);
 
       const heatmapCanvas = document.createElement('canvas');
-      heatmapCanvas.className = 'absolute inset-0 pointer-events-none';
-      heatmapCanvas.style.width = '100%';
-      heatmapCanvas.style.height = '100%';
+      heatmapCanvas.className = 'absolute pointer-events-none';
       heatmapCanvas.style.zIndex = '5';
       world.appendChild(heatmapCanvas);
 
@@ -3980,7 +4004,7 @@
                   const w = clientToWorld(e.clientX, e.clientY);
                   let nx = Math.round(w.x / CELL_SIZE);
                   let ny = Math.round(w.y / CELL_SIZE);
-                  room.points.splice(i+1, 0, {x: Math.max(0, nx), y: Math.max(0, ny)});
+                  room.points.splice(i+1, 0, {x: Math.max(-500, nx), y: Math.max(-500, ny)});
                   saveState();
                   render();
                });
@@ -4083,8 +4107,8 @@
          if(dragMode === 'vert') {
              let nx = Math.round((w.x - dOffX) / CELL_SIZE);
              let ny = Math.round((w.y - dOffY) / CELL_SIZE);
-             activeObj.points[activeVertIdx].x = Math.max(0, nx);
-             activeObj.points[activeVertIdx].y = Math.max(0, ny);
+             activeObj.points[activeVertIdx].x = Math.max(-500, nx);
+             activeObj.points[activeVertIdx].y = Math.max(-500, ny);
              flushVectors(); // Fast local visual update
          }
          else if(dragMode === 'poly') {
@@ -4093,8 +4117,8 @@
              if(dx !== 0 || dy !== 0) {
                  const minX = Math.min(...activeObj.points.map(p=>p.x));
                  const minY = Math.min(...activeObj.points.map(p=>p.y));
-                 if(minX + dx < 0) dx = -minX;
-                 if(minY + dy < 0) dy = -minY;
+                 if(minX + dx < -500) dx = -500 - minX;
+                 if(minY + dy < -500) dy = -500 - minY;
 
                  activeObj.points.forEach(p => { p.x += dx; p.y += dy; });
                  if(activeObj.labelPos) { activeObj.labelPos.x += dx * CELL_SIZE; activeObj.labelPos.y += dy * CELL_SIZE; }
@@ -4110,13 +4134,13 @@
                const maxY = Math.max(...activeObj.points.map(p=>p.y))*CELL_SIZE;
                activeObj.labelPos = { x: (minX + (maxX-minX)/2), y: (minY + (maxY-minY)/2) };
              }
-             activeObj.labelPos.x = Math.max(0, w.x - dOffX);
-             activeObj.labelPos.y = Math.max(0, w.y - dOffY);
+             activeObj.labelPos.x = Math.max(-10000, w.x - dOffX);
+             activeObj.labelPos.y = Math.max(-10000, w.y - dOffY);
              flushVectors();
          }
          else if(dragMode === 'ap' || dragMode === 'cam') {
-             activeObj.x = Math.max(0, w.x - dOffX);
-             activeObj.y = Math.max(0, w.y - dOffY);
+             activeObj.x = Math.max(-10000, w.x - dOffX);
+             activeObj.y = Math.max(-10000, w.y - dOffY);
              drawAps();
          }
       });
@@ -4323,7 +4347,7 @@
       // Synchroner Fallback (alte Implementierung), wenn der WebWorker nicht
       // verfügbar ist (z. B. file://-Modus mit blockierten Workers oder bei
       // einem Worker-Fehler). Identische Logik wie der Worker-Code.
-      const drawHeatmapSync = (ctx, w, h, walls, aps) => {
+      const drawHeatmapSync = (ctx, minX, minY, w, h, walls, aps) => {
         const crosses = (ax, ay, bx, by, cx, cy, dx, dy) => {
           const d1x = bx-ax, d1y = by-ay;
           const d2x = dx-cx, d2y = dy-cy;
@@ -4348,16 +4372,18 @@
         for(let py = 0; py < h; py += HEATMAP_STEP) {
           for(let px = 0; px < w; px += HEATMAP_STEP) {
             let best = 0;
+            const worldX = minX + px;
+            const worldY = minY + py;
             for(const ap of aps) {
               if(ap.r <= 0) continue;
-              const ddx = px - ap.x, ddy = py - ap.y;
+              const ddx = worldX - ap.x, ddy = worldY - ap.y;
               const dist = Math.sqrt(ddx*ddx + ddy*ddy);
               if(dist > ap.r * 1.4) continue;
               let raw = Math.max(0, 1 - dist / ap.r);
               if(raw <= 0.02) continue;
               let wc = 0;
               for(const wall of walls) {
-                if(crosses(ap.x, ap.y, px, py, wall.x1, wall.y1, wall.x2, wall.y2)) {
+                if(crosses(ap.x, ap.y, worldX, worldY, wall.x1, wall.y1, wall.x2, wall.y2)) {
                   wc++;
                   if(wc >= 4) break;
                 }
@@ -4383,10 +4409,57 @@
       const drawHeatmap = () => {
         const w = planner.clientWidth, h = planner.clientHeight;
         if(w === 0 || h === 0) return;
-        heatmapCanvas.width = w;
-        heatmapCanvas.height = h;
+
+        // Bounding box of elements in world coordinates (pixels)
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        currentFloor.rooms.forEach(room => {
+          room.points.forEach(p => {
+            const px = p.x * CELL_SIZE;
+            const py = p.y * CELL_SIZE;
+            if(px < minX) minX = px;
+            if(px > maxX) maxX = px;
+            if(py < minY) minY = py;
+            if(py > maxY) maxY = py;
+          });
+        });
+        currentFloor.aps.forEach(ap => {
+          const spec = productCache.specs[ap.slug] || { coverageM2: 140 };
+          const r = Math.round(Math.sqrt(spec.coverageM2) * coverageFactor() * floorWallFactor(currentFloor) * bandFactor()) * CELL_SIZE;
+          if(ap.x - r < minX) minX = ap.x - r;
+          if(ap.x + r > maxX) maxX = ap.x + r;
+          if(ap.y - r < minY) minY = ap.y - r;
+          if(ap.y + r > maxY) maxY = ap.y + r;
+        });
+
+        if(minX === Infinity) {
+          minX = 0; minY = 0; maxX = w; maxY = h;
+        } else {
+          // Add padding (e.g. 200px / 10m)
+          minX -= 200;
+          minY -= 200;
+          maxX += 200;
+          maxY += 200;
+        }
+
+        // Align boundaries to HEATMAP_STEP to prevent subpixel jittering
+        minX = Math.floor(minX / HEATMAP_STEP) * HEATMAP_STEP;
+        minY = Math.floor(minY / HEATMAP_STEP) * HEATMAP_STEP;
+        maxX = Math.ceil(maxX / HEATMAP_STEP) * HEATMAP_STEP;
+        maxY = Math.ceil(maxY / HEATMAP_STEP) * HEATMAP_STEP;
+
+        const cw = maxX - minX;
+        const ch = maxY - minY;
+
+        heatmapCanvas.style.left = minX + 'px';
+        heatmapCanvas.style.top = minY + 'px';
+        heatmapCanvas.style.width = cw + 'px';
+        heatmapCanvas.style.height = ch + 'px';
+
+        heatmapCanvas.width = cw;
+        heatmapCanvas.height = ch;
+
         const ctx = heatmapCanvas.getContext('2d');
-        ctx.clearRect(0, 0, w, h);
+        ctx.clearRect(0, 0, cw, ch);
         if(!state.view || !state.view.heatmap) return;
         if(!currentFloor.aps.length) return;
 
@@ -4412,28 +4485,24 @@
 
         const worker = getHeatmapWorker();
         if(!worker) {
-          drawHeatmapSync(ctx, w, h, walls, aps);
+          drawHeatmapSync(ctx, minX, minY, cw, ch, walls, aps);
           return;
         }
-        // Worker-Pfad: Job-ID schützt gegen verspätete Antworten nach
-        // schnellem Heatmap-Wechsel (Etage, Toggle, Zoom).
         const jobId = ++_heatmapWorkerJobId;
         worker.onmessage = (e) => {
           if(!e.data || e.data.jobId !== _heatmapWorkerJobId) return; // veralteter Job
-          // Canvas-Größe könnte sich zwischenzeitlich geändert haben — nur
-          // zeichnen, wenn die zurückgelieferten Dimensionen noch passen.
           if(heatmapCanvas.width !== e.data.w || heatmapCanvas.height !== e.data.h) return;
           const arr = new Uint8ClampedArray(e.data.buffer);
           ctx.putImageData(new ImageData(arr, e.data.w, e.data.h), 0, 0);
         };
         worker.onerror = () => {
           _heatmapWorker = false; // einmaliger Fehler → künftig synchron
-          drawHeatmapSync(ctx, w, h, walls, aps);
+          drawHeatmapSync(ctx, minX, minY, cw, ch, walls, aps);
         };
         try {
-          worker.postMessage({ jobId, w, h, walls, aps, step: HEATMAP_STEP, atten: HEATMAP_ATTEN });
+          worker.postMessage({ jobId, w: cw, h: ch, minX, minY, walls, aps, step: HEATMAP_STEP, atten: HEATMAP_ATTEN });
         } catch(_) {
-          drawHeatmapSync(ctx, w, h, walls, aps);
+          drawHeatmapSync(ctx, minX, minY, cw, ch, walls, aps);
         }
       };
 
@@ -4753,6 +4822,59 @@
       return productCache.specs[slug]?.name || slug;
     }
 
+    function getDeviceSpeedNeeded(slug) {
+      if(!slug) return 1000;
+      const wifi7Or6E = [
+        'u7-pro', 'u7-pro-max', 'u7-pro-xg', 'u7-pro-xgs', 'u7-iw', 
+        'u7-pro-wall', 'u7-pro-xg-wall', 'u6-enterprise', 'u6-enterprise-iw'
+      ];
+      if(wifi7Or6E.some(x => slug.startsWith(x))) {
+        if(slug.includes('xg') || slug.includes('xgs')) return 10000;
+        return 2500;
+      }
+      return 1000;
+    }
+
+    function getSwitchMaxPortSpeed(sw) {
+      if(!sw) return 1000;
+      const tags = sw.tags || [];
+      if(tags.includes('feature:10-gbe') || sw.slug?.includes('flex-xg') || sw.slug?.includes('xg-6poe') || sw.slug?.includes('pro-xg') || sw.slug?.includes('aggregation')) {
+        return 10000;
+      }
+      if(tags.includes('feature:25-gbe') || tags.includes('feature:2.5-gbe') || sw.slug?.includes('enterprise') || sw.slug?.includes('pro-max')) {
+        return 2500;
+      }
+      return 1000;
+    }
+
+    function getGatewayMaxPortSpeed(gw) {
+      if(!gw) return 1000;
+      const slug = gw.slug || '';
+      if(slug === 'ucg-max' || slug === 'ucg-max-ns' || slug === 'ucg-fiber' || slug === 'ucw' || slug === 'udr7' || slug === 'ux7') {
+        return 2500;
+      }
+      return 1000;
+    }
+
+    function hasSfpPlusPort(slug) {
+      if(!slug) return false;
+      const spec = productCache.specs[slug];
+      if(!spec) return false;
+      const tags = spec.tags || [];
+      return tags.includes('feature:10g-sfp-plus') || tags.includes('feature:25g-sfp28') || slug.includes('aggregation') || slug.includes('pro-max') || slug.includes('enterprise');
+    }
+
+    function isUspRpsCompatible(slug) {
+      if(!slug) return false;
+      if(slug === 'udm-pro' || slug === 'udm-pro-max' || slug === 'udm-se') return true;
+      const isProOrEnterprise = slug.includes('pro') || slug.includes('enterprise');
+      const isRackSwitch = slug.includes('24') || slug.includes('48');
+      if(slug.startsWith('usw-') && isProOrEnterprise && isRackSwitch && !slug.includes('aggregation')) {
+        return true;
+      }
+      return false;
+    }
+
     // Bin-Packing für die Switch- bzw. Gateway-Ports.
     // - Reserviert SWITCH_UPLINK_PORTS Ports am Anfang als Uplink (nur für Switches).
     // - Sortiert Geräte nach Watt absteigend, damit hochstrom-Geräte zuerst auf
@@ -5028,6 +5150,35 @@
         warnings.push({ level: 'error', icon: 'alert-triangle',
           title: 'Zu wenige Switch-Ports',
           msg: `${allocation.switch.deviceCount} Endgeräte + 1 Uplink benötigen ${switchPortsNeeded} Ports, der Switch hat nur ${activeSwitch.ports}. Es fehlen ${over} Ports — größeren Switch wählen oder Geräte aufs Gateway umhängen.` });
+      }
+
+      // Port-Geschwindigkeits-Bottleneck-Check
+      const switchSpeed = getSwitchMaxPortSpeed(activeSwitch);
+      const gatewaySpeed = getGatewayMaxPortSpeed(gatewaySpec);
+      const speedBottlenecks = [];
+      const fmtSpeed = (s) => s >= 10000 ? '10 GbE' : s >= 2500 ? '2.5 GbE' : '1 GbE';
+      
+      allocation.switch.devices.forEach(d => {
+        const needed = getDeviceSpeedNeeded(d.slug);
+        if (needed > switchSpeed) {
+          speedBottlenecks.push({ name: d.name, needed, actual: switchSpeed, source: 'Switch' });
+        }
+      });
+      allocation.gateway.devices.forEach(d => {
+        const needed = getDeviceSpeedNeeded(d.slug);
+        if (needed > gatewaySpeed) {
+          speedBottlenecks.push({ name: d.name, needed, actual: gatewaySpeed, source: 'Gateway' });
+        }
+      });
+      
+      if (speedBottlenecks.length > 0) {
+        const list = speedBottlenecks.map(b => `<strong>${escapeHtml(b.name)}</strong> (benötigt ${fmtSpeed(b.needed)}, Quelle ${b.source} bietet nur ${fmtSpeed(b.actual)})`).join(', ');
+        warnings.push({
+          level: 'warn',
+          icon: 'alert-circle',
+          title: 'Flaschenhals bei Portgeschwindigkeit',
+          msg: `Die folgenden Geräte können nicht mit ihrer vollen Geschwindigkeit betrieben werden: ${list}. Wähle für diese einen Enterprise- oder Pro-Max-Switch bzw. ein passendes Gateway mit Multi-Gigabit-Ports.`
+        });
       }
       // Switch-PoE-Port-Check: nicht jeder Port liefert zwangsläufig PoE.
       const switchPoePorts = getPoePortCount(activeSwitch);
@@ -7114,6 +7265,18 @@
         }
         return { rows, autoGenerated: conns.length === 0 };
       })();
+
+      const racksCard = (state.racks && state.racks.length > 0) ? `
+        <div class="card p-0 overflow-hidden" style="page-break-inside: avoid;">
+           <div class="px-3 sm:px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
+             <h3 class="font-bold">19"-Rack-Aufstellung</h3>
+             <span class="text-xs text-nexus-muted">${state.racks.length} Rack${state.racks.length === 1 ? '' : 's'} konfiguriert</span>
+           </div>
+           <div class="flex flex-wrap gap-8 justify-center p-4">
+             ${state.racks.map(r => renderRackCanvasReadOnly(r)).join('')}
+           </div>
+        </div>` : '';
+
       const patchplanCard = patchPlan.rows.length === 0 ? '' : `
         <div class="card p-0 overflow-hidden">
           <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50 flex items-center justify-between flex-wrap gap-2">
@@ -7443,6 +7606,8 @@
 
           ${cableCard}
 
+          ${racksCard}
+
           ${patchplanCard}
 
           ${poeClassCard}
@@ -7641,37 +7806,72 @@
     }
     function ensureDefaultRack() {
       if(!state.racks.length) {
-        state.racks = [{ id: 'r-main', name: 'Hauptrack', heightU: 12, depthMm: 450, items: [] }];
+        state.racks = [{ id: 'r-main', name: 'Hauptrack', heightU: 12, depthMm: 450, items: [], autoPopulated: false }];
         state.rackView.activeRackId = 'r-main';
       }
     }
     function rackItemByKindSlug(rack, kind, slug) {
       return (rack.items || []).find(it => it.kind === kind && (slug == null || it.slug === slug)) || null;
     }
-    function findFreeSlot(rack, uSize, preferTop = true) {
-      const occupied = new Array(rack.heightU + 1).fill(false);
+    function getRackOccupancy(rack, ignoreItemId = null) {
+      const occ = [];
+      for (let u = 1; u <= rack.heightU; u++) {
+        occ[u] = { left: false, right: false, full: false };
+      }
       (rack.items || []).forEach(it => {
-        for(let u = it.uStart; u < it.uStart + it.uSize; u++) if(u <= rack.heightU) occupied[u] = true;
+        if (it.id === ignoreItemId) return;
+        const meta = getRackUnits(it.slug, it.kind);
+        const isHalf = it.position === 'left' || it.position === 'right' || meta.width === 'half';
+        for (let u = it.uStart; u < it.uStart + it.uSize; u++) {
+          if (u >= 1 && u <= rack.heightU) {
+            if (isHalf) {
+              if (it.position === 'right') {
+                occ[u].right = true;
+              } else {
+                occ[u].left = true; // default left for half-width
+              }
+            } else {
+              occ[u].full = true;
+            }
+          }
+        }
       });
+      return occ;
+    }
+    function findFreeSlot(rack, uSize, isHalf = false, preferTop = true) {
+      const occ = getRackOccupancy(rack);
       const tryFrom = (from, to, step) => {
         for(let s = from; (step > 0 ? s <= to : s >= to); s += step) {
-          let ok = true;
-          for(let u = s; u < s + uSize; u++) { if(u > rack.heightU || occupied[u]) { ok = false; break; } }
-          if(ok) return s;
+          let okLeft = true;
+          let okRight = true;
+          for(let u = s; u < s + uSize; u++) {
+            if(u > rack.heightU) { okLeft = false; okRight = false; break; }
+            if(occ[u].full) { okLeft = false; okRight = false; }
+            if(occ[u].left) { okLeft = false; }
+            if(occ[u].right) { okRight = false; }
+          }
+          if(isHalf) {
+            if(okLeft) return { uStart: s, position: 'left' };
+            if(okRight) return { uStart: s, position: 'right' };
+          } else {
+            if(okLeft && okRight) return { uStart: s, position: 'full' };
+          }
         }
         return null;
       };
-      if(preferTop) return tryFrom(rack.heightU - uSize + 1, 1, -1);
-      return tryFrom(1, rack.heightU - uSize + 1, 1);
+      const maxStart = rack.heightU - uSize + 1;
+      if(preferTop) return tryFrom(maxStart, 1, -1);
+      return tryFrom(1, maxStart, 1);
     }
     function autoPopulateRack(rack, b) {
       if(!rack || rack.items.length > 0) return;
       const add = (slug, kind, label) => {
         const meta = getRackUnits(slug, kind);
         if(!meta || meta.u === 0) return null;
-        const uStart = findFreeSlot(rack, meta.u, true);
-        if(uStart == null) return null;
-        const it = { id: rackGenId('ri'), slug: slug || null, kind, uStart, uSize: meta.u, label: label || null, ports: null };
+        const isHalf = meta.width === 'half';
+        const free = findFreeSlot(rack, meta.u, isHalf, true);
+        if(free == null) return null;
+        const it = { id: rackGenId('ri'), slug: slug || null, kind, uStart: free.uStart, uSize: meta.u, label: label || null, ports: null, position: isHalf ? free.position : null };
         rack.items.push(it);
         return it;
       };
@@ -7697,6 +7897,7 @@
       }
       // PDU
       add(null, 'pdu', 'PDU 1U');
+      rack.autoPopulated = true;
     }
     function autoRouteCabling(b) {
       const rack = getActiveRack();
@@ -7826,6 +8027,47 @@
         const heightU = parseInt(h);
         out.push({ category: 'Zubehör', name: `19" Wand-Rack ${heightU}HE`, slug: 'acc-rack-' + heightU + 'u', qty, price: heightU * 15 + 50 });
       });
+
+      // SFP+ DAC Kabel Empfehlung (Gateway <-> Switch)
+      let dacQty = 0;
+      for (const r of racks) {
+        const items = r.items || [];
+        const hasGatewaySfp = items.some(it => it.kind === 'gateway' && hasSfpPlusPort(it.slug));
+        const hasSwitchSfp = items.some(it => it.kind === 'switch' && hasSfpPlusPort(it.slug));
+        if (hasGatewaySfp && hasSwitchSfp) {
+          dacQty += 1;
+        }
+      }
+      if (dacQty > 0) {
+        out.push({
+          category: 'Zubehör',
+          name: 'UniFi SFP+ 10G DAC Kabel 0,5 m',
+          slug: 'uacc-dac-sfp10-0.5m',
+          qty: dacQty,
+          price: (typeof getLivePrice === 'function' ? getLivePrice('uacc-dac-sfp10-0.5m') : 19) ?? 19
+        });
+      }
+
+      // SmartPower RPS Kabel (USP-RPS vorhanden -> Kabel für kompatible Geräte)
+      let rpsCableQty = 0;
+      for (const r of racks) {
+        const items = r.items || [];
+        const hasRps = items.some(it => it.slug === 'usp-rps');
+        if (hasRps) {
+          const compatibleDevices = items.filter(it => it.id && it.slug !== 'usp-rps' && isUspRpsCompatible(it.slug));
+          rpsCableQty += Math.min(6, compatibleDevices.length);
+        }
+      }
+      if (rpsCableQty > 0) {
+        out.push({
+          category: 'Zubehör',
+          name: 'UniFi SmartPower RPS Kabel',
+          slug: 'usp-cable',
+          qty: rpsCableQty,
+          price: (typeof getLivePrice === 'function' ? getLivePrice('usp-cable') : 36) ?? 36
+        });
+      }
+
       return out;
     }
 
@@ -7839,8 +8081,10 @@
       ensureDefaultRack();
       const rack = getActiveRack();
       const b = buildBom();
-      // Auto-Populate beim Erst-Öffnen
-      if(rack && rack.items.length === 0) {
+      // Auto-Populate nur beim Erst-Öffnen eines noch nie befüllten Racks.
+      // Nach einer einmaligen Auto-Befüllung bleibt das Rack auch leer, wenn
+      // der User es bewusst leert oder alle Items einzeln entfernt.
+      if(rack && rack.items.length === 0 && !rack.autoPopulated) {
         autoPopulateRack(rack, b);
         autoRouteCabling(b);
       }
@@ -7897,7 +8141,8 @@
       }
       const items = (rack.items || []).map(it => {
         const meta = getRackUnits(it.slug, it.kind);
-        const widthBadge = meta.width === 'half' ? '<span class="ri-badge">½</span>' : '';
+        const isHalf = it.position === 'left' || it.position === 'right' || meta.width === 'half';
+        const widthBadge = isHalf ? '<span class="ri-badge">½</span>' : '';
         const portsBadge = it.kind === 'switch' && productCache.specs[it.slug]?.ports
           ? `<span class="ri-badge">${productCache.specs[it.slug].ports}P</span>`
           : (it.kind === 'patchpanel' && it.ports
@@ -7911,10 +8156,16 @@
           const effPrice = it.price != null ? it.price : d.price;
           priceBadge = `<span class="ri-badge ri-badge-clickable" onclick="event.stopPropagation(); window.rackSetItemPrice('${it.id}')" title="Preis ändern (Default: ${d.price} €)" style="cursor:pointer;">${effPrice} €</span>`;
         }
+        let posStyles = '';
+        if (it.position === 'left' || (isHalf && !it.position)) {
+          posStyles = 'left: 4px; width: calc(50% - 6px); right: auto;';
+        } else if (it.position === 'right') {
+          posStyles = 'left: calc(50% + 2px); width: calc(50% - 6px); right: auto;';
+        }
         const topPx = (rack.heightU - it.uStart - it.uSize + 1) * 26;
         const hPx = it.uSize * 26 - 2;
         const label = it.label || productCache.specs[it.slug]?.name || (it.kind[0].toUpperCase() + it.kind.slice(1));
-        return `<div class="rack-item" data-kind="${it.kind}" data-item-id="${it.id}" style="top:${topPx}px; height:${hPx}px; touch-action: none;" title="${escapeHtml(label)} · ${it.uSize}U · ziehen zum Verschieben">
+        return `<div class="rack-item" data-kind="${it.kind}" data-item-id="${it.id}" style="top:${topPx}px; height:${hPx}px; ${posStyles} touch-action: none;" title="${escapeHtml(label)} · ${it.uSize}U · ziehen zum Verschieben">
           <span class="ri-name">${escapeHtml(label)}</span>
           ${portsBadge}${priceBadge}${widthBadge}
           <span class="ri-remove" onclick="event.stopPropagation(); window.rackRemoveItem('${it.id}')" title="Aus Rack entfernen">✕</span>
@@ -7926,6 +8177,55 @@
           <div class="text-sm text-nexus-muted mb-2">${escapeHtml(rack.name)} · ${rack.heightU}U · ${usedU}U belegt · ${emptyU}U frei</div>
           <div class="rack-frame" style="padding-left: 36px;">
             <div class="rack-slot-track" id="rack-slot-track" style="height:${frameH}px; position:relative;">
+              ${slots.join('')}
+              ${items}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderRackCanvasReadOnly(rack) {
+      const usedU = (rack.items || []).reduce((s, it) => s + (it.uSize || 0), 0);
+      const emptyU = Math.max(0, rack.heightU - usedU);
+      const slots = [];
+      for(let u = rack.heightU; u >= 1; u--) {
+        slots.push(`<div class="rack-slot${u%2===0?' even':''}" data-u="${u}"><span class="rack-he-label">${u}U</span></div>`);
+      }
+      const items = (rack.items || []).map(it => {
+        const meta = getRackUnits(it.slug, it.kind);
+        const isHalf = it.position === 'left' || it.position === 'right' || meta.width === 'half';
+        const widthBadge = isHalf ? '<span class="ri-badge">½</span>' : '';
+        const portsBadge = it.kind === 'switch' && productCache.specs[it.slug]?.ports
+          ? `<span class="ri-badge">${productCache.specs[it.slug].ports}P</span>`
+          : (it.kind === 'patchpanel' && it.ports ? `<span class="ri-badge">${it.ports}P</span>` : '');
+        let priceBadge = '';
+        const isHardware = it.slug && productCache.specs && productCache.specs[it.slug];
+        if(!isHardware) {
+          const d = getRackItemDefaults(it.slug, it.kind);
+          const effPrice = it.price != null ? it.price : d.price;
+          priceBadge = `<span class="ri-badge">${effPrice} €</span>`;
+        }
+        let posStyles = '';
+        if (it.position === 'left' || (isHalf && !it.position)) {
+          posStyles = 'left: 4px; width: calc(50% - 6px); right: auto;';
+        } else if (it.position === 'right') {
+          posStyles = 'left: calc(50% + 2px); width: calc(50% - 6px); right: auto;';
+        }
+        const topPx = (rack.heightU - it.uStart - it.uSize + 1) * 26;
+        const hPx = it.uSize * 26 - 2;
+        const label = it.label || productCache.specs[it.slug]?.name || (it.kind[0].toUpperCase() + it.kind.slice(1));
+        return `<div class="rack-item no-drag" data-kind="${it.kind}" style="top:${topPx}px; height:${hPx}px; ${posStyles}" title="${escapeHtml(label)} · ${it.uSize}U">
+          <span class="ri-name">${escapeHtml(label)}</span>
+          ${portsBadge}${priceBadge}${widthBadge}
+        </div>`;
+      }).join('');
+      const frameH = rack.heightU * 26;
+      return `
+        <div class="rack-frame-wrap" style="margin-bottom: 2rem; page-break-inside: avoid;">
+          <div class="text-sm text-nexus-muted mb-2 font-semibold">${escapeHtml(rack.name)} · ${rack.heightU}U (${usedU}U belegt, ${emptyU}U frei)</div>
+          <div class="rack-frame" style="padding-left: 36px; min-width: 260px;">
+            <div class="rack-slot-track" style="height:${frameH}px; position:relative;">
               ${slots.join('')}
               ${items}
             </div>
@@ -7951,8 +8251,11 @@
         { slug: null, kind: 'pdu', name: 'PDU 1U' },
         { slug: null, kind: 'ups', name: 'USV 2U' },
         { slug: null, kind: 'cableTray', name: 'Kabelführung 1U' },
+        { slug: null, kind: 'brush', name: 'Bürstenblende 1U' },
         { slug: null, kind: 'shelf', name: 'Fachboden 1U' },
-        { slug: null, kind: 'blank', name: 'Blindblende 1U' }
+        { slug: null, kind: 'blank', name: 'Blindblende 1U' },
+        { slug: null, kind: 'blank2u', name: 'Blindblende 2U' },
+        { slug: 'usp-rps', kind: 'power', name: 'SmartPower RPS 1U' }
       ];
       const paletteCards = [...candidates, ...generics].map(c => {
         const meta = getRackUnits(c.slug, c.kind);
@@ -7971,21 +8274,29 @@
       const customItems = state.rackView.customPalette || [];
       const customCards = customItems.map(c => `
         <div class="rack-palette-card"
-            draggable="true" data-palette-slug="" data-palette-kind="custom" data-palette-name="${escapeHtml(c.name)}" data-palette-u="${c.u}" data-palette-price="${c.price ?? 0}"
+            draggable="true" data-palette-slug="" data-palette-kind="custom" data-palette-name="${escapeHtml(c.name)}" data-palette-u="${c.u}" data-palette-price="${c.price ?? 0}" data-palette-half="${c.isHalf ? 'true' : 'false'}"
             onclick="window.rackPlaceCustomPaletteItem('${c.id}')">
-          <span class="pc-u">${c.u}U</span>
+          <span class="pc-u">${c.u}U${c.isHalf ? ' ½' : ''}</span>
           <span class="pc-name">${escapeHtml(c.name)}</span>
           <span class="pc-remove" onclick="event.stopPropagation(); window.rackRemoveCustomPaletteItem('${c.id}')" title="Aus Palette entfernen">✕</span>
         </div>`).join('');
 
-      // Cabling-Tabelle
+      // Cabling-Tabelle — Multi-Rack-Support: Targets aus allen Racks sammeln
       const switchItem = rackItemByKindSlug(rack, 'switch');
-      const gatewayItem = rackItemByKindSlug(rack, 'gateway');
-      const targets = (rack.items || []).filter(it => it.kind === 'switch' || it.kind === 'gateway');
-      const switchSpec = switchItem ? productCache.specs[switchItem.slug] : null;
-      const gatewaySpec = gatewayItem ? productCache.specs[gatewayItem.slug] : null;
+      const targets = [];
+      (state.racks || []).forEach(r => {
+        (r.items || []).forEach(it => {
+          if (it.kind === 'switch' || it.kind === 'gateway') {
+            targets.push({ item: it, rackId: r.id, rackName: r.name });
+          }
+        });
+      });
       const portMax = (rid) => {
-        const it = (rack.items || []).find(x => x.id === rid);
+        let it = null;
+        for (const r of state.racks) {
+          it = (r.items || []).find(x => x.id === rid);
+          if (it) break;
+        }
         if(!it) return 48;
         if(it.kind === 'switch') return productCache.specs[it.slug]?.ports || 48;
         if(it.kind === 'gateway') return productCache.specs[it.slug]?.ports || 8;
@@ -8009,10 +8320,10 @@
         const cn = state.cabling.connections.find(c => c.deviceId === dev.id);
         const spec = productCache.specs[dev.slug];
         const devName = spec?.name || dev.slug;
-        const isOrphan = cn && !targets.some(t => t.id === cn.rackItemId);
-        const max = cn ? portMax(cn.rackItemId) : (switchSpec?.ports || 8);
+        const isOrphan = cn && !targets.some(t => t.item.id === cn.rackItemId);
+        const max = cn ? portMax(cn.rackItemId) : 48;
         const collision = cn && cn.portNumber != null && (portCounts.get(portKey(cn)) || 0) > 1;
-        const targetOpts = targets.map(t => `<option value="${t.id}" ${cn?.rackItemId===t.id?'selected':''}>${escapeHtml(t.label || productCache.specs[t.slug]?.name || t.kind)}</option>`).join('');
+        const targetOpts = targets.map(t => `<option value="${t.item.id}" ${cn?.rackItemId===t.item.id?'selected':''}>${escapeHtml(t.rackName)}: ${escapeHtml(t.item.label || productCache.specs[t.item.slug]?.name || t.item.kind)}</option>`).join('');
         const catOpts = ['cat6','cat6a','cat7'].map(c => `<option value="${c}" ${cn?.cableCategory===c?'selected':''}>${c.toUpperCase()}</option>`).join('');
         const connId = cn?.id || '';
         return `<tr class="${isOrphan||collision?'orphan':''}">
@@ -8026,7 +8337,7 @@
           <td>${cn
             ? `<select onchange="window.rackCableAssign('${dev.id}','${dev.kind}',this.value,document.getElementById('port-${dev.id}').value)">${targetOpts}</select>`
             : (targets.length === 0 ? '<span class="text-xs text-nexus-muted">Kein Ziel</span>'
-               : `<button class="btn-secondary text-xs" onclick="window.rackCableAssign('${dev.id}','${dev.kind}','${targets[0].id}',null)">Zuweisen</button>`)}
+               : `<button class="btn-secondary text-xs" onclick="window.rackCableAssign('${dev.id}','${dev.kind}','${targets[0].item.id}',null)">Zuweisen</button>`)}
           </td>
           <td>${cn
             ? `<input id="port-${dev.id}" type="number" inputmode="numeric" min="1" max="${max}" value="${cn.portNumber ?? ''}" placeholder="—"
@@ -8052,6 +8363,7 @@
 
       // Port-Knappheit
       const bannerPorts = (() => {
+        const switchSpec = switchItem ? productCache.specs[switchItem.slug] : null;
         if(!switchItem || !switchSpec?.ports) return '';
         const ass = state.cabling.connections.filter(cn => cn.rackItemId === switchItem.id);
         const needed = ass.length + 1; // +Uplink
@@ -8120,18 +8432,28 @@
     function wireRackDnD(rack) {
       const track = document.getElementById('rack-slot-track');
       if(!track) return;
+      
+      const getHorizontalPos = (clientX) => {
+        const rect = track.getBoundingClientRect();
+        const relativeX = clientX - rect.left;
+        return relativeX < rect.width / 2 ? 'left' : 'right';
+      };
+
       // Palette-Items → Rack
       document.querySelectorAll('#rack-col-middle [data-palette-kind]').forEach(el => {
         el.addEventListener('dragstart', e => {
           const uAttr = el.getAttribute('data-palette-u');
           const priceAttr = el.getAttribute('data-palette-price');
+          const isHalfAttr = el.getAttribute('data-palette-half') === 'true';
+          const meta = getRackUnits(el.getAttribute('data-palette-slug') || null, el.getAttribute('data-palette-kind'));
           rackDnD = {
             source: 'palette',
             slug: el.getAttribute('data-palette-slug') || null,
             kind: el.getAttribute('data-palette-kind'),
             name: el.getAttribute('data-palette-name'),
             u: uAttr ? parseInt(uAttr) : null,
-            price: priceAttr != null && priceAttr !== '' ? parseFloat(priceAttr) : null
+            price: priceAttr != null && priceAttr !== '' ? parseFloat(priceAttr) : null,
+            isHalf: isHalfAttr || meta.width === 'half'
           };
           e.dataTransfer.effectAllowed = 'copy';
           try { e.dataTransfer.setData('text/plain', rackDnD.kind); } catch(_) {}
@@ -8162,15 +8484,18 @@
           const itemId = el.getAttribute('data-item-id');
           const it = rack.items.find(x => x.id === itemId);
           if(!it) return;
+          const meta = getRackUnits(it.slug, it.kind);
+          const isHalf = it.position === 'left' || it.position === 'right' || meta.width === 'half';
           e.preventDefault();
-          rackDnD = { source: 'rack', itemId };
+          rackDnD = { source: 'rack', itemId, isHalf };
           el.classList.add('dragging');
           try { el.setPointerCapture(e.pointerId); } catch(_) {}
           const uSize = it.uSize;
 
           const onMove = ev => {
             const u = uFromClientY(ev.clientY, uSize);
-            highlightRackRange(u, uSize, rack, itemId);
+            const hoverSide = rackDnD.isHalf ? getHorizontalPos(ev.clientX) : 'left';
+            highlightRackRange(u, uSize, rack, itemId, hoverSide);
           };
           const onUp = ev => {
             try { el.releasePointerCapture(e.pointerId); } catch(_) {}
@@ -8179,9 +8504,12 @@
             el.removeEventListener('pointerup', onUp);
             el.removeEventListener('pointercancel', onUp);
             const finalU = uFromClientY(ev.clientY, uSize);
+            const hoverSide = rackDnD.isHalf ? getHorizontalPos(ev.clientX) : 'left';
             rackDnD = null;
             clearRackHover();
-            if(finalU !== it.uStart) window.rackMoveItem(itemId, finalU);
+            if(finalU !== it.uStart || (isHalf && hoverSide !== it.position)) {
+              window.rackMoveItem(itemId, finalU, hoverSide);
+            }
           };
           el.addEventListener('pointermove', onMove);
           el.addEventListener('pointerup', onUp);
@@ -8200,7 +8528,8 @@
           ? paletteSize()
           : ((rack.items.find(it => it.id === rackDnD.itemId)?.uSize) || 1);
         const u = uFromClientY(e.clientY, size);
-        highlightRackRange(u, size, rack, rackDnD.source === 'rack' ? rackDnD.itemId : null);
+        const hoverSide = rackDnD.isHalf ? getHorizontalPos(e.clientX) : 'left';
+        highlightRackRange(u, size, rack, rackDnD.source === 'rack' ? rackDnD.itemId : null, hoverSide);
       });
       track.addEventListener('dragleave', e => {
         if(!e.relatedTarget || !track.contains(e.relatedTarget)) clearRackHover();
@@ -8212,46 +8541,81 @@
           ? paletteSize()
           : ((rack.items.find(it => it.id === rackDnD.itemId)?.uSize) || 1);
         const u = uFromClientY(e.clientY, size);
+        const hoverSide = rackDnD.isHalf ? getHorizontalPos(e.clientX) : 'left';
         if(rackDnD.source === 'palette') {
-          window.rackPlaceItemAt(rackDnD.slug, rackDnD.kind, rackDnD.name, u, rackDnD.u, rackDnD.price);
+          window.rackPlaceItemAt(rackDnD.slug, rackDnD.kind, rackDnD.name, u, rackDnD.u, rackDnD.price, hoverSide);
         } else if(rackDnD.source === 'rack') {
-          window.rackMoveItem(rackDnD.itemId, u);
+          window.rackMoveItem(rackDnD.itemId, u, hoverSide);
         }
         rackDnD = null;
         clearRackHover();
       });
     }
     function clearRackHover() {
-      document.querySelectorAll('#rack-slot-track .rack-slot').forEach(s => s.classList.remove('hover-drop','hover-drop-invalid'));
+      document.querySelectorAll('#rack-slot-track .rack-slot').forEach(s => {
+        s.classList.remove('hover-drop','hover-drop-invalid');
+        s.removeAttribute('data-hover-side');
+      });
       document.querySelectorAll('#rack-slot-track .rack-item').forEach(s => s.classList.remove('swap-target'));
     }
-    function highlightRackRange(uStart, uSize, rack, ignoreItemId) {
+    function highlightRackRange(uStart, uSize, rack, ignoreItemId, hoverSide = 'left') {
       clearRackHover();
-      const occupied = new Array(rack.heightU + 1).fill(false);
-      const occupant = new Array(rack.heightU + 1).fill(null);
+      const occ = getRackOccupancy(rack, ignoreItemId);
+      const draggedItem = ignoreItemId ? (rack.items || []).find(it => it.id === ignoreItemId) : null;
+      
+      const isHalf = rackDnD ? !!rackDnD.isHalf : false;
+      
+      const colliders = new Set();
       (rack.items || []).forEach(it => {
         if(it.id === ignoreItemId) return;
-        for(let u = it.uStart; u < it.uStart + it.uSize; u++) if(u <= rack.heightU) { occupied[u] = true; occupant[u] = it; }
+        const itMeta = getRackUnits(it.slug, it.kind);
+        const itHalf = it.position === 'left' || it.position === 'right' || itMeta.width === 'half';
+        const itSide = it.position || 'left';
+        
+        const overlap = Math.max(uStart, it.uStart) < Math.min(uStart + uSize, it.uStart + it.uSize);
+        if (overlap) {
+          if (isHalf) {
+            if (!itHalf || itSide === hoverSide) {
+              colliders.add(it);
+            }
+          } else {
+            colliders.add(it);
+          }
+        }
       });
-      // Kollidierende Items unter dem Zielbereich ermitteln
-      const colliders = new Set();
-      for(let u = uStart; u < uStart + uSize; u++) {
-        if(u >= 1 && u <= rack.heightU && occupant[u]) colliders.add(occupant[u]);
-      }
+      
       const colliderArr = Array.from(colliders);
-      // Swap ist erlaubt, wenn wir gerade ein Rack-Item ziehen und GENAU ein Gegenstück trifft,
-      // das dieselbe Größe hat.
-      const draggedItem = ignoreItemId ? (rack.items || []).find(it => it.id === ignoreItemId) : null;
       const canSwap = !!draggedItem && colliderArr.length === 1 && colliderArr[0].uSize === uSize;
+      
       let valid = true;
       for(let u = uStart; u < uStart + uSize; u++) {
         if(u > rack.heightU || u < 1) { valid = false; break; }
-        if(occupied[u] && !canSwap) { valid = false; break; }
+        
+        const uOccLeft = occ[u].full || occ[u].left;
+        const uOccRight = occ[u].full || occ[u].right;
+        
+        let collisionThisSlot = false;
+        if (isHalf) {
+          collisionThisSlot = (hoverSide === 'left' ? uOccLeft : uOccRight);
+        } else {
+          collisionThisSlot = (uOccLeft || uOccRight);
+        }
+        
+        if (collisionThisSlot && !canSwap) {
+          valid = false;
+          break;
+        }
       }
+      
       const cls = valid ? 'hover-drop' : 'hover-drop-invalid';
       for(let u = uStart; u < uStart + uSize; u++) {
         const s = document.querySelector(`#rack-slot-track .rack-slot[data-u="${u}"]`);
-        if(s) s.classList.add(cls);
+        if(s) {
+          s.classList.add(cls);
+          if (valid && isHalf) {
+            s.setAttribute('data-hover-side', hoverSide);
+          }
+        }
       }
       if(canSwap && valid) {
         const el = document.querySelector(`#rack-slot-track .rack-item[data-item-id="${colliderArr[0].id}"]`);
@@ -8267,7 +8631,7 @@
       const name = await showPrompt('Name für neues Rack:', { title: 'Neues Rack', defaultValue: `Rack ${state.racks.length + 1}`, okLabel: 'Anlegen' });
       if(!name) return;
       const id = rackGenId('r');
-      state.racks.push({ id, name, heightU: 12, depthMm: 450, items: [] });
+      state.racks.push({ id, name, heightU: 12, depthMm: 450, items: [], autoPopulated: false });
       state.rackView.activeRackId = id;
       saveState(); renderRackOverlay();
     };
@@ -8379,62 +8743,72 @@
       }
       window.rackPlaceItem(slug, kind, name, undefined, p);
     };
-    window.rackPlaceItem = (slug, kind, name, uOverride, priceOverride) => {
+    window.rackPlaceItem = (slug, kind, name, uOverride, priceOverride, isHalfOverride) => {
       const rack = getActiveRack();
       if(!rack) return;
       const meta = getRackUnits(slug || null, kind);
       const uSize = uOverride != null ? Math.max(1, parseInt(uOverride)) : meta.u;
       if(uSize === 0) { rackToast(meta.note || 'Nicht rackfähig'); return; }
-      const uStart = findFreeSlot(rack, uSize, true);
-      if(uStart == null) { rackToast('Kein Platz im Rack — Höhe erhöhen oder Items entfernen.'); return; }
+      
+      const isHalf = isHalfOverride != null ? !!isHalfOverride : (meta.width === 'half');
+      const free = findFreeSlot(rack, uSize, isHalf, true);
+      if(free == null) { rackToast('Kein Platz im Rack — Höhe erhöhen oder Items entfernen.'); return; }
       rack.items.push({
-        id: rackGenId('ri'), slug: slug || null, kind, uStart, uSize,
+        id: rackGenId('ri'), slug: slug || null, kind, uStart: free.uStart, uSize,
         label: name || null,
         ports: kind === 'patchpanel' ? 24 : null,
-        price: _rackPriceForNewItem(slug, priceOverride)
+        price: _rackPriceForNewItem(slug, priceOverride),
+        position: isHalf ? free.position : null
       });
       saveState(); renderRackOverlay(); render();
     };
-    window.rackPlaceItemAt = (slug, kind, name, uStart, uOverride, priceOverride) => {
+    window.rackPlaceItemAt = (slug, kind, name, uStart, uOverride, priceOverride, hoverSide = 'left') => {
       const rack = getActiveRack();
       if(!rack) return;
       const meta = getRackUnits(slug || null, kind);
       const uSize = uOverride != null ? Math.max(1, parseInt(uOverride)) : meta.u;
       if(uSize === 0) { rackToast(meta.note || 'Nicht rackfähig'); return; }
-      // Grenzen prüfen
       if(uStart < 1 || uStart + uSize - 1 > rack.heightU) {
         rackToast('Außerhalb des Racks');
         return;
       }
-      // Kollision prüfen
-      const occupied = new Array(rack.heightU + 1).fill(false);
-      (rack.items || []).forEach(it => { for(let u = it.uStart; u < it.uStart + it.uSize; u++) if(u <= rack.heightU) occupied[u] = true; });
+      
+      const isHalf = meta.width === 'half';
+      const occ = getRackOccupancy(rack);
       for(let u = uStart; u < uStart + uSize; u++) {
-        if(occupied[u]) { rackToast('Kollision mit bestehendem Item'); return; }
+        if(occ[u].full) { rackToast('Kollision mit bestehendem Item'); return; }
+        if(isHalf) {
+          if(hoverSide === 'left' && occ[u].left) { rackToast('Kollision mit bestehendem Item'); return; }
+          if(hoverSide === 'right' && occ[u].right) { rackToast('Kollision mit bestehendem Item'); return; }
+        } else {
+          if(occ[u].left || occ[u].right) { rackToast('Kollision mit bestehendem Item'); return; }
+        }
       }
       rack.items.push({
         id: rackGenId('ri'), slug: slug || null, kind, uStart, uSize,
         label: name || null,
         ports: kind === 'patchpanel' ? 24 : null,
-        price: _rackPriceForNewItem(slug, priceOverride)
+        price: _rackPriceForNewItem(slug, priceOverride),
+        position: isHalf ? hoverSide : null
       });
       saveState(); renderRackOverlay(); render();
     };
     window.rackAddCustomPaletteItem = async () => {
-      const name = await showPrompt('Name für eigenes Palette-Item:', { title: 'Neues Palette-Item (1/3)', placeholder: 'z. B. Steckdosenleiste', okLabel: 'Weiter' });
+      const name = await showPrompt('Name für eigenes Palette-Item:', { title: 'Neues Palette-Item (1/4)', placeholder: 'z. B. Steckdosenleiste', okLabel: 'Weiter' });
       if(!name) return;
       const trimmed = name.trim();
       if(!trimmed) return;
-      const uStr = await showPrompt('Höhe in HE (1–10):', { title: `„${trimmed}" — Höhe (2/3)`, inputType: 'number', defaultValue: '1', okLabel: 'Weiter' });
+      const uStr = await showPrompt('Höhe in HE (1–10):', { title: `„${trimmed}" — Höhe (2/4)`, inputType: 'number', defaultValue: '1', okLabel: 'Weiter' });
       if(uStr == null) return;
       const u = parseInt(uStr);
       if(!Number.isFinite(u) || u < 1 || u > 10) { rackToast('Ungültige Höhe (1–10 HE)'); return; }
-      const priceStr = await showPrompt('Preis in € (optional, leer = 0):', { title: `„${trimmed}" — Preis (3/3)`, inputType: 'number', defaultValue: '0', okLabel: 'Anlegen' });
+      const priceStr = await showPrompt('Preis in € (optional, leer = 0):', { title: `„${trimmed}" — Preis (3/4)`, inputType: 'number', defaultValue: '0', okLabel: 'Weiter' });
       if(priceStr == null) return;
       const priceParsed = parseFloat(priceStr);
       const price = Number.isFinite(priceParsed) && priceParsed >= 0 ? priceParsed : 0;
+      const isHalf = await showConfirm(`Handelt es sich um ein Gerät mit halber Breite (½ 19")?`, { title: `„${trimmed}" — Breite (4/4)`, okLabel: 'Ja, ½ Breite', cancelLabel: 'Nein, volle Breite' });
       if(!state.rackView.customPalette) state.rackView.customPalette = [];
-      state.rackView.customPalette.push({ id: 'cp-' + Date.now().toString(36) + Math.random().toString(36).slice(2,5), name: trimmed, u, price });
+      state.rackView.customPalette.push({ id: 'cp-' + Date.now().toString(36) + Math.random().toString(36).slice(2,5), name: trimmed, u, price, isHalf });
       saveState(); renderRackOverlay();
     };
     window.rackRemoveCustomPaletteItem = (id) => {
@@ -8445,39 +8819,70 @@
     window.rackPlaceCustomPaletteItem = (id) => {
       const c = (state.rackView.customPalette || []).find(x => x.id === id);
       if(!c) return;
-      window.rackPlaceItem('', 'custom', c.name, c.u, c.price);
+      window.rackPlaceItem('', 'custom', c.name, c.u, c.price, c.isHalf);
     };
-    window.rackMoveItem = (itemId, uStart) => {
+    window.rackMoveItem = (itemId, uStart, hoverSide = 'left') => {
       const rack = getActiveRack();
       if(!rack) return;
       const it = rack.items.find(x => x.id === itemId);
       if(!it) return;
       uStart = Math.max(1, Math.min(rack.heightU - it.uSize + 1, parseInt(uStart)));
-      if(uStart === it.uStart) return;
+      
+      const meta = getRackUnits(it.slug, it.kind);
+      const isHalf = it.position === 'left' || it.position === 'right' || meta.width === 'half';
+      const targetSide = isHalf ? hoverSide : null;
+      
+      if(uStart === it.uStart && (!isHalf || targetSide === it.position)) return;
 
-      // Kollidierende Items (ohne sich selbst) im Zielbereich sammeln
       const colliders = new Set();
       rack.items.forEach(x => {
         if(x.id === itemId) return;
-        for(let u = uStart; u < uStart + it.uSize; u++) {
-          if(u >= x.uStart && u < x.uStart + x.uSize) colliders.add(x);
+        
+        const xMeta = getRackUnits(x.slug, x.kind);
+        const xHalf = x.position === 'left' || x.position === 'right' || xMeta.width === 'half';
+        const xSide = x.position || 'left';
+        
+        const overlap = Math.max(uStart, x.uStart) < Math.min(uStart + it.uSize, x.uStart + x.uSize);
+        if (overlap) {
+          if (isHalf) {
+            if (!xHalf || xSide === targetSide) {
+              colliders.add(x);
+            }
+          } else {
+            colliders.add(x);
+          }
         }
       });
       const colliderArr = Array.from(colliders);
 
-      // Swap, wenn genau ein gleichgroßes Item getroffen wird
       if(colliderArr.length === 1 && colliderArr[0].uSize === it.uSize) {
         const other = colliderArr[0];
-        const oldStart = it.uStart;
-        it.uStart = other.uStart;
-        other.uStart = oldStart;
-        saveState(); renderRackOverlay();
-        return;
+        const otherMeta = getRackUnits(other.slug, other.kind);
+        const otherHalf = other.position === 'left' || other.position === 'right' || otherMeta.width === 'half';
+        const otherSide = other.position || 'left';
+        
+        if (isHalf === otherHalf) {
+          if (!isHalf || otherSide === targetSide) {
+            const oldStart = it.uStart;
+            const oldSide = it.position;
+            
+            it.uStart = other.uStart;
+            if (isHalf) it.position = other.position;
+            
+            other.uStart = oldStart;
+            if (isHalf) other.position = oldSide;
+            
+            saveState(); renderRackOverlay();
+            return;
+          }
+        }
       }
 
       if(colliderArr.length > 0) {
         const allSameSize = colliderArr.every(c => c.uSize === it.uSize);
-        if(colliderArr.length > 1 && allSameSize) {
+        if(colliderArr.length === 1 && allSameSize) {
+          rackToast('Swap nicht möglich (horizontale Ausrichtung oder Typ passt nicht)');
+        } else if(colliderArr.length > 1 && allSameSize) {
           rackToast('Swap nur mit einem gleich großen Item möglich');
         } else {
           rackToast('Kollision mit ' + colliderArr.length + ' Item(s)');
@@ -8486,6 +8891,7 @@
       }
       if(uStart < 1 || uStart + it.uSize - 1 > rack.heightU) { rackToast('Außerhalb des Racks'); return; }
       it.uStart = uStart;
+      if(isHalf) it.position = targetSide;
       saveState(); renderRackOverlay();
     };
     window.rackRemoveItem = (itemId) => {
@@ -8609,6 +9015,8 @@
       const rackItemIds = new Set((rack.items || []).map(it => it.id));
       state.cabling.connections = state.cabling.connections.filter(cn => !rackItemIds.has(cn.rackItemId));
       rack.items = [];
+      // Verhindert, dass renderRackOverlay das Rack direkt wieder auto-befüllt.
+      rack.autoPopulated = true;
       saveState(); renderRackOverlay();
     };
 
