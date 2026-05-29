@@ -783,6 +783,129 @@
 
     @media print { #rack-overlay { display: none !important; } }
 
+    /* ============================================================
+       Rack-Ansicht — Premium Visual Overhaul (v2)
+       Additive Overrides; zielt auf die real existierenden Klassen.
+       ============================================================ */
+    .rack-overlay {
+      background:
+        radial-gradient(1100px 560px at 82% -12%, color-mix(in oklch, var(--color-primary) 11%, transparent), transparent 60%),
+        radial-gradient(820px 480px at -12% 112%, color-mix(in oklch, var(--color-primary) 7%, transparent), transparent 55%),
+        color-mix(in oklch, var(--color-surface) 98%, transparent);
+    }
+    .rack-overlay-header {
+      position: sticky; top: 0; z-index: 5;
+      backdrop-filter: saturate(1.2) blur(6px);
+      background: color-mix(in oklch, var(--color-surface-card) 90%, transparent);
+      box-shadow: 0 1px 0 var(--color-border), 0 10px 26px -20px rgba(0,0,0,0.55);
+    }
+    .rack-overlay-header .rack-title i { color: var(--color-primary); }
+    /* Header-Buttons (btn-secondary) dezent aufwerten */
+    .rack-overlay-header .btn-secondary {
+      border-radius: 10px;
+      transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+    }
+    .rack-overlay-header .btn-secondary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px -10px rgba(0,0,0,0.5);
+    }
+
+    /* ----- KPI-Stats + Auslastungs-Balken (neues Markup) ----- */
+    .rack-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.4rem; width: 100%; max-width: 340px; margin-bottom: 0.2rem; }
+    .rack-stat {
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      padding: 0.5rem 0.3rem; border-radius: 12px;
+      background: var(--color-surface-card); border: 1px solid var(--color-border);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .rack-stat-val { font-family: 'Cabinet Grotesk', sans-serif; font-weight: 700; font-size: 1.1rem; line-height: 1; color: var(--color-text); }
+    .rack-stat-lbl { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); font-weight: 600; }
+    .rack-stat.is-used .rack-stat-val { color: var(--color-primary); }
+    .rack-stat.is-free .rack-stat-val { color: #10b981; }
+    .rack-fillbar { width: 100%; max-width: 340px; margin-bottom: 0.4rem; }
+    .rack-fillbar-track { height: 8px; border-radius: 999px; background: color-mix(in oklch, var(--color-border) 75%, transparent); overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,0.12); }
+    .rack-fillbar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--color-primary), color-mix(in oklch, var(--color-primary) 55%, #22d3ee)); transition: width .45s cubic-bezier(.2,.8,.2,1); }
+    .rack-fillbar-fill.is-warn { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    .rack-fillbar-fill.is-danger { background: linear-gradient(90deg, #dc2626, #f87171); }
+
+    /* ----- Rack-Rahmen: realistischer 19"-Look mit Montagelöchern ----- */
+    .rack-frame {
+      max-width: 340px;
+      background: linear-gradient(180deg, #221b16 0%, #18120e 52%, #120d0a 100%);
+      border: 8px solid #322e2a;
+      border-radius: 12px;
+      box-shadow:
+        inset 0 0 26px rgba(0,0,0,0.62),
+        inset 0 2px 0 rgba(255,255,255,0.04),
+        0 18px 42px -24px rgba(0,0,0,0.85);
+    }
+    .rack-frame::before, .rack-frame::after {
+      content: ""; position: absolute; top: 6px; bottom: 6px; width: 6px;
+      background: repeating-linear-gradient(to bottom,
+        transparent 0, transparent 8px,
+        rgba(0,0,0,0.5) 8px, rgba(0,0,0,0.5) 11px,
+        rgba(255,255,255,0.05) 11px, rgba(255,255,255,0.05) 12px,
+        transparent 12px, transparent 26px);
+      border-radius: 2px; pointer-events: none; z-index: 0;
+    }
+    .rack-frame::before { left: 2px; }
+    .rack-frame::after { right: 2px; }
+    @media (prefers-color-scheme: dark) {
+      .rack-frame { background: linear-gradient(180deg, #14100d, #0b0907); border-color: #221f1c; }
+    }
+    .rack-slot { border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .rack-slot.even { background: rgba(255,255,255,0.018); }
+    .rack-slot.hover-drop { background: rgba(1, 105, 111, 0.30); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-primary) 65%, transparent); }
+    .rack-he-label { color: rgba(255,255,255,0.34); }
+
+    /* ----- Rack-Items: hochwertige Geräte-Optik ----- */
+    .rack-item {
+      border-radius: 7px;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-left-width: 4px;
+      background: linear-gradient(180deg, #38322b 0%, #2a2521 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 4px 10px -6px rgba(0,0,0,0.7);
+      transition: filter .12s ease, transform .12s ease, box-shadow .12s ease;
+      z-index: 1;
+    }
+    .rack-item::before {
+      content: ""; width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+      background: currentColor; box-shadow: 0 0 7px currentColor; opacity: 0.9;
+    }
+    .rack-item[data-kind="gateway"]    { color: #c084fc; }
+    .rack-item[data-kind="switch"]     { color: #60a5fa; }
+    .rack-item[data-kind="nvr"]        { color: #34d399; }
+    .rack-item[data-kind="patchpanel"] { color: #cbd5e1; }
+    .rack-item[data-kind="pdu"]        { color: #fb923c; }
+    .rack-item[data-kind="ups"]        { color: #facc15; }
+    .rack-item[data-kind="power"]      { color: #f472b6; }
+    .rack-item[data-kind="shelf"]      { color: #d6c5b0; }
+    .rack-item[data-kind="cableTray"], .rack-item[data-kind="brush"] { color: #94a3b8; }
+    .rack-item[data-kind="blank"], .rack-item[data-kind="blank2u"] { color: #6b7280; }
+    .rack-item .ri-name { color: #f4f1ec; }
+    .rack-item:hover { filter: brightness(1.12); box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-primary) 55%, transparent), 0 6px 14px -6px rgba(0,0,0,0.78); }
+    .rack-item .ri-badge {
+      font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9px;
+      padding: 2px 5px; border-radius: 5px; background: rgba(0,0,0,0.32);
+      color: rgba(255,255,255,0.82); border: 1px solid rgba(255,255,255,0.08);
+    }
+    .rack-item .ri-badge.ri-badge-clickable:hover { background: color-mix(in oklch, var(--color-primary) 45%, rgba(0,0,0,0.32)); color: #fff; }
+    .rack-item .ri-remove {
+      width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 50%; color: rgba(255,255,255,0.45); padding: 0; transition: all .12s ease;
+    }
+    .rack-item .ri-remove:hover { background: #dc2626; color: #fff; }
+
+    /* ----- Palette-Karten ----- */
+    .rack-palette-card { border-radius: 10px; transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+    .rack-palette-card:not(.disabled):hover { transform: translateY(-2px); box-shadow: 0 8px 18px -12px rgba(0,0,0,0.5); border-color: color-mix(in oklch, var(--color-primary) 45%, var(--color-border)); }
+    .rack-palette-card .pc-u { color: var(--color-primary); background: color-mix(in oklch, var(--color-primary) 12%, transparent); font-weight: 700; }
+
+    /* ----- Cabling-Tabelle Hover ----- */
+    .rack-cabling-table tbody tr:hover td { background: color-mix(in oklch, var(--color-primary) 5%, transparent); }
+
+    @media (max-width: 640px) { .rack-stats { grid-template-columns: repeat(2, 1fr); } }
+
     /* --- A11y, Touch-Targets, Reduced-Motion, erweitertes Print (Iteration 3) --- */
 
     /* Touch-Targets ≥ 44 px auf Touch-Geräten für die Step-2-Toolbar.
@@ -1765,6 +1888,7 @@
          // Esc: Vollbild verlassen / BG-Popup schließen / Auswahl aufheben /
          // Floor-Menü schließen.
          if(e.key === 'Escape') {
+            if(state.rackViewOpen) { window.closeRackView(); return; }
             const card = document.getElementById('planner-card');
             if(card && card.classList.contains('planner-fullscreen')) {
                window.toggleFullscreen?.();
@@ -8316,7 +8440,16 @@
       const frameH = rack.heightU * 26;
       return `
         <div class="rack-frame-wrap">
-          <div class="text-sm text-nexus-muted mb-2">${escapeHtml(rack.name)} · ${rack.heightU}U · ${usedU}U belegt · ${emptyU}U frei</div>
+          <div class="text-sm text-nexus-muted mb-2" style="font-weight:600;">${escapeHtml(rack.name)} · ${rack.heightU}U</div>
+          <div class="rack-stats">
+            <div class="rack-stat is-used"><span class="rack-stat-val">${usedU}</span><span class="rack-stat-lbl">Belegt (HE)</span></div>
+            <div class="rack-stat is-free"><span class="rack-stat-val">${emptyU}</span><span class="rack-stat-lbl">Frei (HE)</span></div>
+            <div class="rack-stat"><span class="rack-stat-val">${rack.heightU > 0 ? Math.round(usedU / rack.heightU * 100) : 0}%</span><span class="rack-stat-lbl">Auslastung</span></div>
+            <div class="rack-stat"><span class="rack-stat-val">${(() => { try { const p = (typeof computePower === 'function' && b) ? computePower(b) : null; return p ? Math.round(p.totalWatts) + ' W' : '—'; } catch(_) { return '—'; } })()}</span><span class="rack-stat-lbl">Leistung</span></div>
+          </div>
+          <div class="rack-fillbar" title="Rack-Auslastung: ${usedU} von ${rack.heightU} HE belegt">
+            <div class="rack-fillbar-track"><div class="rack-fillbar-fill ${rack.heightU > 0 && usedU / rack.heightU > 0.9 ? 'is-danger' : rack.heightU > 0 && usedU / rack.heightU > 0.7 ? 'is-warn' : ''}" style="width: ${rack.heightU > 0 ? Math.min(100, Math.round(usedU / rack.heightU * 100)) : 0}%;"></div></div>
+          </div>
           <div class="rack-frame" style="padding-left: 36px;">
             <div class="rack-slot-track" id="rack-slot-track" style="height:${frameH}px; position:relative;">
               ${slots.join('')}
