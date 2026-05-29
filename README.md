@@ -49,6 +49,7 @@ Der Planer führt schrittweise durch sechs Abschnitte:
 
 Der Projektstand wird automatisch im Browser (LocalStorage) gespeichert. Über den Reset-Button im Header kann das Projekt komplett zurückgesetzt werden.
 Projekte können zusätzlich als `.json`-Datei exportiert und wieder importiert werden.
+Im Schritt **Ergebnis & Zusammenfassung** lässt sich die Stückliste als **PDF** (clientseitig via jsPDF, mit Projekt-Eckdaten, BOM-Tabelle und Stromkosten) oder als **CSV** herunterladen; alternativ druckt der **Drucken**-Button die vollständige Zusammenfassung inklusive Topologie. Ist die PDF-Bibliothek nicht verfügbar (Offline/CDN blockiert), wird automatisch der Druckdialog geöffnet.
 
 ## Projektstruktur
 

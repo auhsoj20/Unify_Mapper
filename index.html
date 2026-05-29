@@ -12,6 +12,9 @@
   <link rel="stylesheet" href="dist/tailwind.css">
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- PDF-Export (clientseitig, optional — bei Offline/CDN-Block greift der Druckdialog-Fallback) -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
   <script src="unifi-products.js"></script>
 
   <style>
@@ -2539,6 +2542,28 @@
       return null;
     }
 
+    // Kritische (error-)Warnungen aus Schritt 3, gemerkt beim Rendern, für die
+    // sanfte „Weiter"-Plausibilitätsprüfung weiter unten.
+    let _step3Blockers = [];
+
+    // --- Sanfte Plausibilitätsprüfung (Schritte 2 & 3) --- //
+    // Blockiert NICHT hart wie validateStep, sondern fragt beim „Weiter"-Klick
+    // einmalig nach, wenn das Setup auffällig unvollständig wirkt. Liefert einen
+    // Bestätigungstext oder null.
+    function softValidateStep(step) {
+      if(step === 2) {
+        const anyDevices = (state.floors || []).some(f => (f.aps || []).length > 0 || (f.cameras || []).length > 0);
+        if(!anyDevices) {
+          return 'Es sind noch keine Access Points oder Kameras platziert. Ohne platzierte Geräte kann die Stückliste keine WLAN- oder Kamera-Hardware empfehlen. Trotzdem zum nächsten Schritt?';
+        }
+        return null;
+      }
+      if(step === 3 && _step3Blockers.length > 0) {
+        return 'Im Switch-/PoE-Setup gibt es ungelöste Probleme: ' + _step3Blockers.join('; ') + '. Die Stückliste kann dadurch unvollständig oder nicht betriebsfähig sein. Trotzdem zum nächsten Schritt?';
+      }
+      return null;
+    }
+
     // --- Render Engine --- //
     const contentDiv = document.getElementById('app-content');
 
@@ -2549,14 +2574,19 @@
       document.getElementById('btn-prev').classList.toggle('hidden', state.currentStep === 1);
       const btnNext = document.getElementById('btn-next');
       if (state.currentStep === 6) {
-        btnNext.innerHTML = '<i data-lucide="printer" class="w-4 h-4"></i> PDF Exportieren';
-        btnNext.onclick = () => window.print();
+        btnNext.innerHTML = '<i data-lucide="file-down" class="w-4 h-4"></i> PDF Exportieren';
+        btnNext.onclick = () => window.exportBomPdf();
       } else {
         btnNext.innerHTML = 'Weiter <i data-lucide="arrow-right" class="w-4 h-4"></i>';
-        btnNext.onclick = () => {
+        btnNext.onclick = async () => {
           if(state.currentStep >= 6) return;
           const err = validateStep(state.currentStep);
           if(err) { showPlannerToast(err, 'error'); return; }
+          const soft = softValidateStep(state.currentStep);
+          if(soft) {
+            const proceed = await showConfirm(soft, { title: 'Hinweis', okLabel: 'Trotzdem weiter', cancelLabel: 'Im Schritt bleiben' });
+            if(!proceed) return;
+          }
           state.currentStep++;
           render();
         };
@@ -5230,6 +5260,9 @@
         }
       }
 
+      // Kritische (error-)Warnungen für die sanfte „Weiter"-Plausibilitätsprüfung merken.
+      _step3Blockers = warnings.filter(w => w.level === 'error').map(w => w.title);
+
       // -------- Rendering --------
       const renderWarnings = () => {
         if(warnings.length === 0) return '';
@@ -7041,6 +7074,113 @@
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     };
 
+    // Echter clientseitiger PDF-Export der Stückliste + Zusammenfassung via jsPDF
+    // (+autoTable). Bleibt komplett im Browser — keine Server-Komponente, damit
+    // die App weiterhin als statische GitHub Page funktioniert. Ist die CDN-
+    // Bibliothek nicht verfügbar (Offline/CSP), wird transparent auf den
+    // Druckdialog (window.print → „Als PDF speichern") zurückgegriffen.
+    window.exportBomPdf = () => {
+      const ns = window.jspdf;
+      if(!ns || !ns.jsPDF) {
+        showPlannerToast('PDF-Bibliothek nicht geladen (Offline?). Druckdialog wird geöffnet — dort „Als PDF speichern" wählen.', 'error');
+        window.print();
+        return;
+      }
+      // Eigener EUR-Formatter: vermeidet das schmale geschützte Leerzeichen aus
+      // toLocaleString(currency), das in PDF-Standardfonts als Kästchen erscheint.
+      const eur = (v) => fmt0(v) + ' EUR';
+      const { jsPDF } = ns;
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const margin = 40;
+      const primary = [1, 105, 111];
+
+      const b = buildBom();
+      const p = computePower(b);
+      const total = b.bom.reduce((s, it) => s + it.price * it.qty, 0);
+      const stamp = new Date().toISOString().slice(0, 10);
+
+      // Kopf
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
+      doc.text('UniFi Setup Planner', margin, 46);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(120);
+      doc.text('Stückliste & Zusammenfassung · Stand ' + new Date().toLocaleDateString('de-DE'), margin, 62);
+      doc.setTextColor(0);
+
+      // Projekt-Eckdaten
+      const aps = b.allAps.length, cams = b.allCameras.length;
+      const floors = (state.floors || []).length;
+      const rooms = (state.floors || []).reduce((s, f) => s + ((f.rooms || []).length), 0);
+      const backupLbl = state.backup?.enabled
+        ? ({ starlink: 'Starlink', cellular: 'Mobilfunk (5G/LTE)', isp2: 'Zweit-Anbieter' }[state.backup.type] || 'aktiv')
+        : 'keines';
+      doc.autoTable({
+        startY: 78,
+        theme: 'plain',
+        styles: { fontSize: 10, cellPadding: 2 },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 170 } },
+        margin: { left: margin, right: margin },
+        body: [
+          ['Internetanbieter', state.isp ? `${state.isp.name} — ${state.isp.type}` : '—'],
+          ['Geschwindigkeit', `${state.speedDown} / ${state.speedUp} Mbit/s (Down / Up)`],
+          ['Gateway', b.gw?.name || '—'],
+          ['Etagen / Räume', `${floors} / ${rooms}`],
+          ['Access Points / Kameras', `${aps} / ${cams}`],
+          ['Backup-Internet', backupLbl],
+        ]
+      });
+
+      // Stückliste
+      let y = doc.lastAutoTable.finalY + 22;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+      doc.text('Stückliste (BOM)', margin, y);
+      doc.autoTable({
+        startY: y + 8,
+        head: [['Kategorie', 'Modell', 'Menge', 'Einzelpreis', 'Gesamt']],
+        body: b.bom.map(it => [it.category, it.name, String(it.qty), eur(it.price), eur(it.price * it.qty)]),
+        foot: [['', '', '', 'Gesamt', eur(total)]],
+        styles: { fontSize: 9, cellPadding: 4 },
+        headStyles: { fillColor: primary, halign: 'left' },
+        footStyles: { fillColor: [238, 238, 238], textColor: 20, fontStyle: 'bold' },
+        columnStyles: { 2: { halign: 'right', cellWidth: 50 }, 3: { halign: 'right', cellWidth: 75 }, 4: { halign: 'right', cellWidth: 75 } },
+        margin: { left: margin, right: margin }
+      });
+
+      // Strom & laufende Kosten
+      y = doc.lastAutoTable.finalY + 22;
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
+      doc.text('Strom & laufende Kosten', margin, y);
+      const energyRows = [
+        ['Gesamtleistung (Wand)', `${fmt0(p.totalWatts)} W`],
+        ['Energieverbrauch', `${fmt0(p.kwhYear)} kWh / Jahr`],
+        ['Stromkosten (geschätzt)', `${eur(p.yearlyCost)} / Jahr  (bei ${p.tariff.toFixed(2)} EUR/kWh)`],
+      ];
+      if(state.backup?.enabled && state.backup.type === 'starlink' && state.backup.starlinkPlan) {
+        const sl = STARLINK_PLANS.find(pl => pl.id === state.backup.starlinkPlan);
+        if(sl) energyRows.push(['Starlink-Tarif (' + sl.name + ')', `${eur(sl.monthly)} / Monat  (${eur(sl.monthly * 12)} / Jahr)`]);
+      }
+      doc.autoTable({
+        startY: y + 8,
+        theme: 'plain',
+        styles: { fontSize: 10, cellPadding: 2 },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 200 } },
+        margin: { left: margin, right: margin },
+        body: energyRows
+      });
+
+      // Fußzeile mit Seitenzahlen
+      const pageCount = doc.internal.getNumberOfPages();
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      for(let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(150);
+        doc.text('Erstellt mit UniFi Setup Planner', margin, pageH - 20);
+        doc.text(`Seite ${i} / ${pageCount}`, pageW - margin, pageH - 20, { align: 'right' });
+      }
+
+      doc.save(`unifi-setup-${stamp}.pdf`);
+    };
+
     // Baut ein einfaches Topologie-SVG: WAN → Gateway → Switch → APs/Kameras,
     // plus optional NVR und Mesh-Uplink-Reihe (gestrichelt). Rein deklarativ —
     // kein Canvas, damit das Ergebnis ohne weitere Tools druck- und exportfähig
@@ -7543,6 +7683,8 @@
             <button onclick="window.importProjectJson()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="folder-open" class="w-3 h-3"></i> Projekt laden</button>
             <button onclick="window.copyShareLink()" class="btn-secondary text-xs flex items-center gap-1" title="Komprimierten Projektstand als URL in die Zwischenablage kopieren (ohne Hintergrundbilder)"><i data-lucide="link" class="w-3 h-3"></i> Share-Link kopieren</button>
             <button onclick="window.exportBomCsv()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="file-spreadsheet" class="w-3 h-3"></i> BOM als CSV</button>
+            <button onclick="window.exportBomPdf()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="file-down" class="w-3 h-3"></i> BOM als PDF</button>
+            <button onclick="window.print()" class="btn-secondary text-xs flex items-center gap-1" title="Vollständige Zusammenfassung inkl. Topologie über den Browser drucken oder als PDF speichern"><i data-lucide="printer" class="w-3 h-3"></i> Drucken</button>
           </div>
         </div>
         <div id="dash-content" class="grid grid-cols-1 border-t border-nexus-border pt-8 gap-8">
