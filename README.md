@@ -47,6 +47,26 @@ Der Planer führt schrittweise durch sechs Abschnitte:
 
 Über den Button **„Rack-Ansicht"** lassen sich die geplanten Geräte in ein 19"-Rack einsortieren und virtuell verkabeln.
 
+### Mobil-Ansicht (Touchscreen)
+
+Auf Smartphones aktiviert sich automatisch ein **dedizierter Mobil-Modus**
+(erkannt über Bildschirmbreite ≤ 768 px + Touch-Bedienung). Über den
+**Smartphone-Button** im Header lässt er sich manuell umschalten
+(Automatisch → An → Aus); die Wahl wird im Browser gemerkt.
+
+- **Schlanke Navigation**: kompakter Fortschritts-Indikator „Schritt N/6 ·
+  Label" mit Balken statt der sechs Stepper-Knoten; volle-Breite
+  Zurück/Weiter-Leiste am unteren Rand (mit Safe-Area-Abstand).
+- **Touch-Drag**: größere Trefferflächen für Raum-Ecken, Wände, APs und
+  Kameras sowie kurzes Haptik-Feedback beim Ablegen.
+- **Lesbare Tabellen**: breite Tabellen (Stückliste, Switch/PoE, Patchplan,
+  VLANs, Firewall) werden als gestapelte Karten dargestellt statt horizontal
+  zu scrollen.
+
+Der Mobil-Modus ist eine reine Zusatzschicht: Alle Stile liegen in
+[mobile.css](mobile.css) unter `body.mobile-mode`, die Desktop-Ansicht bleibt
+unverändert.
+
 Der Projektstand wird automatisch im Browser (LocalStorage) gespeichert. Über den Reset-Button im Header kann das Projekt komplett zurückgesetzt werden.
 Projekte können zusätzlich als `.json`-Datei exportiert und wieder importiert werden.
 Im Schritt **Ergebnis & Zusammenfassung** lässt sich die Stückliste als **PDF** (clientseitig via jsPDF, mit Projekt-Eckdaten, BOM-Tabelle und Stromkosten) oder als **CSV** herunterladen; alternativ druckt der **Drucken**-Button die vollständige Zusammenfassung inklusive Topologie. Ist die PDF-Bibliothek nicht verfügbar (Offline/CDN blockiert), wird automatisch der Druckdialog geöffnet.
@@ -57,6 +77,7 @@ Im Schritt **Ergebnis & Zusammenfassung** lässt sich die Stückliste als **PDF*
 |---|---|
 | [index.html](index.html) | Komplettes Frontend (HTML + Inline-JS) |
 | [unifi-products.js](unifi-products.js) | Produkt- und Preisdatenbank (`window.UNIFI_DATA`) |
+| [mobile.css](mobile.css) | Stile des Mobil-Modus (gescoped unter `body.mobile-mode`) |
 | [src/tailwind.css](src/tailwind.css) | Tailwind-Source (nur `@tailwind`-Direktiven) |
 | [tailwind.config.js](tailwind.config.js) | Tailwind-Konfiguration (Theme, Safelist) |
 | [dist/tailwind.css](dist/tailwind.css) | Gebaute CSS — wird von index.html geladen |
