@@ -1,0 +1,203 @@
+/* =====================================================================
+   mobile.css — Dedizierter Mobil-Modus für Unify Mapper
+   ---------------------------------------------------------------------
+   KONTRAKT (verbindlich für alle Beteiligten):
+     • Body-Klasse ................ body.mobile-mode  (von applyMobileMode())
+     • JS-Flag .................... state.mobileMode  (Boolean)
+     • CSS-Prefix ................. .mm-*
+     • Sheet-Helfer ............... window.openSheet(content,title) / closeSheet()
+   REGELN:
+     • JEDE Regel ist unter `body.mobile-mode` gescoped → Desktop bleibt
+       absolut unberührt (Datei ist verlinkt, aber ohne die Klasse inert).
+     • KEINE neuen Tailwind-Utility-Klassen in index.html — nur .mm-*.
+     • dist/tailwind.css wird NICHT angefasst.
+   ===================================================================== */
+
+/* ---- Toggle-Button im Header (immer sichtbar, dezent) ---- */
+.mm-toggle.mm-toggle-active {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* =====================================================================
+   A — NAVIGATION & CHROME
+   ===================================================================== */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body.mobile-mode #app-content { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+}
+body.mobile-mode #app-content { padding-bottom: 96px; }
+body.mobile-mode #legal-footer { padding-bottom: 7rem; }
+
+/* Kompakter Header */
+body.mobile-mode #header > div { padding-top: 0.4rem; padding-bottom: 0.4rem; gap: 0.4rem; }
+body.mobile-mode #freshness-container { display: none !important; }
+
+/* Desktop-Stepper ausblenden (beide Zeilen-Wrapper), kompakten mobilen
+   Indikator einblenden. `:not(#mm-step-indicator)` trifft nur die zwei
+   Desktop-Reihen, nie den Indikator selbst. */
+body.mobile-mode #progress-container > div:not(#mm-step-indicator) { display: none !important; }
+body.mobile-mode #progress-container .step-node,
+body.mobile-mode #progress-container .step-line { display: none !important; }
+body.mobile-mode #progress-container {
+  margin-top: 0.75rem; margin-bottom: 0.75rem;
+}
+.mm-step-indicator { display: none; }
+body.mobile-mode #mm-step-indicator.mm-step-indicator {
+  display: flex; flex-direction: column; gap: 0.5rem;
+  padding: 0 0.25rem;
+}
+.mm-step-indicator-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+}
+.mm-step-indicator-title { font-weight: 700; font-size: 1.05rem; }
+.mm-step-indicator-count {
+  font-size: 0.75rem; font-weight: 600; color: var(--color-text-muted);
+  background: var(--color-surface-card); border: 1px solid var(--color-border);
+  border-radius: 999px; padding: 0.15rem 0.6rem; white-space: nowrap;
+}
+.mm-step-bar { height: 6px; border-radius: 999px; background: var(--color-border); overflow: hidden; }
+.mm-step-bar > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--color-primary); transition: width 0.3s ease;
+}
+
+/* Daumenfreundliche Bottom-Navigation */
+body.mobile-mode #footer-nav {
+  padding: 0.6rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
+  box-shadow: 0 -6px 18px rgba(0,0,0,0.10);
+}
+body.mobile-mode #footer-nav > div { gap: 0.6rem; }
+body.mobile-mode #footer-nav .flex-1 { display: none; }
+/* #footer-nav-Präfix nötig, um die bestehende ID-Regel (min-height:44px) zu schlagen */
+body.mobile-mode #footer-nav .footer-nav-btn {
+  flex: 1 1 0; justify-content: center; min-height: 56px;
+  font-size: 1rem; border-radius: 14px; padding: 0.75rem 1rem;
+}
+body.mobile-mode #footer-nav #btn-prev.hidden { display: none !important; }
+body.mobile-mode #footer-nav #btn-prev.footer-nav-btn { flex: 0 0 38%; }
+
+/* =====================================================================
+   SHEET / DRAWER (wiederverwendbar)
+   ===================================================================== */
+.mm-sheet {
+  position: fixed; inset: 0; z-index: 70;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+}
+.mm-sheet.mm-sheet-open { opacity: 1; pointer-events: auto; }
+.mm-sheet-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+.mm-sheet-panel {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: var(--color-surface-card);
+  border-top-left-radius: 18px; border-top-right-radius: 18px;
+  box-shadow: 0 -10px 30px rgba(0,0,0,0.25);
+  max-height: 85vh; max-height: 85dvh; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.5rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
+  transform: translateY(100%); transition: transform 0.24s cubic-bezier(.22,.61,.36,1);
+}
+.mm-sheet.mm-sheet-open .mm-sheet-panel { transform: translateY(0); }
+.mm-sheet-grip { width: 44px; height: 5px; border-radius: 999px; background: var(--color-border); margin: 0.4rem auto 0.6rem; }
+.mm-sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; font-weight: 700; }
+.mm-sheet-close { min-width: 40px; min-height: 40px; border-radius: 10px; font-size: 1.1rem; color: var(--color-text-muted); }
+.mm-sheet-body { display: flex; flex-direction: column; gap: 0.75rem; }
+/* Triggerknopf, der ein Sheet öffnet (Toolbar/Inspector) */
+.mm-sheet-trigger { display: none; }
+body.mobile-mode .mm-sheet-trigger {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  min-height: 44px; padding: 0.5rem 0.9rem; border-radius: 12px;
+  background: var(--color-surface-card); border: 1px solid var(--color-border);
+  font-weight: 600; font-size: 0.85rem;
+}
+
+/* =====================================================================
+   B — PLANNER & DRAG (Step 2 + Rack)
+   ===================================================================== */
+/* Höhere Canvas-Fläche am Handy, Toolbar-Steuerung über Sheet */
+body.mobile-mode #planner-area { height: clamp(340px, 58vh, 560px); }
+
+/* Sichtbare Drag-Handles + größere Lösch-Buttons */
+body.mobile-mode .mm-drag-handle {
+  cursor: grab; touch-action: none;
+}
+body.mobile-mode .vertex-delete-btn {
+  width: 30px !important; height: 30px !important; font-size: 18px !important;
+}
+/* APs/Kameras am Handy etwas größer für Treffsicherheit */
+body.mobile-mode .draggable-ap.mm-touch-target {
+  min-width: 46px; min-height: 46px;
+}
+/* Breitere Kanten-Trefferzone für Finger (Wände/Türen setzen) */
+body.mobile-mode #planner-area svg line.mm-edge-hit { stroke-width: 22px; }
+
+/* Planner-Toolbar: Optionen ins vorhandene „Optionen"-Dropdown verlagern
+   (gleiches Muster wie ≤640px), schlanke Leiste, größere Tap-Ziele. */
+body.mobile-mode .planner-toolbar { gap: 0.35rem; }
+body.mobile-mode .planner-toolbar .planner-toolbar-collapsible { display: none !important; }
+body.mobile-mode .planner-toolbar-more { display: inline-flex !important; }
+body.mobile-mode .planner-toolbar-more > summary { min-height: 44px; }
+
+/* Inspector: gedeckelte Höhe mit eigenem Scroll, damit der Canvas Platz behält */
+body.mobile-mode #planner-inspector-slot:not(:empty) {
+  max-height: 42vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+}
+
+/* Rack: kräftigere Palette-Karten für Pointer-Drag */
+body.mobile-mode .rack-palette-card { min-height: 56px; touch-action: none; }
+body.mobile-mode .rack-palette-card.mm-dragging { opacity: 0.5; }
+
+/* =====================================================================
+   C — TABELLEN & ERGEBNISSE → Karten-Stapel
+   Muster aus der Rack-Verkabelungstabelle verallgemeinert.
+   Tabellen tragen .mm-card-table, <td> tragen data-label="…".
+   ===================================================================== */
+body.mobile-mode .mm-card-table { display: block; min-width: 0; width: 100%; }
+body.mobile-mode .mm-card-table thead { display: none; }
+body.mobile-mode .mm-card-table tbody { display: block; }
+body.mobile-mode .mm-card-table tr {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 0.7rem;
+  padding: 0.75rem 0.85rem; margin-bottom: 0.6rem;
+  border: 1px solid var(--color-border); border-radius: 12px;
+  background: var(--color-surface-card);
+}
+/* reine Trenn-/Summenzeilen dürfen einspaltig bleiben */
+body.mobile-mode .mm-card-table tr.mm-row-full { grid-template-columns: 1fr; }
+body.mobile-mode .mm-card-table td {
+  display: flex; flex-direction: column; gap: 0.1rem;
+  padding: 0 !important; border: none !important; min-width: 0;
+  text-align: left !important; white-space: normal !important;
+  font-size: 0.85rem;
+}
+body.mobile-mode .mm-card-table td:empty { display: none; }
+/* erste Zelle = Titel über volle Breite, fett */
+body.mobile-mode .mm-card-table td:first-child {
+  grid-column: 1 / -1; font-weight: 700; font-size: 0.95rem;
+}
+body.mobile-mode .mm-card-table td[data-label]::before {
+  content: attr(data-label);
+  font-size: 0.625rem; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--color-text-muted); font-weight: 600;
+}
+/* Mini-Labels an der ersten Zelle unterdrücken (ist schon der Titel) */
+body.mobile-mode .mm-card-table td:first-child[data-label]::before { content: none; }
+body.mobile-mode .mm-card-table td.mm-col-full { grid-column: 1 / -1; }
+body.mobile-mode .mm-card-table input,
+body.mobile-mode .mm-card-table select { font-size: 16px; min-height: 40px; width: 100%; }
+
+/* Ergebnis-Karten als Accordion (Step 6) */
+body.mobile-mode .mm-accordion > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center;
+  justify-content: space-between; gap: 0.5rem; min-height: 48px;
+}
+body.mobile-mode .mm-accordion > summary::-webkit-details-marker { display: none; }
+body.mobile-mode .mm-accordion > summary::after {
+  content: '⌄'; font-size: 1.1rem; color: var(--color-text-muted);
+  transition: transform 0.2s ease;
+}
+body.mobile-mode .mm-accordion[open] > summary::after { transform: rotate(180deg); }
+
+/* Charts/Topologie nie überlaufen lassen */
+body.mobile-mode .mm-chart-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+body.mobile-mode .mm-chart-scroll canvas { max-width: 100%; }
+
+/* Mehrspaltige Grids am Handy zu einer Spalte zwingen, wo eng */
+body.mobile-mode .mm-stack { grid-template-columns: 1fr !important; }

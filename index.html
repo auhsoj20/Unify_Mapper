@@ -10,6 +10,8 @@
   
   <!-- Tailwind V3 -->
   <link rel="stylesheet" href="dist/tailwind.css">
+  <!-- Dedizierter Mobil-Modus (plain CSS, alle Regeln unter body.mobile-mode) -->
+  <link rel="stylesheet" href="mobile.css">
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <!-- PDF-Export (clientseitig, optional — bei Offline/CDN-Block greift der Druckdialog-Fallback) -->
@@ -1278,6 +1280,9 @@
         <span class="font-display font-bold text-base md:text-xl tracking-tight truncate">Setup Planner</span>
       </div>
       <div id="freshness-container" class="no-print"></div>
+      <button id="btn-mobile-toggle" onclick="window.cycleMobileMode()" class="btn-secondary no-print text-xs mm-toggle" style="padding: 0.5rem 0.6rem; min-height: 40px;" title="Mobil-Ansicht: automatisch / an / aus" aria-label="Mobil-Ansicht umschalten">
+        <i data-lucide="smartphone" class="w-4 h-4"></i> <span class="mm-toggle-label hidden sm:inline">Auto</span>
+      </button>
       <button id="btn-rack-view" onclick="window.openRackView()" class="btn-secondary no-print text-xs" style="display:none; padding: 0.5rem 0.75rem; min-height: 40px;" title="Rack-Ansicht öffnen – Geräte im Rack anordnen und verkabeln">
         <i data-lucide="server" class="w-4 h-4"></i> <span class="hidden sm:inline">Rack-Ansicht</span><span class="sm:hidden">Rack</span>
       </button>
@@ -1305,6 +1310,13 @@
       <div class="step-label" title="Features">Features</div>
       <div class="step-label" title="Backup">Backup</div>
       <div class="step-label" title="Ergebnis">Ergebnis</div>
+    </div>
+    <div id="mm-step-indicator" class="mm-step-indicator" aria-hidden="true">
+      <div class="mm-step-indicator-row">
+        <span class="mm-step-indicator-title" id="mm-step-title">Internet</span>
+        <span class="mm-step-indicator-count" id="mm-step-count">1 / 6</span>
+      </div>
+      <div class="mm-step-bar"><span id="mm-step-bar-fill" style="width:16%"></span></div>
     </div>
   </div>
 
@@ -2413,6 +2425,101 @@
     }
     window.showPlannerToast = showPlannerToast;
 
+    // ====================================================================
+    // MOBIL-MODUS — dedizierte Touch-Schicht (Body-Klasse `mobile-mode`,
+    // JS-Flag `state.mobileMode`, CSS-Prefix `.mm-`, Sheet-Helfer openSheet/
+    // closeSheet). Alle Styles liegen in mobile.css unter `body.mobile-mode`.
+    // ====================================================================
+    const MM_STORAGE_KEY = 'unifyMapper.mobileMode.v1'; // auto | on | off
+    function getMobileOverride() {
+      try { const v = localStorage.getItem(MM_STORAGE_KEY); return (v === 'on' || v === 'off') ? v : 'auto'; }
+      catch(_) { return 'auto'; }
+    }
+    function computeMobileMode() {
+      const ov = getMobileOverride();
+      if(ov === 'on') return true;
+      if(ov === 'off') return false;
+      try {
+        return window.matchMedia('(max-width: 768px)').matches
+            && window.matchMedia('(pointer: coarse)').matches;
+      } catch(_) { return false; }
+    }
+    // Setzt body.mobile-mode + state.mobileMode. Re-rendert nur bei echtem
+    // Moduswechsel und nie mitten in einer Geste / bei offener Rack-View.
+    function applyMobileMode(forceRender) {
+      const next = computeMobileMode();
+      const changed = (state.mobileMode !== next);
+      state.mobileMode = next;
+      document.body.classList.toggle('mobile-mode', next);
+      updateMobileToggleLabel();
+      const busy = (typeof dragMode !== 'undefined' && dragMode)
+                 || (typeof window !== 'undefined' && document.getElementById('rack-overlay') && !document.getElementById('rack-overlay').classList.contains('hidden'));
+      // Erst neu rendern, wenn die App initialisiert ist (Loader entfernt).
+      // Beim Bootstrap übernimmt initializeApp() das erste render().
+      const appReady = !document.getElementById('loader-overlay');
+      if((changed || forceRender) && appReady && !busy && typeof render === 'function') {
+        try { render(); } catch(_) {}
+      }
+    }
+    function updateMobileToggleLabel() {
+      const lbl = document.querySelector('#btn-mobile-toggle .mm-toggle-label');
+      const ov = getMobileOverride();
+      if(lbl) lbl.textContent = ov === 'on' ? 'An' : ov === 'off' ? 'Aus' : 'Auto';
+      const btn = document.getElementById('btn-mobile-toggle');
+      if(btn) btn.classList.toggle('mm-toggle-active', state.mobileMode);
+    }
+    window.cycleMobileMode = function() {
+      const order = { auto: 'on', on: 'off', off: 'auto' };
+      const nextOv = order[getMobileOverride()] || 'auto';
+      try { localStorage.setItem(MM_STORAGE_KEY, nextOv); } catch(_) {}
+      applyMobileMode(true);
+      showPlannerToast('Mobil-Ansicht: ' + (nextOv === 'on' ? 'An' : nextOv === 'off' ? 'Aus' : 'Automatisch'), 'info');
+    };
+    try {
+      window.matchMedia('(max-width: 768px)').addEventListener('change', () => applyMobileMode(false));
+      window.matchMedia('(pointer: coarse)').addEventListener('change', () => applyMobileMode(false));
+    } catch(_) {
+      window.addEventListener('resize', () => applyMobileMode(false));
+    }
+
+    // --- Bottom-Sheet / Drawer (wiederverwendbar für Toolbar, Inspector …) --
+    let _mmSheetReleaseTrap = null;
+    function closeSheet() {
+      const sheet = document.getElementById('mm-sheet');
+      if(!sheet) return;
+      try { _mmSheetReleaseTrap && _mmSheetReleaseTrap(); } catch(_) {}
+      _mmSheetReleaseTrap = null;
+      sheet.classList.remove('mm-sheet-open');
+      setTimeout(() => { sheet.remove(); }, 220);
+    }
+    // contentEl: DOM-Knoten oder HTML-String. title: optionale Kopfzeile.
+    function openSheet(contentEl, title) {
+      closeSheet();
+      const sheet = document.createElement('div');
+      sheet.id = 'mm-sheet';
+      sheet.className = 'mm-sheet';
+      sheet.innerHTML = `
+        <div class="mm-sheet-backdrop"></div>
+        <div class="mm-sheet-panel" role="dialog" aria-modal="true" aria-label="${title || 'Optionen'}">
+          <div class="mm-sheet-grip"></div>
+          ${title ? `<div class="mm-sheet-head"><span>${title}</span><button type="button" class="mm-sheet-close" aria-label="Schließen">✕</button></div>` : ''}
+          <div class="mm-sheet-body"></div>
+        </div>`;
+      const body = sheet.querySelector('.mm-sheet-body');
+      if(typeof contentEl === 'string') body.innerHTML = contentEl;
+      else if(contentEl) body.appendChild(contentEl);
+      document.body.appendChild(sheet);
+      sheet.querySelector('.mm-sheet-backdrop')?.addEventListener('click', closeSheet);
+      sheet.querySelector('.mm-sheet-close')?.addEventListener('click', closeSheet);
+      sheet.addEventListener('keydown', (e) => { if(e.key === 'Escape') closeSheet(); });
+      requestAnimationFrame(() => sheet.classList.add('mm-sheet-open'));
+      try { if(typeof trapFocus === 'function') _mmSheetReleaseTrap = trapFocus(sheet); } catch(_) {}
+      if(typeof lucide !== 'undefined') try { lucide.createIcons(); } catch(_) {}
+      return sheet;
+    }
+    window.openSheet = openSheet;
+    window.closeSheet = closeSheet;
+
     // --- Eigene Popups (Ersatz für native alert/confirm/prompt) --- //
     // Promise-basiert, Fokus-Trap, ESC = Abbrechen, Enter = OK, Backdrop-Klick
     // = Abbrechen. Es ist immer nur ein Modal gleichzeitig aktiv: ein neuer
@@ -2828,6 +2935,17 @@
     function render() {
       document.querySelectorAll('.step-node').forEach(el => el.className = `step-node ${parseInt(el.getAttribute('data-step')) === state.currentStep ? 'active' : parseInt(el.getAttribute('data-step')) < state.currentStep ? 'completed' : ''}`);
       document.querySelectorAll('.step-line').forEach(el => el.className = `step-line ${parseInt(el.id.replace('line-', '')) < state.currentStep ? 'active' : ''}`);
+
+      // Kompakter Mobil-Stepper: „Schritt N/6 · Label" + Fortschrittsbalken
+      (() => {
+        const labels = ['Internet', 'Räume & APs', 'Switch & PoE', 'Features', 'Backup', 'Ergebnis'];
+        const titleEl = document.getElementById('mm-step-title');
+        const countEl = document.getElementById('mm-step-count');
+        const fillEl = document.getElementById('mm-step-bar-fill');
+        if(titleEl) titleEl.textContent = labels[state.currentStep - 1] || '';
+        if(countEl) countEl.textContent = `${state.currentStep} / 6`;
+        if(fillEl) fillEl.style.width = Math.round((state.currentStep / 6) * 100) + '%';
+      })();
 
       document.getElementById('btn-prev').classList.toggle('hidden', state.currentStep === 1);
       const btnNext = document.getElementById('btn-next');
@@ -4265,7 +4383,7 @@
                line.setAttribute('x2', nxt.x * CELL_SIZE);
                line.setAttribute('y2', nxt.y * CELL_SIZE);
                const apActive = !!state._aperturesMode;
-               line.setAttribute('class', `stroke-transparent stroke-[12px] pointer-events-auto ${apActive ? 'cursor-cell' : 'cursor-crosshair'} hover:stroke-nexus-primary/30 edge-hitbox transition-colors`);
+               line.setAttribute('class', `stroke-transparent stroke-[12px] pointer-events-auto ${apActive ? 'cursor-cell' : 'cursor-crosshair'} hover:stroke-nexus-primary/30 edge-hitbox mm-edge-hit transition-colors`);
 
                line.addEventListener('pointerdown', (e) => {
                   if(e.pointerType === 'mouse' && e.button !== 0) return;
@@ -4310,7 +4428,7 @@
                const hit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                hit.setAttribute('cx', pt.x * CELL_SIZE);
                hit.setAttribute('cy', pt.y * CELL_SIZE);
-               hit.setAttribute('r', '14');
+               hit.setAttribute('r', state.mobileMode ? '22' : '14');
                hit.setAttribute('fill', 'transparent');
                hit.setAttribute('class', 'vertex-hit pointer-events-auto cursor-pointer');
                hit.setAttribute('title', 'Ziehen zum Verschieben · Rechtsklick oder ✕ zum Löschen');
@@ -4440,7 +4558,7 @@
          }
          activePointerId = null;
          activePointerEl = null;
-         if(dragMode) { dragMode = null; saveState(); render(); }
+         if(dragMode) { dragMode = null; if(state.mobileMode && navigator.vibrate){ try{ navigator.vibrate(15); }catch(_){} } saveState(); render(); }
       };
       planner.addEventListener('pointerup', commitDrag);
       planner.addEventListener('pointercancel', commitDrag);
@@ -4815,7 +4933,7 @@
           }
 
           const dotContainer = document.createElement('div');
-          dotContainer.className = 'draggable-ap pointer-events-auto flex flex-col items-center cursor-move group';
+          dotContainer.className = 'draggable-ap mm-touch-target pointer-events-auto flex flex-col items-center cursor-move group';
           dotContainer.style.left = apState.x + 'px'; dotContainer.style.top = apState.y + 'px';
           const ant = getAntennaInfo(spec);
           if(ant) dotContainer.title = `${spec.name} — ${ant.summary}`;
@@ -4871,7 +4989,7 @@
           const spec = productCache.specs[camState.slug] || { name: 'Kamera', poeWatts: 8 };
           const isDoorbell = spec.type === 'doorbell';
           const dotContainer = document.createElement('div');
-          dotContainer.className = 'draggable-ap pointer-events-auto flex flex-col items-center cursor-move group';
+          dotContainer.className = 'draggable-ap mm-touch-target pointer-events-auto flex flex-col items-center cursor-move group';
           dotContainer.style.left = camState.x + 'px'; dotContainer.style.top = camState.y + 'px';
           dotContainer.innerHTML = `
             <div class="w-6 h-6 ${isDoorbell ? 'bg-orange-500' : 'bg-purple-600'} text-white rounded-full flex items-center justify-center shadow hover:scale-110 transition-transform"><i data-lucide="${isDoorbell ? 'bell' : 'video'}" class="w-3 h-3"></i></div>
@@ -6330,7 +6448,7 @@
       ` : `
         <div class="card p-0 overflow-hidden">
           <div class="table-scroll table-scroll-wide">
-          <table class="w-full text-sm">
+          <table class="w-full text-sm mm-card-table">
             <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
               <tr>
                 <th class="px-4 py-3 text-left">VLAN-ID</th>
@@ -6347,15 +6465,15 @@
             <tbody>
               ${state.vlans.map((v, i) => `
                 <tr class="border-t border-nexus-border">
-                  <td class="px-4 py-2"><input type="number" inputmode="numeric" min="1" max="4094" value="${v.id}" onchange="window.updateVlan(${i},'id',this.value)" class="w-20 bg-nexus-surface border border-nexus-border rounded px-2 py-1 font-mono text-xs"></td>
-                  <td class="px-4 py-2"><input type="text" value="${v.name}" onchange="window.updateVlan(${i},'name',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"></td>
-                  <td class="px-4 py-2"><input type="text" value="${v.subnet}" onchange="window.updateVlan(${i},'subnet',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 font-mono text-xs"></td>
-                  <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'purpose',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${purposeOpts(v.purpose)}</select></td>
-                  <td class="px-4 py-2"><input type="text" value="${v.ssid || ''}" placeholder="—" onchange="window.updateVlan(${i},'ssid',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"></td>
-                  <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'wpaMode',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs" ${v.ssid ? '' : 'disabled title="Nur relevant, wenn das VLAN eine SSID ausstrahlt"'}>${wpaOpts(v.wpaMode)}</select></td>
-                  <td class="px-4 py-2"><select onchange="window.updateVlan(${i},'isolation',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${isoOpts(v.isolation)}</select></td>
-                  <td class="px-4 py-2 text-center"><input type="checkbox" ${v.clientIsolation ? 'checked' : ''} onchange="window.updateVlan(${i},'clientIsolation',this.checked)" class="cursor-pointer" ${v.ssid ? '' : 'disabled title="Nur sinnvoll bei aktiver SSID"'} aria-label="Client-Isolation für VLAN ${v.id}"></td>
-                  <td class="px-2 py-2 text-right"><button onclick="window.removeVlan(${i})" class="text-red-500 hover:text-red-700" title="Entfernen" aria-label="VLAN ${v.id} entfernen"><i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i></button></td>
+                  <td class="px-4 py-2" data-label="VLAN-ID"><input type="number" inputmode="numeric" min="1" max="4094" value="${v.id}" onchange="window.updateVlan(${i},'id',this.value)" class="w-20 bg-nexus-surface border border-nexus-border rounded px-2 py-1 font-mono text-xs"></td>
+                  <td class="px-4 py-2" data-label="Name"><input type="text" value="${v.name}" onchange="window.updateVlan(${i},'name',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"></td>
+                  <td class="px-4 py-2" data-label="Subnetz (CIDR)"><input type="text" value="${v.subnet}" onchange="window.updateVlan(${i},'subnet',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 font-mono text-xs"></td>
+                  <td class="px-4 py-2" data-label="Zweck"><select onchange="window.updateVlan(${i},'purpose',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${purposeOpts(v.purpose)}</select></td>
+                  <td class="px-4 py-2" data-label="SSID"><input type="text" value="${v.ssid || ''}" placeholder="—" onchange="window.updateVlan(${i},'ssid',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"></td>
+                  <td class="px-4 py-2" data-label="WLAN-Sicherheit"><select onchange="window.updateVlan(${i},'wpaMode',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs" ${v.ssid ? '' : 'disabled title="Nur relevant, wenn das VLAN eine SSID ausstrahlt"'}>${wpaOpts(v.wpaMode)}</select></td>
+                  <td class="px-4 py-2" data-label="Isolation"><select onchange="window.updateVlan(${i},'isolation',this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">${isoOpts(v.isolation)}</select></td>
+                  <td class="px-4 py-2 text-center" data-label="Client-Iso"><input type="checkbox" ${v.clientIsolation ? 'checked' : ''} onchange="window.updateVlan(${i},'clientIsolation',this.checked)" class="cursor-pointer" ${v.ssid ? '' : 'disabled title="Nur sinnvoll bei aktiver SSID"'} aria-label="Client-Isolation für VLAN ${v.id}"></td>
+                  <td class="px-2 py-2 text-right" data-label=""><button onclick="window.removeVlan(${i})" class="text-red-500 hover:text-red-700" title="Entfernen" aria-label="VLAN ${v.id} entfernen"><i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i></button></td>
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -6587,7 +6705,7 @@
             <label class="text-xs font-bold uppercase tracking-wide text-nexus-muted block mb-2">Tarif</label>
             <div class="overflow-hidden rounded border border-nexus-border">
               <div class="table-scroll">
-              <table class="w-full text-xs">
+              <table class="w-full text-xs mm-card-table">
                 <thead class="bg-nexus-surface text-nexus-muted uppercase text-[10px]">
                   <tr><th class="px-3 py-2 text-left w-8"></th><th class="px-3 py-2 text-left">Tarif</th><th class="px-3 py-2 text-right">€/Monat</th><th class="px-3 py-2 text-left hidden sm:table-cell">Datenvolumen</th><th class="px-3 py-2 text-left hidden md:table-cell">Hinweis</th></tr>
                 </thead>
@@ -6596,18 +6714,18 @@
                     const rows = STARLINK_PLANS.filter(p => p.category === cat.id);
                     if(!rows.length) return '';
                     return `
-                    <tr class="bg-nexus-surface bg-opacity-60">
+                    <tr class="bg-nexus-surface bg-opacity-60 mm-row-full">
                       <td colspan="5" class="px-3 py-2 text-[10px] uppercase tracking-wide font-bold text-nexus-primary">
                         ${cat.label} <span class="font-normal normal-case text-nexus-muted">— ${cat.sub}</span>
                       </td>
                     </tr>
                     ${rows.map(p => `
                       <tr class="border-t border-nexus-border ${bu.starlinkPlan === p.id ? 'bg-nexus-primary bg-opacity-10' : ''}">
-                        <td class="px-3 py-2"><input type="radio" name="bu-sl-plan" value="${p.id}" ${bu.starlinkPlan === p.id ? 'checked' : ''} onchange="window.setStarlinkPlan('${p.id}')"></td>
-                        <td class="px-3 py-2 font-semibold">${p.name}</td>
-                        <td class="px-3 py-2 text-right font-mono">${p.monthly} €</td>
-                        <td class="px-3 py-2 hidden sm:table-cell">${p.data}</td>
-                        <td class="px-3 py-2 text-nexus-muted hidden md:table-cell">${p.note}</td>
+                        <td class="px-3 py-2" data-label=""><input type="radio" name="bu-sl-plan" value="${p.id}" ${bu.starlinkPlan === p.id ? 'checked' : ''} onchange="window.setStarlinkPlan('${p.id}')"></td>
+                        <td class="px-3 py-2 font-semibold" data-label="Tarif">${p.name}</td>
+                        <td class="px-3 py-2 text-right font-mono" data-label="€/Monat">${p.monthly} €</td>
+                        <td class="px-3 py-2 hidden sm:table-cell" data-label="Datenvolumen">${p.data}</td>
+                        <td class="px-3 py-2 text-nexus-muted hidden md:table-cell mm-col-full" data-label="Hinweis">${p.note}</td>
                       </tr>`).join('')}`;
                   }).join('')}
                 </tbody>
@@ -7595,15 +7713,15 @@
             <h3 class="font-bold">Laufende Kosten (monatlich)</h3>
             <span class="text-sm text-nexus-muted">≈ <strong>${fmtEur0(monthlySum)} / Monat</strong> · ${fmtEur0(monthlySum * 12)} / Jahr</span>
           </div>
-          <table class="w-full text-sm text-left">
+          <table class="w-full text-sm text-left mm-card-table">
             <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
               <tr><th class="px-6 py-3">Position</th><th class="px-6 py-3">Hinweis</th><th class="px-4 py-3 text-right">€/Monat</th></tr>
             </thead>
             <tbody>
               ${recurring.map(r => `<tr class="border-b border-nexus-border">
-                <td class="px-6 py-3 font-medium">${r.label}</td>
-                <td class="px-6 py-3 text-nexus-muted">${r.note || ''}</td>
-                <td class="px-4 py-3 text-right">${fmtEur0(r.monthly)}</td>
+                <td class="px-6 py-3 font-medium" data-label="Position">${r.label}</td>
+                <td class="px-6 py-3 text-nexus-muted mm-col-full" data-label="Hinweis">${r.note || ''}</td>
+                <td class="px-4 py-3 text-right" data-label="€/Monat">${fmtEur0(r.monthly)}</td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -7681,7 +7799,7 @@
             <h3 class="font-bold">Patchplan (Patchpanel-Belegung)</h3>
             <span class="text-xs text-nexus-muted">${patchPlan.rows.length} Verbindung${patchPlan.rows.length === 1 ? '' : 'en'}${patchPlan.autoGenerated ? ' · automatisch erzeugt (Rack-View nicht aktiv)' : ' · aus Rack-View'}</span>
           </div>
-          <table class="w-full text-sm text-left">
+          <table class="w-full text-sm text-left mm-card-table">
             <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
               <tr>
                 <th class="px-4 py-3">Port</th>
@@ -7695,13 +7813,13 @@
             </thead>
             <tbody>
               ${patchPlan.rows.map(r => `<tr class="border-b border-nexus-border">
-                <td class="px-4 py-2 font-mono text-xs">${r.meshOnly ? '—' : r.port}</td>
-                <td class="px-6 py-2 text-xs">${r.kind}</td>
-                <td class="px-6 py-2 font-medium">${r.name}</td>
-                <td class="px-6 py-2 text-xs text-nexus-muted">${r.location}</td>
-                <td class="px-4 py-2 text-right text-xs">${r.meshOnly ? '<span class="italic text-nexus-muted">kabellos</span>' : fmt1(r.cableLengthM) + ' m'}</td>
-                <td class="px-4 py-2 text-xs">${r.meshOnly ? '—' : r.cableCategory}</td>
-                <td class="px-4 py-2 text-xs">${r.watts > 0 ? `${fmt0(r.watts)} W · ${getPoeStandardLabel(r.poeClass).split(' (')[0]}` : '<span class="text-nexus-muted">—</span>'}</td>
+                <td class="px-4 py-2 font-mono text-xs" data-label="Port">${r.meshOnly ? '—' : r.port}</td>
+                <td class="px-6 py-2 text-xs" data-label="Typ">${r.kind}</td>
+                <td class="px-6 py-2 font-medium" data-label="Modell">${r.name}</td>
+                <td class="px-6 py-2 text-xs text-nexus-muted" data-label="Standort">${r.location}</td>
+                <td class="px-4 py-2 text-right text-xs" data-label="Länge">${r.meshOnly ? '<span class="italic text-nexus-muted">kabellos</span>' : fmt1(r.cableLengthM) + ' m'}</td>
+                <td class="px-4 py-2 text-xs" data-label="Kategorie">${r.meshOnly ? '—' : r.cableCategory}</td>
+                <td class="px-4 py-2 text-xs" data-label="PoE-Bedarf">${r.watts > 0 ? `${fmt0(r.watts)} W · ${getPoeStandardLabel(r.poeClass).split(' (')[0]}` : '<span class="text-nexus-muted">—</span>'}</td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -7752,7 +7870,7 @@
             <h3 class="font-bold">PoE-Klassen (Endgeräte)</h3>
             <span class="text-xs text-nexus-muted">Switch liefert max. ${fmt0(switchMaxPerPort)} W/Port (${getPoeClassLabel(b.activeSwitch) || '—'})</span>
           </div>
-          <table class="w-full text-sm text-left">
+          <table class="w-full text-sm text-left mm-card-table">
             <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
               <tr><th class="px-6 py-2">Klasse</th><th class="px-6 py-2">Standard</th><th class="px-4 py-2 text-center">Geräte</th><th class="px-6 py-2">Beispiele</th></tr>
             </thead>
@@ -7763,10 +7881,10 @@
                 const minW = POE_CLASS_WATTS[k] || 0;
                 const switchOk = k === 'over' ? false : switchMaxPerPort >= minW;
                 return `<tr class="border-b border-nexus-border ${switchOk ? '' : 'bg-red-50'}">
-                  <td class="px-6 py-2 font-mono text-xs">${k.toUpperCase()}</td>
-                  <td class="px-6 py-2 text-xs">${getPoeStandardLabel(k)}</td>
-                  <td class="px-4 py-2 text-center font-bold">${list.length}</td>
-                  <td class="px-6 py-2 text-xs text-nexus-muted">${samples}${list.length > 3 ? ` … (+${list.length - 3})` : ''}${switchOk ? '' : ' <span class="text-red-700 font-semibold">⚠ Switch zu schwach</span>'}</td>
+                  <td class="px-6 py-2 font-mono text-xs" data-label="Klasse">${k.toUpperCase()}</td>
+                  <td class="px-6 py-2 text-xs" data-label="Standard">${getPoeStandardLabel(k)}</td>
+                  <td class="px-4 py-2 text-center font-bold" data-label="Geräte">${list.length}</td>
+                  <td class="px-6 py-2 text-xs text-nexus-muted mm-col-full" data-label="Beispiele">${samples}${list.length > 3 ? ` … (+${list.length - 3})` : ''}${switchOk ? '' : ' <span class="text-red-700 font-semibold">⚠ Switch zu schwach</span>'}</td>
                 </tr>`;
               }).join('')}
             </tbody>
@@ -7834,7 +7952,7 @@
       const vlanCard = state.vlans && state.vlans.length > 0 ? `
           <div class="card p-0 overflow-hidden">
              <div class="px-6 py-4 border-b border-nexus-border bg-nexus-surface bg-opacity-50"><h3 class="font-bold">Netzwerk-Segmentierung (VLANs)</h3></div>
-             <table class="w-full text-sm text-left">
+             <table class="w-full text-sm text-left mm-card-table">
                <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
                  <tr><th class="px-6 py-3">ID</th><th class="px-6 py-3">Name</th><th class="px-6 py-3">Subnetz</th><th class="px-6 py-3">Zweck</th><th class="px-6 py-3">SSID</th><th class="px-6 py-3">WLAN-Sicherheit</th><th class="px-6 py-3">Isolation</th></tr>
                </thead>
@@ -7843,7 +7961,7 @@
                    const wpa = WPA_MODES.find(w => w.id === (v.wpaMode || DEFAULT_WPA_MODE)) || WPA_MODES[0];
                    const iso = VLAN_ISOLATION.find(i => i.id === (v.isolation || 'none')) || VLAN_ISOLATION[0];
                    const ciBadge = v.clientIsolation ? ' · <span class="text-[10px] uppercase tracking-wide bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded">Client-Iso</span>' : '';
-                   return `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono">${v.id}</td><td class="px-6 py-3 font-medium">${v.name}</td><td class="px-6 py-3 font-mono text-xs">${v.subnet}</td><td class="px-6 py-3">${v.purpose}</td><td class="px-6 py-3">${v.ssid || '—'}</td><td class="px-6 py-3 text-xs">${v.ssid ? wpa.label : '—'}</td><td class="px-6 py-3 text-xs">${iso.label}${ciBadge}</td></tr>`;
+                   return `<tr class="border-b border-nexus-border"><td class="px-6 py-3 font-mono" data-label="ID">${v.id}</td><td class="px-6 py-3 font-medium" data-label="Name">${v.name}</td><td class="px-6 py-3 font-mono text-xs" data-label="Subnetz">${v.subnet}</td><td class="px-6 py-3" data-label="Zweck">${v.purpose}</td><td class="px-6 py-3" data-label="SSID">${v.ssid || '—'}</td><td class="px-6 py-3 text-xs" data-label="WLAN-Sicherheit">${v.ssid ? wpa.label : '—'}</td><td class="px-6 py-3 text-xs" data-label="Isolation">${iso.label}${ciBadge}</td></tr>`;
                  }).join('')}
                </tbody>
              </table>
@@ -7867,7 +7985,7 @@
               <p class="text-xs text-nexus-muted mt-1">Welche Ziele erreichen die VLAN-Clients laut der gewählten Isolation. Im UniFi-Controller als Firewall-Regeln im Tab „Internet/LAN In" abbilden.</p>
             </div>
             <div class="table-scroll">
-            <table class="w-full text-sm text-left">
+            <table class="w-full text-sm text-left mm-card-table">
               <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
                 <tr><th class="px-3 sm:px-6 py-3">Quelle</th><th class="px-3 sm:px-6 py-3">Stufe</th><th class="px-3 sm:px-6 py-3">Erreichbare Ziele</th></tr>
               </thead>
@@ -7875,9 +7993,9 @@
                 ${state.vlans.map(v => {
                   const iso = VLAN_ISOLATION.find(i => i.id === (v.isolation || 'none')) || VLAN_ISOLATION[0];
                   return `<tr class="border-b border-nexus-border">
-                    <td class="px-3 sm:px-6 py-3 font-medium">#${v.id} ${v.name}</td>
-                    <td class="px-3 sm:px-6 py-3 text-xs">${iso.label}</td>
-                    <td class="px-3 sm:px-6 py-3 text-xs" style="word-break: break-word;">${allows(v).join(' · ')}</td>
+                    <td class="px-3 sm:px-6 py-3 font-medium" data-label="Quelle">#${v.id} ${v.name}</td>
+                    <td class="px-3 sm:px-6 py-3 text-xs" data-label="Stufe">${iso.label}</td>
+                    <td class="px-3 sm:px-6 py-3 text-xs mm-col-full" data-label="Erreichbare Ziele" style="word-break: break-word;">${allows(v).join(' · ')}</td>
                   </tr>`;
                 }).join('')}
               </tbody>
@@ -7962,7 +8080,7 @@
                  </h3>
                  <button type="button" onclick="event.stopPropagation(); window.exportTopologySvg()" class="btn-secondary text-xs flex items-center gap-1 no-print" aria-label="Topologie als SVG herunterladen"><i data-lucide="download" class="w-3 h-3" aria-hidden="true"></i> SVG laden</button>
                </summary>
-               <div class="overflow-x-auto bg-[#0f172a] rounded-lg p-2">${buildTopologySvg(b)}</div>
+               <div class="overflow-x-auto mm-chart-scroll bg-[#0f172a] rounded-lg p-2">${buildTopologySvg(b)}</div>
                <p class="text-[11px] text-gray-400 mt-2 sm:hidden"><i data-lucide="info" class="w-3 h-3 inline" aria-hidden="true"></i> Tipp: Querformat oder Desktop für die volle Topologie-Ansicht.</p>
              </details>
           </div>
@@ -8029,7 +8147,7 @@
                </div>
              </div>
              <div class="table-scroll">
-             <table class="w-full text-sm text-left">
+             <table class="w-full text-sm text-left mm-card-table">
                <thead class="text-xs text-nexus-muted uppercase bg-nexus-surface">
                  <tr>
                    <th class="px-3 sm:px-6 py-3">Typ</th>
@@ -8047,23 +8165,23 @@
                       ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-nexus-primary hover:underline inline-flex items-center gap-1 group" title="Auf store.ui.com öffnen">${item.name}<i data-lucide="external-link" class="w-3 h-3 opacity-60 group-hover:opacity-100 no-print" aria-hidden="true"></i></a>`
                       : item.name;
                     return `<tr class="border-b border-nexus-border ${item.isCustom ? 'bg-nexus-primary bg-opacity-5' : ''}">
-                    <td class="px-3 sm:px-6 py-3 font-medium">${item.category}${item.isCustom ? ' <span class="ml-1 text-[10px] uppercase tracking-wide bg-nexus-primary text-white px-1.5 py-0.5 rounded">Manuell</span>' : ''}</td>
-                    <td class="px-3 sm:px-6 py-3">${item.isCustom
+                    <td class="px-3 sm:px-6 py-3 font-medium" data-label="Typ">${item.category}${item.isCustom ? ' <span class="ml-1 text-[10px] uppercase tracking-wide bg-nexus-primary text-white px-1.5 py-0.5 rounded">Manuell</span>' : ''}</td>
+                    <td class="px-3 sm:px-6 py-3" data-label="Modell">${item.isCustom
                       ? `<input type="text" value="${(item.name || '').replace(/"/g,'&quot;')}" onchange="window.updateCustomBomRow('${item.customId}','name',this.value)" class="w-full bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">`
                       : linkedName}</td>
-                    <td class="px-3 sm:px-4 py-3 text-center">
+                    <td class="px-3 sm:px-4 py-3 text-center" data-label="Menge">
                       <input type="number" inputmode="numeric" min="0" max="999" value="${item.qty}" onchange="window.setBomQuantity('${item.key}', this.value)" class="w-16 text-center bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs">
                     </td>
-                    <td class="px-3 sm:px-4 py-3 text-right hidden sm:table-cell">${item.isCustom
+                    <td class="px-3 sm:px-4 py-3 text-right hidden sm:table-cell" data-label="Einzel">${item.isCustom
                       ? `<input type="number" inputmode="numeric" min="0" step="1" value="${item.price}" onchange="window.updateCustomBomRow('${item.customId}','price',this.value)" class="w-20 text-right bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-xs"> €`
                       : `~${fmtEur0(item.price)}`}</td>
-                    <td class="px-3 sm:px-4 py-3 text-right font-bold">~${fmtEur0(item.price * item.qty)}</td>
-                    <td class="px-3 sm:px-4 py-3 text-right no-print">
+                    <td class="px-3 sm:px-4 py-3 text-right font-bold" data-label="Gesamt">~${fmtEur0(item.price * item.qty)}</td>
+                    <td class="px-3 sm:px-4 py-3 text-right no-print" data-label="">
                       <button onclick="window.removeBomRow('${item.key}')" class="text-red-500 hover:text-red-700" title="Entfernen"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
                     </td>
                   </tr>`;
                   }).join('')}
-                  ${(state.bomOverrides?.removedKeys || []).length > 0 ? `<tr class="border-b border-nexus-border bg-nexus-surface bg-opacity-30 no-print">
+                  ${(state.bomOverrides?.removedKeys || []).length > 0 ? `<tr class="border-b border-nexus-border bg-nexus-surface bg-opacity-30 no-print mm-row-full">
                     <td colspan="6" class="px-3 sm:px-6 py-3 text-xs text-nexus-muted">
                       <div class="flex items-center gap-2 flex-wrap">
                         <span><i data-lucide="eye-off" class="w-3 h-3 inline"></i> Entfernt:</span>
@@ -9505,6 +9623,7 @@
 
     // BOOTSTRAP
     lucide.createIcons();
+    applyMobileMode(false); // Mobil-Modus bestimmen, bevor erstmals gerendert wird
     showDisclaimerIfNeeded();
     initializeApp();
 
