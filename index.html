@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UniFi Setup Planner</title>
 
+  <!-- Theme-Override so früh wie möglich setzen (kein Hell/Dunkel-Flackern).
+       Schlüssel & Werte: unifyMapper.theme.v1 = auto | light | dark -->
+  <script>
+    try {
+      var _t = localStorage.getItem('unifyMapper.theme.v1');
+      if (_t === 'dark' || _t === 'light') document.documentElement.classList.add('theme-' + _t);
+    } catch (e) {}
+  </script>
+
   <!-- Typography -->
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=cabinet-grotesk@400,500,700,800&display=swap" rel="stylesheet">
   
@@ -37,16 +46,28 @@
       --color-border: color-mix(in oklch, currentColor 12%, transparent);
     }
 
+    /* Dunkles Theme: greift bei OS-Dunkelmodus (sofern nicht manuell „Hell"
+       erzwungen) sowie bei manuell erzwungenem Dunkelmodus (html.theme-dark).
+       Der Override wird vom Früh-Skript im <head> + window.setTheme() gesetzt. */
     @media (prefers-color-scheme: dark) {
-      :root {
-        --color-surface: #171614; 
+      :root:not(.theme-light) {
+        --color-surface: #171614;
         --color-surface-card: #201e1c;
-        --color-primary: #4f98a3; 
+        --color-primary: #4f98a3;
         --color-primary-hover: #5ab1bd;
         --color-text: #eaeaea;
         --color-text-muted: #bdbdbd;
         --color-border: color-mix(in oklch, white 12%, transparent);
       }
+    }
+    :root.theme-dark {
+      --color-surface: #171614;
+      --color-surface-card: #201e1c;
+      --color-primary: #4f98a3;
+      --color-primary-hover: #5ab1bd;
+      --color-text: #eaeaea;
+      --color-text-muted: #bdbdbd;
+      --color-border: color-mix(in oklch, white 12%, transparent);
     }
 
     body { font-size: var(--fs-base); }
@@ -99,6 +120,10 @@
     .step-node { width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 0.875rem; background: var(--color-surface-card); border: 2px solid var(--color-border); color: var(--color-text-muted); transition: all 0.3s ease; flex-shrink: 0; }
     .step-node.active { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }
     .step-node.completed { border-color: var(--color-primary); color: var(--color-primary); }
+    /* Stepper-Knoten sind anklickbar (goToStep) */
+    .step-node { cursor: pointer; }
+    .step-node:hover:not(.active) { border-color: var(--color-primary); color: var(--color-primary); }
+    .step-node:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
     .step-line { flex: 1; height: 2px; background: var(--color-border); margin: 0 0.5rem; transition: background 0.3s ease; min-width: 8px; }
     .step-line.active { background: var(--color-primary); }
     .step-label { width: 2rem; text-align: center; white-space: nowrap; flex-shrink: 0; overflow: visible; }
@@ -400,8 +425,9 @@
       border-radius: 3px;
     }
     @media (prefers-color-scheme: dark) {
-      .room-area-badge { background: rgba(0,0,0,0.4); }
+      html:not(.theme-light) .room-area-badge { background: rgba(0,0,0,0.4); }
     }
+    html.theme-dark .room-area-badge { background: rgba(0,0,0,0.4); }
     /* Toast (general) */
     .planner-toast {
       position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%);
@@ -641,8 +667,9 @@
       box-shadow: 0 6px 16px rgba(0,0,0,0.35), inset 0 0 0 1px #3a3835;
     }
     @media (prefers-color-scheme: dark) {
-      .rack-frame { background: #0d0c0b; border-color: #1a1918; }
+      html:not(.theme-light) .rack-frame { background: #0d0c0b; border-color: #1a1918; }
     }
+    html.theme-dark .rack-frame { background: #0d0c0b; border-color: #1a1918; }
     .rack-slot-track { position: relative; }
     .rack-slot {
       height: var(--rack-u-height);
@@ -729,9 +756,11 @@
     .rack-banner.info { background: color-mix(in oklch, var(--color-primary) 10%, transparent); border: 1px solid var(--color-primary); }
     .rack-banner.err  { background: color-mix(in oklch, #dc2626 15%, transparent); border: 1px solid #dc2626; color: #991b1b; }
     @media (prefers-color-scheme: dark) {
-      .rack-banner.warn { color: #fcd34d; }
-      .rack-banner.err  { color: #fca5a5; }
+      html:not(.theme-light) .rack-banner.warn { color: #fcd34d; }
+      html:not(.theme-light) .rack-banner.err  { color: #fca5a5; }
     }
+    html.theme-dark .rack-banner.warn { color: #fcd34d; }
+    html.theme-dark .rack-banner.err  { color: #fca5a5; }
 
     /* Cabling */
     .rack-cabling-table { width: 100%; font-size: 0.8125rem; border-collapse: collapse; min-width: 600px; }
@@ -853,8 +882,9 @@
     .rack-frame::before { left: 2px; }
     .rack-frame::after { right: 2px; }
     @media (prefers-color-scheme: dark) {
-      .rack-frame { background: linear-gradient(180deg, #14100d, #0b0907); border-color: #221f1c; }
+      html:not(.theme-light) .rack-frame { background: linear-gradient(180deg, #14100d, #0b0907); border-color: #221f1c; }
     }
+    html.theme-dark .rack-frame { background: linear-gradient(180deg, #14100d, #0b0907); border-color: #221f1c; }
     .rack-slot { border-bottom: 1px solid rgba(255,255,255,0.05); }
     .rack-slot.even { background: rgba(255,255,255,0.018); }
     .rack-slot.hover-drop { background: rgba(1, 105, 111, 0.30); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-primary) 65%, transparent); }
@@ -1280,6 +1310,9 @@
         <span class="font-display font-bold text-base md:text-xl tracking-tight truncate">Setup Planner</span>
       </div>
       <div id="freshness-container" class="no-print"></div>
+      <button id="btn-project-menu" onclick="window.openProjectMenu()" class="btn-secondary no-print text-xs" style="padding: 0.5rem 0.6rem; min-height: 40px;" title="Projekt-Menü: Speichern, Laden, Teilen, Darstellung, Hilfe" aria-label="Projekt-Menü öffnen" aria-haspopup="dialog">
+        <i data-lucide="menu" class="w-4 h-4"></i> <span class="hidden sm:inline">Projekt</span>
+      </button>
       <button id="btn-mobile-toggle" onclick="window.cycleMobileMode()" class="btn-secondary no-print text-xs mm-toggle" style="padding: 0.5rem 0.6rem; min-height: 40px;" title="Mobil-Ansicht: automatisch / an / aus" aria-label="Mobil-Ansicht umschalten">
         <i data-lucide="smartphone" class="w-4 h-4"></i> <span class="mm-toggle-label hidden sm:inline">Auto</span>
       </button>
@@ -1291,17 +1324,17 @@
 
   <div class="max-w-4xl mx-auto px-3 sm:px-4 mt-4 md:mt-8 mb-4 md:mb-8 no-print" id="progress-container" style="display:none;">
     <div class="flex items-center justify-between max-w-2xl mx-auto">
-      <div class="step-node active" data-step="1">1</div>
+      <div class="step-node active" data-step="1" role="button" tabindex="0" title="Zu Schritt 1: Internet">1</div>
       <div class="step-line" id="line-1"></div>
-      <div class="step-node" data-step="2">2</div>
+      <div class="step-node" data-step="2" role="button" tabindex="0" title="Zu Schritt 2: Räume &amp; APs">2</div>
       <div class="step-line" id="line-2"></div>
-      <div class="step-node" data-step="3">3</div>
+      <div class="step-node" data-step="3" role="button" tabindex="0" title="Zu Schritt 3: Switch &amp; PoE">3</div>
       <div class="step-line" id="line-3"></div>
-      <div class="step-node" data-step="4">4</div>
+      <div class="step-node" data-step="4" role="button" tabindex="0" title="Zu Schritt 4: Features">4</div>
       <div class="step-line" id="line-4"></div>
-      <div class="step-node" data-step="5">5</div>
+      <div class="step-node" data-step="5" role="button" tabindex="0" title="Zu Schritt 5: Backup">5</div>
       <div class="step-line" id="line-5"></div>
-      <div class="step-node" data-step="6">6</div>
+      <div class="step-node" data-step="6" role="button" tabindex="0" title="Zu Schritt 6: Ergebnis">6</div>
     </div>
     <div class="flex items-start justify-between max-w-2xl mx-auto mt-2 text-[10px] sm:text-xs md:text-sm text-nexus-muted font-medium leading-tight">
       <div class="step-label" title="Internet">Internet</div>
@@ -1311,7 +1344,7 @@
       <div class="step-label" title="Backup">Backup</div>
       <div class="step-label" title="Ergebnis">Ergebnis</div>
     </div>
-    <div id="mm-step-indicator" class="mm-step-indicator" aria-hidden="true">
+    <div id="mm-step-indicator" class="mm-step-indicator" role="button" tabindex="0" title="Schritt wählen" aria-label="Schritt wählen" onclick="window.openStepSheet()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.openStepSheet();}">
       <div class="mm-step-indicator-row">
         <span class="mm-step-indicator-title" id="mm-step-title">Internet</span>
         <span class="mm-step-indicator-count" id="mm-step-count">1 / 6</span>
@@ -2520,6 +2553,139 @@
     window.openSheet = openSheet;
     window.closeSheet = closeSheet;
 
+    // ====================================================================
+    // THEME — manueller Hell/Dunkel-Override zusätzlich zum OS-Theme.
+    // Klassen auf <html>: theme-light | theme-dark (keine Klasse = Auto).
+    // Das Früh-Skript im <head> setzt die Klasse vor dem ersten Paint.
+    // ====================================================================
+    const THEME_STORAGE_KEY = 'unifyMapper.theme.v1'; // auto | light | dark
+    function getThemeOverride() {
+      try { const v = localStorage.getItem(THEME_STORAGE_KEY); return (v === 'light' || v === 'dark') ? v : 'auto'; }
+      catch(_) { return 'auto'; }
+    }
+    window.setTheme = function(mode) {
+      const v = (mode === 'light' || mode === 'dark') ? mode : 'auto';
+      try { localStorage.setItem(THEME_STORAGE_KEY, v); } catch(_) {}
+      document.documentElement.classList.toggle('theme-light', v === 'light');
+      document.documentElement.classList.toggle('theme-dark', v === 'dark');
+      // Aktive Markierung im offenen Menü nachziehen
+      document.querySelectorAll('.pm-theme-row [data-theme-opt]').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-theme-opt') === v);
+      });
+      // Charts/Topologie lesen Farben aus CSS-Variablen → neu zeichnen
+      const appReady = !document.getElementById('loader-overlay');
+      if(appReady && typeof render === 'function') { try { render(); } catch(_) {} }
+      showPlannerToast('Darstellung: ' + (v === 'light' ? 'Hell' : v === 'dark' ? 'Dunkel' : 'Automatisch (System)'), 'info');
+    };
+
+    // ====================================================================
+    // SCHRITT-NAVIGATION — direkt zu einem Schritt springen.
+    // Rückwärts immer erlaubt; vorwärts werden alle dazwischenliegenden
+    // Schritte hart validiert (validateStep). Schlägt einer fehl, landet
+    // man auf dem fehlerhaften Schritt mit Hinweis-Toast.
+    // ====================================================================
+    const STEP_LABELS = ['Internet', 'Räume & APs', 'Switch & PoE', 'Features', 'Backup', 'Ergebnis'];
+    window.goToStep = function(target) {
+      target = Math.max(1, Math.min(6, parseInt(target, 10) || 1));
+      if(target === state.currentStep) return;
+      if(target > state.currentStep) {
+        for(let s = state.currentStep; s < target; s++) {
+          const err = validateStep(s);
+          if(err) {
+            state.currentStep = s;
+            render();
+            showPlannerToast(err, 'error');
+            return;
+          }
+        }
+      }
+      state.currentStep = target;
+      render();
+      try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch(_) { window.scrollTo(0, 0); }
+    };
+    // Desktop-Stepper: Knoten anklickbar (delegiert, Enter/Leertaste inklusive)
+    (() => {
+      const cont = document.getElementById('progress-container');
+      if(!cont) return;
+      const activate = (e) => {
+        const node = e.target.closest('.step-node');
+        if(!node) return;
+        if(e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        if(e.type === 'keydown') e.preventDefault();
+        window.goToStep(node.getAttribute('data-step'));
+      };
+      cont.addEventListener('click', activate);
+      cont.addEventListener('keydown', activate);
+    })();
+    // Mobiler Schritt-Indikator → Sheet mit allen Schritten zum Springen
+    window.openStepSheet = function() {
+      const items = STEP_LABELS.map((label, i) => {
+        const n = i + 1;
+        const isCur = n === state.currentStep;
+        const isDone = n < state.currentStep;
+        return `<button type="button" class="pm-item${isCur ? ' pm-current' : ''}" onclick="window.closeSheet(); window.goToStep(${n});" ${isCur ? 'aria-current="step"' : ''}>
+          <span class="pm-step-num${isDone ? ' done' : ''}${isCur ? ' cur' : ''}">${isDone ? '✓' : n}</span>
+          <span>${label}</span>
+        </button>`;
+      }).join('');
+      openSheet(items, 'Schritt wählen');
+    };
+
+    // ====================================================================
+    // PROJEKT-MENÜ — Speichern/Laden/Teilen/Demo/Reset/Darstellung/Hilfe,
+    // auf Desktop UND Mobil über den Header erreichbar. (Vorher: Demo/Reset
+    // nur im Desktop-Badge, Export/Import nur in Schritt 6.)
+    // ====================================================================
+    window.openProjectMenu = function() {
+      const theme = getThemeOverride();
+      const themeBtn = (val, icon, label) =>
+        `<button type="button" data-theme-opt="${val}" class="${theme === val ? 'active' : ''}" onclick="window.setTheme('${val}')"><i data-lucide="${icon}" class="w-4 h-4"></i> ${label}</button>`;
+      const html = `
+        <div class="pm-group-label">Projekt</div>
+        <button type="button" class="pm-item" onclick="window.closeSheet(); window.exportProjectJson();"><i data-lucide="save" class="w-4 h-4"></i> Projekt speichern (.json)</button>
+        <button type="button" class="pm-item" onclick="window.closeSheet(); window.importProjectJson();"><i data-lucide="folder-open" class="w-4 h-4"></i> Projekt laden (.json)</button>
+        <button type="button" class="pm-item" onclick="window.closeSheet(); window.copyShareLink();"><i data-lucide="link" class="w-4 h-4"></i> Share-Link kopieren</button>
+        <button type="button" class="pm-item" onclick="window.closeSheet(); window.loadDemoProject();"><i data-lucide="sparkles" class="w-4 h-4"></i> Beispielprojekt laden</button>
+        <button type="button" class="pm-item pm-danger" onclick="window.closeSheet(); window.resetPlannerState();"><i data-lucide="rotate-ccw" class="w-4 h-4"></i> Projekt zurücksetzen</button>
+        <div class="pm-group-label">Darstellung</div>
+        <div class="pm-theme-row" role="group" aria-label="Farbschema">
+          ${themeBtn('auto', 'monitor-smartphone', 'Auto')}
+          ${themeBtn('light', 'sun', 'Hell')}
+          ${themeBtn('dark', 'moon', 'Dunkel')}
+        </div>
+        <div class="pm-group-label">Hilfe</div>
+        <button type="button" class="pm-item" onclick="window.closeSheet(); window.openHelpSheet();"><i data-lucide="help-circle" class="w-4 h-4"></i> Hilfe &amp; Tastenkürzel</button>
+        <p class="pm-note"><i data-lucide="check-circle-2" class="w-3 h-3"></i> Änderungen werden automatisch im Browser gespeichert.</p>
+      `;
+      openSheet(html, 'Projekt-Menü');
+    };
+
+    // Hilfe-Übersicht: Schritte, Tastenkürzel, Touch-Gesten
+    window.openHelpSheet = function() {
+      const kbd = (k) => `<kbd class="pm-kbd">${k}</kbd>`;
+      const html = `
+        <div class="pm-group-label">So funktioniert der Planer</div>
+        <p class="pm-help-text">Der Assistent führt in 6 Schritten von Internetanschluss über Raumplanung, Switch/PoE, VLANs und Backup-Internet zur fertigen Stückliste. Über die Schritt-Anzeige oben lässt sich jederzeit zu einem Schritt springen — vorwärts nur, wenn die bisherigen Eingaben gültig sind.</p>
+        <div class="pm-group-label">Tastenkürzel (Raumplaner, Schritt 2)</div>
+        <ul class="pm-help-list">
+          <li>${kbd('Strg')} + ${kbd('Z')} — Rückgängig</li>
+          <li>${kbd('Strg')} + ${kbd('Umschalt')} + ${kbd('Z')} oder ${kbd('Strg')} + ${kbd('Y')} — Wiederherstellen</li>
+          <li>${kbd('Entf')} — ausgewählten Raum löschen</li>
+          <li>${kbd('Esc')} — Vollbild verlassen / Auswahl aufheben</li>
+        </ul>
+        <div class="pm-group-label">Touch-Gesten (Raumplaner)</div>
+        <ul class="pm-help-list">
+          <li>Zwei Finger: Pinch-Zoom</li>
+          <li>Ein Finger auf leerer Fläche: Karte verschieben</li>
+          <li>Tipp auf leere Fläche: Auswahl aufheben</li>
+          <li>Lösch-Buttons erscheinen direkt an Ecken/Geräten</li>
+        </ul>
+        <div class="pm-group-label">Speichern &amp; Teilen</div>
+        <p class="pm-help-text">Der Projektstand wird automatisch im Browser gespeichert. Über das Projekt-Menü lässt er sich als .json-Datei sichern, wieder laden oder als Share-Link kopieren. In Schritt 6 stehen zusätzlich PDF-, CSV- und Druck-Export bereit.</p>
+      `;
+      openSheet(html, 'Hilfe & Tastenkürzel');
+    };
+
     // --- Eigene Popups (Ersatz für native alert/confirm/prompt) --- //
     // Promise-basiert, Fokus-Trap, ESC = Abbrechen, Enter = OK, Backdrop-Klick
     // = Abbrechen. Es ist immer nur ein Modal gleichzeitig aktiv: ein neuer
@@ -2938,7 +3104,7 @@
 
       // Kompakter Mobil-Stepper: „Schritt N/6 · Label" + Fortschrittsbalken
       (() => {
-        const labels = ['Internet', 'Räume & APs', 'Switch & PoE', 'Features', 'Backup', 'Ergebnis'];
+        const labels = STEP_LABELS;
         const titleEl = document.getElementById('mm-step-title');
         const countEl = document.getElementById('mm-step-count');
         const fillEl = document.getElementById('mm-step-bar-fill');
@@ -8054,7 +8220,7 @@
       container.innerHTML = `
         <div class="print:hidden flex flex-wrap items-center justify-between gap-4">
           <h2 class="mb-0">6. Ergebnis & Zusammenfassung</h2>
-          <div class="flex flex-wrap gap-2 no-print">
+          <div class="flex flex-wrap gap-2 no-print bom-actions">
             <button onclick="window.exportProjectJson()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="save" class="w-3 h-3"></i> Projekt speichern (.json)</button>
             <button onclick="window.importProjectJson()" class="btn-secondary text-xs flex items-center gap-1"><i data-lucide="folder-open" class="w-3 h-3"></i> Projekt laden</button>
             <button onclick="window.copyShareLink()" class="btn-secondary text-xs flex items-center gap-1" title="Komprimierten Projektstand als URL in die Zwischenablage kopieren (ohne Hintergrundbilder)"><i data-lucide="link" class="w-3 h-3"></i> Share-Link kopieren</button>
