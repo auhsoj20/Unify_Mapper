@@ -45,7 +45,13 @@ body.mobile-mode #progress-container {
 body.mobile-mode #mm-step-indicator.mm-step-indicator {
   display: flex; flex-direction: column; gap: 0.5rem;
   padding: 0 0.25rem;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
 }
+body.mobile-mode #mm-step-indicator:focus-visible {
+  outline: 2px solid var(--color-primary); outline-offset: 4px; border-radius: 8px;
+}
+/* Tipp-Affordanz: Chevron am Zähler-Badge (öffnet die Schritt-Liste) */
+body.mobile-mode .mm-step-indicator-count::after { content: ' ⌄'; }
 .mm-step-indicator-row {
   display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
 }
@@ -94,12 +100,74 @@ body.mobile-mode #footer-nav #btn-prev.footer-nav-btn { flex: 0 0 38%; }
   -webkit-overflow-scrolling: touch;
   padding: 0.5rem 1rem calc(1rem + env(safe-area-inset-bottom, 0px));
   transform: translateY(100%); transition: transform 0.24s cubic-bezier(.22,.61,.36,1);
+  /* Auf Desktop-Breiten zentriert statt über die volle Breite */
+  max-width: 640px; margin-left: auto; margin-right: auto;
 }
 .mm-sheet.mm-sheet-open .mm-sheet-panel { transform: translateY(0); }
 .mm-sheet-grip { width: 44px; height: 5px; border-radius: 999px; background: var(--color-border); margin: 0.4rem auto 0.6rem; }
 .mm-sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; font-weight: 700; }
 .mm-sheet-close { min-width: 40px; min-height: 40px; border-radius: 10px; font-size: 1.1rem; color: var(--color-text-muted); }
 .mm-sheet-body { display: flex; flex-direction: column; gap: 0.75rem; }
+/* ---- Projekt-Menü / Schritt-Liste / Hilfe (Sheet-Inhalte, NICHT gescoped:
+        das Menü ist auch auf dem Desktop über den Header erreichbar) ---- */
+.pm-group-label {
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--color-text-muted);
+  margin-top: 0.35rem;
+}
+.pm-group-label:first-child { margin-top: 0; }
+.pm-item {
+  display: flex; align-items: center; gap: 0.6rem; width: 100%;
+  min-height: 48px; padding: 0.6rem 0.8rem;
+  border: 1px solid var(--color-border); border-radius: 12px;
+  background: var(--color-surface-card);
+  font-weight: 600; font-size: 0.9rem; text-align: left;
+  color: var(--color-text); cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.pm-item:hover { border-color: var(--color-primary); }
+.pm-item.pm-current {
+  border-color: var(--color-primary);
+  background: color-mix(in oklch, var(--color-primary) 8%, var(--color-surface-card));
+}
+.pm-item.pm-danger { color: #dc2626; }
+.pm-item.pm-danger:hover { border-color: #dc2626; }
+html.theme-dark .pm-item.pm-danger { color: #fca5a5; }
+@media (prefers-color-scheme: dark) {
+  html:not(.theme-light) .pm-item.pm-danger { color: #fca5a5; }
+}
+.pm-step-num {
+  width: 1.7rem; height: 1.7rem; border-radius: 50%; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.8rem; font-weight: 700;
+  border: 2px solid var(--color-border); color: var(--color-text-muted);
+}
+.pm-step-num.done { border-color: var(--color-primary); color: var(--color-primary); }
+.pm-step-num.cur { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }
+.pm-theme-row { display: flex; gap: 0.4rem; }
+.pm-theme-row button {
+  flex: 1 1 0; min-height: 44px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  border: 1px solid var(--color-border); background: var(--color-surface-card);
+  font-weight: 600; font-size: 0.85rem; color: var(--color-text); cursor: pointer;
+}
+.pm-theme-row button.active { border-color: var(--color-primary); color: var(--color-primary); }
+.pm-note {
+  display: flex; align-items: center; gap: 0.35rem;
+  font-size: 0.75rem; color: var(--color-text-muted); margin-top: 0.25rem;
+}
+.pm-help-text { font-size: 0.85rem; line-height: 1.5; color: var(--color-text); margin: 0; }
+.pm-help-list {
+  display: flex; flex-direction: column; gap: 0.45rem;
+  font-size: 0.85rem; margin: 0; padding-left: 0; list-style: none;
+}
+.pm-kbd {
+  display: inline-block; padding: 0.1rem 0.45rem; border-radius: 6px;
+  border: 1px solid var(--color-border); border-bottom-width: 2px;
+  background: var(--color-surface); font-size: 0.75rem; font-weight: 700;
+  font-family: ui-monospace, monospace;
+}
+
 /* Triggerknopf, der ein Sheet öffnet (Toolbar/Inspector) */
 .mm-sheet-trigger { display: none; }
 body.mobile-mode .mm-sheet-trigger {
@@ -201,3 +269,12 @@ body.mobile-mode .mm-chart-scroll canvas { max-width: 100%; }
 
 /* Mehrspaltige Grids am Handy zu einer Spalte zwingen, wo eng */
 body.mobile-mode .mm-stack { grid-template-columns: 1fr !important; }
+
+/* Export-/Aktionsleiste in Schritt 6: 2-Spalten-Grid mit Daumen-Zielen
+   statt einer schmalen Button-Wurst */
+body.mobile-mode .bom-actions {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; width: 100%;
+}
+body.mobile-mode .bom-actions > button {
+  min-height: 48px; justify-content: center; border-radius: 12px;
+}

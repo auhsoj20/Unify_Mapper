@@ -16,7 +16,15 @@ Die App läuft komplett im Browser und wird über GitHub Pages bereitgestellt:
 
 ## Bedienung
 
-Der Planer führt schrittweise durch sechs Abschnitte:
+Über das **Projekt-Menü** (☰-Button im Header, auf Desktop und Handy) sind
+jederzeit erreichbar: Projekt speichern/laden (`.json`), Share-Link kopieren,
+Beispielprojekt laden, Projekt zurücksetzen, das Farbschema
+(**Automatisch / Hell / Dunkel**, wird im Browser gemerkt) sowie eine
+**Hilfe-Übersicht** mit Tastenkürzeln und Touch-Gesten.
+
+Der Planer führt schrittweise durch sechs Abschnitte — die **Schritt-Anzeige
+ist anklickbar**: zurückliegende Schritte sind direkt erreichbar, vorwärts wird
+gesprungen, sofern die bisherigen Eingaben gültig sind:
 
 1. **Internetanschluss** — Anschlussart, Bandbreite, Anforderungen.
 2. **Raumplanung & Etagen** — Etagen anlegen, Räume zeichnen, APs und Kameras platzieren. Über den Heatmap-Button lässt sich die WLAN-Abdeckung visualisieren.
@@ -62,13 +70,18 @@ Auf Smartphones aktiviert sich automatisch ein **dedizierter Mobil-Modus**
 - **Lesbare Tabellen**: breite Tabellen (Stückliste, Switch/PoE, Patchplan,
   VLANs, Firewall) werden als gestapelte Karten dargestellt statt horizontal
   zu scrollen.
+- **Schnellnavigation**: Tipp auf den Fortschritts-Indikator öffnet eine
+  Schritt-Liste zum direkten Springen; die Export-Buttons in Schritt 6 werden
+  als daumenfreundliches 2-Spalten-Raster angezeigt.
+- **Projekt-Menü**: Speichern, Laden, Share-Link, Demo, Reset und Farbschema
+  sind über den ☰-Button im Header auch am Handy erreichbar.
 
 Der Mobil-Modus ist eine reine Zusatzschicht: Alle Stile liegen in
 [mobile.css](mobile.css) unter `body.mobile-mode`, die Desktop-Ansicht bleibt
 unverändert.
 
-Der Projektstand wird automatisch im Browser (LocalStorage) gespeichert. Über den Reset-Button im Header kann das Projekt komplett zurückgesetzt werden.
-Projekte können zusätzlich als `.json`-Datei exportiert und wieder importiert werden.
+Der Projektstand wird automatisch im Browser (LocalStorage) gespeichert. Über das Projekt-Menü im Header kann das Projekt komplett zurückgesetzt werden.
+Projekte können zusätzlich als `.json`-Datei exportiert und wieder importiert werden (Projekt-Menü oder Schritt 6).
 Im Schritt **Ergebnis & Zusammenfassung** lässt sich die Stückliste als **PDF** (clientseitig via jsPDF, mit Projekt-Eckdaten, BOM-Tabelle und Stromkosten) oder als **CSV** herunterladen; alternativ druckt der **Drucken**-Button die vollständige Zusammenfassung inklusive Topologie. Ist die PDF-Bibliothek nicht verfügbar (Offline/CDN blockiert), wird automatisch der Druckdialog geöffnet.
 
 ## Projektstruktur
