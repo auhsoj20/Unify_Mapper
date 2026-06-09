@@ -106,7 +106,9 @@ npm run build:css  # baut dist/tailwind.css minifiziert
 npm run watch:css  # rebuildet automatisch bei Änderungen
 ```
 
-Wer `index.html`, `tailwind.config.js` oder `src/tailwind.css` ändert, muss anschließend `npm run build:css` aufrufen und die aktualisierte `dist/tailwind.css` mitcommiten. Ein GitHub-Actions-Workflow ([.github/workflows/build-css.yml](.github/workflows/build-css.yml)) prüft bei jedem Pull Request, dass die committete CSS zum Source passt.
+Wer `index.html`, `tailwind.config.js` oder `src/tailwind.css` ändert, muss anschließend `npm run build:css` aufrufen und die aktualisierte `dist/tailwind.css` mitcommiten.
+
+**Cache-Busting:** Die lokalen Assets (`dist/tailwind.css`, `mobile.css`, `unifi-products.js`) werden in `index.html` mit einem Versions-Query (`?v=…`) eingebunden. Bei jeder Änderung an einer dieser Dateien den Wert hochzählen — sonst liefern Browser bzw. der GitHub-Pages-CDN alte Dateiversionen zu einer bereits aktualisierten `index.html` aus (sichtbar z. B. als unfertig wirkende, ungestylte Komponenten). Ein GitHub-Actions-Workflow ([.github/workflows/build-css.yml](.github/workflows/build-css.yml)) prüft bei jedem Pull Request, dass die committete CSS zum Source passt.
 
 ## Voraussetzungen
 
