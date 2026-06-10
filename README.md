@@ -55,6 +55,17 @@ gesprungen, sofern die bisherigen Eingaben gültig sind:
 
 Über den Button **„Rack-Ansicht"** lassen sich die geplanten Geräte in ein 19"-Rack einsortieren und virtuell verkabeln.
 
+- **Undo/Redo**: Jede Änderung am Rack-Layout und an der Verkabelung lässt
+  sich rückgängig machen (Buttons im Kopf oder `Strg+Z` / `Strg+Y`).
+- **Drucken/PDF**: Der Button „Drucken" erzeugt eine druckfreundliche
+  Rack-Dokumentation — Diagramm, Belegungsliste und Verkabelung aller Racks.
+- **Lücken füllen**: Ein Klick belegt alle freien Höheneinheiten mit
+  Blindblenden (fließen in die Stückliste ein).
+- **Duplizieren**: Platzierte Items (z. B. Patchpanels) per ⧉-Button kopieren.
+- **Tastatur**: `Esc` schließt die Rack-Ansicht.
+- **Mobil/Tablet**: Statt drei gestapelter Spalten gibt es Tabs
+  (Rack / Geräte & Kabel / Hilfe) für direkten Zugriff ohne langes Scrollen.
+
 ### Mobil-Ansicht (Touchscreen)
 
 Auf Smartphones aktiviert sich automatisch ein **dedizierter Mobil-Modus**

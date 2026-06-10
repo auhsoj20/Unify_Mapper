@@ -1074,6 +1074,73 @@
       .faq-toggle { min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
     }
 
+    /* ============================================================
+       Rack-Ansicht — Redesign (v4): Mobile-Tabs, Item-Aktionen, Druck
+       ============================================================ */
+    /* Aktionszeile unterhalb des Auslastungsbalkens */
+    .rack-canvas-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4rem; width: 100%; max-width: 340px; margin-bottom: 0.4rem; }
+
+    /* Duplizieren-Button am Rack-Item (Pendant zu .ri-remove) */
+    .rack-item .ri-dup {
+      width: 17px; height: 17px; display: inline-flex; align-items: center; justify-content: center;
+      border-radius: 50%; color: rgba(255,255,255,0.45); cursor: pointer; font-size: 11px;
+      flex: 0 0 auto; transition: all .12s ease;
+    }
+    .rack-item .ri-dup:hover { background: var(--color-primary); color: #fff; }
+    @media (pointer: coarse) { .rack-item .ri-dup { width: 24px; height: 24px; font-size: 13px; } }
+
+    /* Tab-Leiste: nur sichtbar, wenn die Spalten gestapelt sind (≤1024px).
+       Statt langem Scrollen über drei Spalten wird gezielt eine gezeigt. */
+    .rack-mtabs { display: none; }
+    @media (max-width: 1024px) {
+      .rack-mtabs {
+        display: flex; gap: 0.4rem;
+        padding: 0.5rem 0.75rem;
+        background: var(--color-surface-card);
+        border-bottom: 1px solid var(--color-border);
+      }
+      .rack-mtab {
+        flex: 1; min-height: 42px;
+        display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+        border: 1px solid var(--color-border); border-radius: 10px;
+        background: var(--color-surface);
+        font-size: 0.85rem; font-weight: 600; color: var(--color-text-muted);
+        transition: background .12s ease, color .12s ease, border-color .12s ease;
+      }
+      .rack-mtab.active {
+        background: color-mix(in oklch, var(--color-primary) 14%, var(--color-surface));
+        color: var(--color-primary);
+        border-color: color-mix(in oklch, var(--color-primary) 45%, var(--color-border));
+      }
+      .rack-overlay-body[data-mtab="canvas"] #rack-col-middle,
+      .rack-overlay-body[data-mtab="canvas"] #rack-col-faq,
+      .rack-overlay-body[data-mtab="middle"] #rack-col-canvas,
+      .rack-overlay-body[data-mtab="middle"] #rack-col-faq,
+      .rack-overlay-body[data-mtab="faq"] #rack-col-canvas,
+      .rack-overlay-body[data-mtab="faq"] #rack-col-middle { display: none; }
+      /* Im Hilfe-Tab ist die FAQ immer ausgeklappt; der Einklapp-Toggle ist
+         ein Desktop-Konzept (dritte Spalte schmaler machen). */
+      .rack-faq-panel.collapsed { padding: 1rem; overflow: visible; }
+      .rack-faq-panel.collapsed .rack-faq-list { display: block; }
+      .rack-faq-panel.collapsed .rack-faq-head > *:not(.faq-toggle) { display: flex; }
+      .rack-faq-panel .faq-toggle { display: none; }
+    }
+
+    /* Druckbare Rack-Doku: am Bildschirm unsichtbar; beim Druck mit
+       body.rack-printing das einzige sichtbare Element. */
+    #rack-print-area { display: none; }
+    @media print {
+      body.rack-printing > *:not(#rack-print-area) { display: none !important; }
+      body.rack-printing #rack-print-area { display: block !important; color: #000; }
+      #rack-print-area h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.25rem; }
+      #rack-print-area h2 { font-size: 1.05rem; font-weight: 700; margin: 1.2rem 0 0.5rem; }
+      #rack-print-area .rack-print-meta { font-size: 0.8rem; color: #555; margin-bottom: 1rem; }
+      #rack-print-area .rack-print-section { page-break-inside: avoid; }
+      #rack-print-area table { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-bottom: 0.75rem; }
+      #rack-print-area th, #rack-print-area td { border: 1px solid #999; padding: 4px 8px; text-align: left; }
+      #rack-print-area th { background: #eee; }
+    }
+
     /* --- A11y, Touch-Targets, Reduced-Motion, erweitertes Print (Iteration 3) --- */
 
     /* Touch-Targets ≥ 44 px auf Touch-Geräten für die Step-2-Toolbar.
@@ -1386,7 +1453,8 @@
     </div>
   </div>
 
-  <div id="rack-overlay" class="rack-overlay hidden no-print"></div>
+  <div id="rack-overlay" class="rack-overlay hidden no-print" role="dialog" aria-modal="true" aria-label="Rack-Ansicht"></div>
+  <div id="rack-print-area" aria-hidden="true"></div>
 
   <script type="module">
     // --- Locale-Helfer (DE-Formatierung) --- //
@@ -2047,6 +2115,8 @@
          const tgt = e.target;
          const isText = tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.isContentEditable || tgt.tagName === 'SELECT');
          if(isText) return;
+         // Rack-Ansicht offen: deren eigene Shortcuts (Esc, Strg+Z/Y) haben Vorrang
+         if(state.rackViewOpen) return;
          // Nur in Step 2 (Raumplaner) aktiv
          const inPlanner = !!document.getElementById('planner-area');
          if(!inPlanner) return;
@@ -2069,7 +2139,6 @@
          // Esc: Vollbild verlassen / BG-Popup schließen / Auswahl aufheben /
          // Floor-Menü schließen.
          if(e.key === 'Escape') {
-            if(state.rackViewOpen) { window.closeRackView(); return; }
             const card = document.getElementById('planner-card');
             if(card && card.classList.contains('planner-fullscreen')) {
                window.toggleFullscreen?.();
@@ -2288,7 +2357,8 @@
               id: String(c.id || ('cp-' + Math.random().toString(36).slice(2,8))),
               name: c.name,
               u: Math.max(1, Math.min(48, parseInt(c.u))),
-              price: Number.isFinite(parseFloat(c.price)) && parseFloat(c.price) >= 0 ? parseFloat(c.price) : 0
+              price: Number.isFinite(parseFloat(c.price)) && parseFloat(c.price) >= 0 ? parseFloat(c.price) : 0,
+              isHalf: !!c.isHalf
             }))
         : [];
       return {
@@ -8776,7 +8846,9 @@
       }
 
       ov.classList.remove('hidden');
+      _rackTrackHistory();
       const faqCollapsed = !!state.rackView.faqCollapsed;
+      const mtab = ['canvas','middle','faq'].includes(state.rackView.mobileTab) ? state.rackView.mobileTab : 'canvas';
       const multipleRacks = state.racks.length > 1;
       const rackSelector = multipleRacks ? `
         <select onchange="window.rackSelect(this.value)" class="bg-nexus-surface border border-nexus-border rounded px-2 py-1 text-sm">
@@ -8801,12 +8873,20 @@
                 ${[300,450,600,800,1000].map(d => `<option value="${d}" ${d===rack.depthMm?'selected':''}>${d} mm</option>`).join('')}
               </select>
             </label>
+            <button onclick="window.rackUndo()" class="btn-secondary text-xs" title="Rückgängig (Strg+Z)" aria-label="Rückgängig" ${rackHistory.undo.length===0?'disabled style="opacity:0.45;cursor:not-allowed;"':''}><i data-lucide="undo-2" class="w-3 h-3"></i></button>
+            <button onclick="window.rackRedo()" class="btn-secondary text-xs" title="Wiederherstellen (Strg+Y)" aria-label="Wiederherstellen" ${rackHistory.redo.length===0?'disabled style="opacity:0.45;cursor:not-allowed;"':''}><i data-lucide="redo-2" class="w-3 h-3"></i></button>
             <button onclick="window.rackAddRack()" class="btn-secondary text-xs" title="Weiteres Rack anlegen"><i data-lucide="plus" class="w-3 h-3"></i> Rack</button>
             <button onclick="window.rackAutoFill()" class="btn-secondary text-xs" title="Rack und Verkabelung neu aufbauen"><i data-lucide="wand-2" class="w-3 h-3"></i> Auto-Füllen</button>
             <button onclick="window.rackResetLayout()" class="btn-secondary text-xs" title="Alle Items aus dem Rack entfernen"><i data-lucide="eraser" class="w-3 h-3"></i> Leeren</button>
+            <button onclick="window.rackPrint()" class="btn-secondary text-xs" title="Rack-Dokumentation drucken oder als PDF speichern"><i data-lucide="printer" class="w-3 h-3"></i> Drucken</button>
           </div>
         </div>
-        <div class="rack-overlay-body${faqCollapsed?' faq-collapsed':''}">
+        <div class="rack-mtabs" role="tablist" aria-label="Rack-Bereiche">
+          <button class="rack-mtab${mtab==='canvas'?' active':''}" role="tab" aria-selected="${mtab==='canvas'}" onclick="window.rackSetMobileTab('canvas')"><i data-lucide="server" class="w-4 h-4"></i> Rack</button>
+          <button class="rack-mtab${mtab==='middle'?' active':''}" role="tab" aria-selected="${mtab==='middle'}" onclick="window.rackSetMobileTab('middle')"><i data-lucide="cable" class="w-4 h-4"></i> Geräte &amp; Kabel</button>
+          <button class="rack-mtab${mtab==='faq'?' active':''}" role="tab" aria-selected="${mtab==='faq'}" onclick="window.rackSetMobileTab('faq')"><i data-lucide="help-circle" class="w-4 h-4"></i> Hilfe</button>
+        </div>
+        <div class="rack-overlay-body${faqCollapsed?' faq-collapsed':''}" data-mtab="${mtab}">
           <div class="rack-col" id="rack-col-canvas">${renderRackCanvas(rack, b)}</div>
           <div class="rack-col" id="rack-col-middle">${renderRackPaletteAndCabling(rack, b)}</div>
           <div class="rack-col rack-faq-panel${faqCollapsed?' collapsed':''}" id="rack-col-faq">${renderFaqPanel()}</div>
@@ -8868,6 +8948,7 @@
         return `<div class="rack-item" data-kind="${it.kind}" data-item-id="${it.id}" style="top:${topPx}px; height:${hPx}px; ${posStyles} touch-action: none;" title="${escapeHtml(label)} · ${it.uSize}U · ziehen zum Verschieben">
           <span class="ri-name">${escapeHtml(label)}</span>
           ${portsBadge}${priceBadge}${widthBadge}
+          <span class="ri-dup" onclick="event.stopPropagation(); window.rackDuplicateItem('${it.id}')" title="Item duplizieren">⧉</span>
           <span class="ri-remove" onclick="event.stopPropagation(); window.rackRemoveItem('${it.id}')" title="Aus Rack entfernen">✕</span>
         </div>`;
       }).join('');
@@ -8883,6 +8964,9 @@
           </div>
           <div class="rack-fillbar" title="Rack-Auslastung: ${usedU} von ${rack.heightU} HE belegt">
             <div class="rack-fillbar-track"><div class="rack-fillbar-fill ${rack.heightU > 0 && usedU / rack.heightU > 0.9 ? 'is-danger' : rack.heightU > 0 && usedU / rack.heightU > 0.7 ? 'is-warn' : ''}" style="width: ${rack.heightU > 0 ? Math.min(100, Math.round(usedU / rack.heightU * 100)) : 0}%;"></div></div>
+          </div>
+          <div class="rack-canvas-actions">
+            <button class="btn-secondary text-xs" onclick="window.rackFillBlanks()" title="Alle freien HE mit Blindblenden auffüllen"><i data-lucide="rectangle-horizontal" class="w-3 h-3"></i> Lücken füllen</button>
           </div>
           <div class="rack-frame" style="padding-left: 36px; --rack-u-height: ${U}px;">
             <div class="rack-slot-track" id="rack-slot-track" style="height:${frameH}px; position:relative;">
@@ -9113,11 +9197,8 @@
     function renderFaqPanel() {
       const collapsed = !!state.rackView.faqCollapsed;
       const toggleIcon = collapsed ? 'chevron-left' : 'chevron-right';
-      if(collapsed) {
-        return `<div class="rack-faq-head">
-          <button class="faq-toggle" onclick="window.rackToggleFaq()" title="FAQ öffnen"><i data-lucide="${toggleIcon}" class="w-4 h-4"></i></button>
-        </div>`;
-      }
+      // Immer volles Markup rendern — den Collapsed-Zustand regelt CSS auf dem
+      // Panel-Container. Auf Mobile (Tab "Hilfe") bleibt die FAQ so immer sichtbar.
       const items = RACK_FAQ_ITEMS.map((f, i) => `
         <div class="rack-faq-item" id="faq-${f.id}">
           <div class="rack-faq-q" onclick="window.rackFaqToggleItem('${f.id}')">
@@ -9130,7 +9211,7 @@
       return `
         <div class="rack-faq-head">
           <h3><i data-lucide="help-circle" class="w-4 h-4"></i> Hilfe &amp; FAQ</h3>
-          <button class="faq-toggle" onclick="window.rackToggleFaq()" title="FAQ einklappen"><i data-lucide="${toggleIcon}" class="w-4 h-4"></i></button>
+          <button class="faq-toggle" onclick="window.rackToggleFaq()" title="${collapsed ? 'FAQ öffnen' : 'FAQ einklappen'}"><i data-lucide="${toggleIcon}" class="w-4 h-4"></i></button>
         </div>
         <div class="rack-faq-list">${items}</div>
       `;
@@ -9190,8 +9271,9 @@
         el.setAttribute('draggable', 'false');
         el.addEventListener('pointerdown', e => {
           if(e.button !== 0) return;
-          // Klick auf ✕ oder klickbares Badge startet keinen Drag
+          // Klick auf ✕, Duplizieren oder klickbares Badge startet keinen Drag
           if(e.target.closest('.ri-remove')) return;
+          if(e.target.closest('.ri-dup')) return;
           if(e.target.closest('.ri-badge-clickable')) return;
           const itemId = el.getAttribute('data-item-id');
           const it = rack.items.find(x => x.id === itemId);
@@ -9335,9 +9417,74 @@
       }
     }
 
+    // --- Undo/Redo: lokaler Verlauf der Rack-Ansicht --- //
+    // Snapshots werden beim Rendern verglichen: hat sich der Rack-/Kabel-State
+    // seit dem letzten Render geändert, wandert der vorherige Stand auf den
+    // Undo-Stack. So sind alle Mutationspfade automatisch abgedeckt.
+    const rackHistory = { undo: [], redo: [] };
+    let _rackLastSnap = null;
+    let _rackRestoring = false;
+    function rackSnapshot() {
+      return JSON.stringify({ racks: state.racks, cabling: state.cabling });
+    }
+    function _rackTrackHistory() {
+      const snap = rackSnapshot();
+      if(!_rackRestoring && _rackLastSnap != null && snap !== _rackLastSnap) {
+        rackHistory.undo.push(_rackLastSnap);
+        if(rackHistory.undo.length > 50) rackHistory.undo.shift();
+        rackHistory.redo = [];
+      }
+      _rackLastSnap = snap;
+    }
+    function _rackApplySnapshot(snap) {
+      let s;
+      try { s = JSON.parse(snap); } catch(_) { return; }
+      _rackRestoring = true;
+      state.racks = s.racks;
+      state.cabling = s.cabling;
+      if(!state.racks.some(r => r.id === state.rackView.activeRackId)) {
+        state.rackView.activeRackId = state.racks[0]?.id || 'r-main';
+      }
+      saveState(); renderRackOverlay(); render();
+      _rackRestoring = false;
+    }
+    window.rackUndo = () => {
+      if(rackHistory.undo.length === 0) { rackToast('Nichts rückgängig zu machen'); return; }
+      const prev = rackHistory.undo.pop();
+      rackHistory.redo.push(rackSnapshot());
+      _rackApplySnapshot(prev);
+    };
+    window.rackRedo = () => {
+      if(rackHistory.redo.length === 0) { rackToast('Nichts wiederherzustellen'); return; }
+      const next = rackHistory.redo.pop();
+      rackHistory.undo.push(rackSnapshot());
+      _rackApplySnapshot(next);
+    };
+
     // --- Window-Handler --- //
     window.openRackView = () => { state.rackViewOpen = true; renderRackOverlay(); };
     window.closeRackView = () => { state.rackViewOpen = false; renderRackOverlay(); };
+    window.rackSetMobileTab = (tab) => { state.rackView.mobileTab = tab; renderRackOverlay(); };
+
+    // Tastatur in der Rack-Ansicht: Esc schließt (sofern kein App-Modal offen
+    // ist), Strg+Z / Strg+Y bzw. Strg+Umschalt+Z steuern den lokalen Verlauf.
+    document.addEventListener('keydown', (e) => {
+      if(!state.rackViewOpen) return;
+      const tgt = e.target;
+      const isField = tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt.isContentEditable);
+      if(isField) return;
+      if(e.key === 'Escape') {
+        if(document.getElementById('app-modal')?.classList.contains('is-open')) return;
+        window.closeRackView();
+        return;
+      }
+      const ctrl = e.ctrlKey || e.metaKey;
+      if(ctrl && (e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        e.preventDefault(); window.rackUndo();
+      } else if((ctrl && (e.key === 'y' || e.key === 'Y')) || (ctrl && e.shiftKey && (e.key === 'z' || e.key === 'Z'))) {
+        e.preventDefault(); window.rackRedo();
+      }
+    });
 
     // Bei Orientierungs-/Größenwechsel die HE-Pixelhöhe neu anwenden (Mobile↔Desktop),
     // damit Item-Positionen exakt zu den Slots passen. Debounced + nur bei offenem Overlay
@@ -9744,6 +9891,92 @@
       // Verhindert, dass renderRackOverlay das Rack direkt wieder auto-befüllt.
       rack.autoPopulated = true;
       saveState(); renderRackOverlay();
+    };
+    window.rackFillBlanks = () => {
+      const rack = getActiveRack();
+      if(!rack) return;
+      const occ = getRackOccupancy(rack);
+      let added = 0;
+      for(let u = 1; u <= rack.heightU; u++) {
+        if(!occ[u].full && !occ[u].left && !occ[u].right) {
+          rack.items.push({ id: rackGenId('ri'), slug: null, kind: 'blank', uStart: u, uSize: 1, label: null, ports: null, price: null, position: null });
+          added++;
+        }
+      }
+      if(added === 0) { rackToast('Keine freien HE — nichts aufzufüllen'); return; }
+      saveState(); renderRackOverlay(); render();
+      rackToast(`${added} Blindblende${added === 1 ? '' : 'n'} eingefügt`);
+    };
+    window.rackDuplicateItem = (itemId) => {
+      const rack = getActiveRack();
+      if(!rack) return;
+      const it = rack.items.find(x => x.id === itemId);
+      if(!it) return;
+      const meta = getRackUnits(it.slug, it.kind);
+      const isHalf = it.position === 'left' || it.position === 'right' || meta.width === 'half';
+      const free = findFreeSlot(rack, it.uSize, isHalf, true);
+      if(free == null) { rackToast('Kein Platz im Rack — Höhe erhöhen oder Items entfernen.'); return; }
+      rack.items.push({ ...it, id: rackGenId('ri'), uStart: free.uStart, position: isHalf ? free.position : null });
+      saveState(); renderRackOverlay(); render();
+    };
+    // Druckbare Rack-Doku: alle Racks als Diagramm + Belegungsliste sowie die
+    // komplette Verkabelung. Wird in #rack-print-area gerendert und über
+    // body.rack-printing als einziger Inhalt gedruckt (→ "Als PDF speichern").
+    function buildRackPrintHtml() {
+      const date = new Date().toLocaleDateString('de-DE');
+      const sections = (state.racks || []).map(rack => {
+        const rows = (rack.items || []).slice().sort((a, b) => b.uStart - a.uStart).map(it => {
+          const d = getRackItemDefaults(it.slug, it.kind);
+          const spec = it.slug ? productCache.specs[it.slug] : null;
+          const label = it.label || spec?.name || d?.label || it.kind;
+          const price = spec?.price ?? (it.price != null ? it.price : (d?.price ?? null));
+          const range = it.uSize > 1 ? `${it.uStart}–${it.uStart + it.uSize - 1}U` : `${it.uStart}U`;
+          const half = it.position ? ` (½ ${it.position === 'left' ? 'links' : 'rechts'})` : '';
+          return `<tr><td>${range}</td><td>${escapeHtml(label)}${half}</td><td>${it.uSize}U</td><td>${price != null ? price + ' €' : '—'}</td></tr>`;
+        }).join('');
+        return `<div class="rack-print-section">
+          <h2>${escapeHtml(rack.name)} (${rack.heightU}U, ${rack.depthMm} mm tief)</h2>
+          ${renderRackCanvasReadOnly(rack)}
+          ${rows ? `<table><thead><tr><th>Position</th><th>Komponente</th><th>Höhe</th><th>Preis</th></tr></thead><tbody>${rows}</tbody></table>` : '<p>Rack ist leer.</p>'}
+        </div>`;
+      }).join('');
+      const itemById = new Map();
+      (state.racks || []).forEach(r => (r.items || []).forEach(it => itemById.set(it.id, { it, rackName: r.name })));
+      const devById = new Map();
+      (state.floors || []).forEach(f => {
+        (f.aps || []).forEach(ap => devById.set(ap.id, { slug: ap.slug, floor: f.name }));
+        (f.cameras || []).forEach(c => devById.set(c.id, { slug: c.slug, floor: f.name }));
+      });
+      const cnRows = (state.cabling.connections || []).map(cn => {
+        const dev = devById.get(cn.deviceId);
+        const tgt = itemById.get(cn.rackItemId);
+        if(!dev || !tgt) return '';
+        const devName = productCache.specs[dev.slug]?.name || dev.slug;
+        const tgtName = tgt.it.label || productCache.specs[tgt.it.slug]?.name || tgt.it.kind;
+        return `<tr><td>${escapeHtml(devName)}</td><td>${escapeHtml(dev.floor)}</td><td>${escapeHtml(tgt.rackName)}: ${escapeHtml(tgtName)}</td><td>${cn.portNumber ?? '—'}</td><td>${cn.cableLengthM} m</td><td>${String(cn.cableCategory || '').toUpperCase()}</td></tr>`;
+      }).join('');
+      const totalM = (state.cabling.connections || []).reduce((s, cn) => s + (parseFloat(cn.cableLengthM) || 0), 0);
+      const cabling = cnRows ? `<div class="rack-print-section">
+        <h2>Verkabelung</h2>
+        <table><thead><tr><th>Gerät</th><th>Etage</th><th>Ziel</th><th>Port</th><th>Länge</th><th>Kategorie</th></tr></thead><tbody>${cnRows}</tbody></table>
+        <p style="margin-top:0.5rem; font-size:0.8rem;"><strong>Kabel gesamt: ${totalM} m</strong></p>
+      </div>` : '';
+      return `<h1>Rack-Dokumentation</h1>
+        <div class="rack-print-meta">UniFi Setup Planner · Stand ${date} · ${state.racks.length} Rack${state.racks.length === 1 ? '' : 's'}</div>
+        ${sections}${cabling}`;
+    }
+    window.rackPrint = () => {
+      const area = document.getElementById('rack-print-area');
+      if(!area) return;
+      area.innerHTML = buildRackPrintHtml();
+      document.body.classList.add('rack-printing');
+      const cleanup = () => {
+        document.body.classList.remove('rack-printing');
+        area.innerHTML = '';
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+      window.print();
     };
 
     // --- Init / Boot --- //
