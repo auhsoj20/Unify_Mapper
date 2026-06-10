@@ -17,16 +17,18 @@
   <!-- Typography -->
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&f[]=cabinet-grotesk@400,500,700,800&display=swap" rel="stylesheet">
   
-  <!-- Tailwind V3 -->
-  <link rel="stylesheet" href="dist/tailwind.css">
+  <!-- Tailwind V3. ?v=… ist Cache-Busting: bei Änderungen an den lokalen
+       Assets mit hochzählen, sonst liefern Browser/Pages-CDN alte Dateien
+       zu einer bereits neuen index.html aus. -->
+  <link rel="stylesheet" href="dist/tailwind.css?v=2026-06-09.1">
   <!-- Dedizierter Mobil-Modus (plain CSS, alle Regeln unter body.mobile-mode) -->
-  <link rel="stylesheet" href="mobile.css">
+  <link rel="stylesheet" href="mobile.css?v=2026-06-09.1">
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <!-- PDF-Export (clientseitig, optional — bei Offline/CDN-Block greift der Druckdialog-Fallback) -->
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js"></script>
-  <script src="unifi-products.js"></script>
+  <script src="unifi-products.js?v=2026-06-09.1"></script>
 
   <style>
     :root {
